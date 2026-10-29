@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HisaabAI — Voice & Text Expense Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            },
+            surface: {
+              800: '#1e293b',
+              850: '#172033',
+              900: '#0f172a',
+              950: '#090d16',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .recording-ring {
+      animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-surface-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Top Navbar -->
+  <header class="bg-surface-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-4 lg:px-6 py-3">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white">
+          <i data-lucide="wallet" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+              Hisaab<span class="text-emerald-400">AI</span>
+            </h1>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+              Urdu • Punjabi • English
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Multilingual Voice & Text Expense Tracker</p>
+        </div>
+      </div>
+
+      <!-- User Identification & Switcher -->
+      <div class="flex items-center gap-2">
+        <div class="flex items-center bg-surface-800 border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:border-emerald-500 transition-colors">
+          <i data-lucide="user" class="w-4 h-4 text-emerald-400 mr-2 shrink-0"></i>
+          <span class="text-xs text-slate-400 mr-1.5 hidden md:inline">User ID:</span>
+          <input 
+            type="text" 
+            id="user-id-input" 
+            value="bakar" 
+            placeholder="Enter username" 
+            class="bg-transparent text-xs sm:text-sm font-medium text-emerald-300 focus:outline-none w-24 sm:w-28"
+          />
+          <button 
+            id="switch-user-btn" 
+            title="Switch User"
+            class="ml-1 p-1 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+          >
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- Quick Switch Preset Chips -->
+        <div class="hidden lg:flex items-center gap-1.5 text-xs text-slate-400">
+          <span class="text-[11px]">Quick:</span>
+          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="bakar">bakar</button>
+          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="ali">ali</button>
+          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="home">home</button>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Mobile Tab Switcher (Visible on mobile/tablet) -->
+  <div class="lg:hidden bg-surface-900 border-b border-slate-800 px-4 py-2 flex gap-2">
+    <button id="tab-chat" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors">
+      <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+      Chat & Voice
+    </button>
+    <button id="tab-dashboard" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors">
+      <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+      Live Ledger
+    </button>
+  </div>
+
+  <!-- Main Dual-Pane Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
+    
+    <!-- ========================================================================= -->
+    <!-- LEFT PANE: Chat & Voice Interface (7 Cols on desktop) -->
+    <!-- ========================================================================= -->
+    <section id="chat-pane" class="lg:col-span-7 flex flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
+      
+      <!-- Chat Header -->
+      <div class="px-4 py-3 border-b border-slate-800/80 bg-surface-850/60 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+          <span class="text-xs font-medium text-slate-300">
+            Active Session: <span id="active-user-display" class="font-bold text-emerald-400">bakar</span>
+          </span>
+        </div>
+        <button id="clear-chat-btn" class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 hover:underline">
+          <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Clear Screen
+        </button>
+      </div>
+
+      <!-- Quick Suggestion Chips -->
+      <div class="px-4 py-2 border-b border-slate-800/60 bg-surface-900/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+        <span class="text-slate-400 shrink-0 text-[11px]"><i data-lucide="sparkles" class="w-3 h-3 inline text-emerald-400 mr-0.5"></i> Try:</span>
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi">
+          🛒 Punjabi: Imtiaz 1500 oil, 450 bread
+        </button>
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
+          🇵🇰 اردو: الفتح گروسری 3200
+        </button>
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Mera is mahine Imtiaz te kinna kharcha hoya?">
+          🔍 Query: Imtiaz total this month?
+        </button>
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="What did I spend in the last 3 days?">
+          📅 Query: Last 3 days spending
+        </button>
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Delete my last entry">
+          🗑️ Undo last entry
+        </button>
+      </div>
+
+      <!-- Messages Scroll Area -->
+      <div id="messages-container" class="flex-1 p-4 overflow-y-auto space-y-4">
+        
+        <!-- Welcome Message -->
+        <div class="flex gap-3 max-w-xl">
+          <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
+            <i data-lucide="bot" class="w-4 h-4"></i>
+          </div>
+          <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-xs sm:text-sm text-slate-200 shadow-sm leading-relaxed">
+            <p class="font-semibold text-emerald-400 mb-1 flex items-center gap-1.5">
+              <span>Assalam-o-Alaikum! Welcome to HisaabAI.</span>
+            </p>
+            <p>You can record your daily expenses by <strong>typing</strong> or tapping the <strong>microphone</strong> button below in:</p>
+            <ul class="list-disc pl-4 mt-2 space-y-1 text-slate-300 text-xs">
+              <li><strong>Urdu (اردو یا رومن اردو):</strong> "آج میں نے الفتح سے 2500 کا سامان لیا"</li>
+              <li><strong>Punjabi (پنجابی):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
+              <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
+              <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Voice Recording Status Banner (Visible during recording) -->
+      <div id="recording-banner" class="hidden px-4 py-2.5 bg-rose-950/70 border-t border-rose-500/30 flex items-center justify-between transition-all">
+        <div class="flex items-center gap-3">
+          <div class="relative flex items-center justify-center w-4 h-4">
+            <span class="absolute w-4 h-4 rounded-full bg-rose-500 recording-ring"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+          </div>
+          <span class="text-xs font-semibold text-rose-300 flex items-center gap-1.5">
+            Recording voice note in Urdu/Punjabi/English...
+          </span>
+          <span id="recording-timer" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700/50">00:00</span>
+        </div>
+        <button id="cancel-recording-btn" class="text-xs text-rose-300 hover:text-white underline">Cancel</button>
+      </div>
+
+      <!-- Bottom Chat Composer -->
+      <div class="p-3 sm:p-4 border-t border-slate-800/80 bg-surface-850/80">
+        <form id="chat-form" class="flex items-end gap-2">
+          
+          <!-- Text Input Container -->
+          <div class="flex-1 bg-surface-900 border border-slate-700 rounded-xl focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all p-1.5 flex items-center">
+            <textarea 
+              id="message-input" 
+              rows="1" 
+              placeholder="Type your expense or ask a question in Urdu, Punjabi, English..." 
+              class="w-full bg-transparent px-2.5 py-1 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-28"
+            ></textarea>
+          </div>
+
+          <!-- Microphone Record Button -->
+          <button 
+            type="button" 
+            id="mic-btn" 
+            title="Record Voice Note"
+            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-emerald-400 flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-sm"
+          >
+            <i data-lucide="mic" id="mic-icon" class="w-5 h-5"></i>
+          </button>
+
+          <!-- Send Text Button -->
+          <button 
+            type="submit" 
+            id="send-btn" 
+            title="Send Message"
+            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+          >
+            <i data-lucide="send" class="w-4 h-4"></i>
+          </button>
+
+        </form>
+        <p class="text-[10px] text-slate-500 text-center mt-2">
+          Tip: Tap mic to speak Pakistani store names like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro.
+        </p>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- RIGHT PANE: Live Ledger & Analytics Dashboard (5 Cols on desktop) -->
+    <!-- ========================================================================= -->
+    <section id="dashboard-pane" class="hidden lg:flex lg:col-span-5 flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
+      
+      <!-- Dashboard Header -->
+      <div class="px-4 py-3 border-b border-slate-800/80 bg-surface-850/60 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
+          <h2 class="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider">Live Expense Ledger</h2>
+        </div>
+        <button 
+          id="refresh-dashboard-btn" 
+          title="Refresh Ledger" 
+          class="p-1.5 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors"
+        >
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- Dashboard Scrollable Body -->
+      <div class="flex-1 p-4 overflow-y-auto space-y-4">
+        
+        <!-- KPI Cards Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          
+          <!-- Card 1: Monthly Total -->
+          <div class="col-span-2 bg-gradient-to-br from-emerald-950/50 to-surface-850 border border-emerald-500/20 rounded-xl p-3.5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+              <span>This Month's Spending</span>
+              <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-400"><i data-lucide="trending-up" class="w-3.5 h-3.5"></i></span>
+            </div>
+            <div class="flex items-baseline gap-1.5">
+              <span class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight" id="kpi-monthly-total">PKR 0</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Based on current calendar month</p>
+          </div>
+
+          <!-- Card 2: Total Visits / Receipts -->
+          <div class="bg-surface-850 border border-slate-800 rounded-xl p-3 shadow-sm">
+            <span class="text-slate-400 text-xs block mb-1">Total Visits</span>
+            <div class="text-xl font-bold text-slate-100" id="kpi-visit-count">0</div>
+          </div>
+
+          <!-- Card 3: Top Store -->
+          <div class="bg-surface-850 border border-slate-800 rounded-xl p-3 shadow-sm">
+            <span class="text-slate-400 text-xs block mb-1">Top Store</span>
+            <div class="text-base sm:text-lg font-bold text-emerald-300 truncate" id="kpi-top-store">N/A</div>
+          </div>
+
+        </div>
+
+        <!-- Store-Wise Breakdown Pills -->
+        <div class="bg-surface-850/80 border border-slate-800 rounded-xl p-3">
+          <h3 class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+            <i data-lucide="store" class="w-3.5 h-3.5 text-emerald-400"></i> Store Breakdown (This Month)
+          </h3>
+          <div id="store-breakdown-container" class="flex flex-wrap gap-1.5">
+            <span class="text-xs text-slate-500 italic">No store data yet for this user.</span>
+          </div>
+        </div>
+
+        <!-- Recent Transactions Header -->
+        <div class="flex items-center justify-between pt-1">
+          <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-emerald-400"></i> Recent Transactions
+          </h3>
+          <span class="text-[11px] text-slate-400" id="tx-count-badge">0 records</span>
+        </div>
+
+        <!-- Transactions List -->
+        <div id="transactions-list" class="space-y-2.5">
+          <!-- Populated by JS -->
+          <div class="text-center py-10 text-slate-500 text-xs">
+            <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+            No transactions found for this user.<br>Log your first expense in chat!
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Client-Side Application Script -->
+  <script>
+    // State management
+    const state = {
+      userId: localStorage.getItem('hisaab_user_id') || 'bakar',
+      isRecording: false,
+      mediaRecorder: null,
+      audioChunks: [],
+      recordingTimerInterval: null,
+      recordingSeconds: 0,
+      activeTab: 'chat', // 'chat' or 'dashboard' for mobile
+    };
+
+    // DOM Elements
+    const elements = {
+      userIdInput: document.getElementById('user-id-input'),
+      switchUserBtn: document.getElementById('switch-user-btn'),
+      activeUserDisplay: document.getElementById('active-user-display'),
+      chatForm: document.getElementById('chat-form'),
+      messageInput: document.getElementById('message-input'),
+      sendBtn: document.getElementById('send-btn'),
+      micBtn: document.getElementById('mic-btn'),
+      micIcon: document.getElementById('mic-icon'),
+      recordingBanner: document.getElementById('recording-banner'),
+      recordingTimer: document.getElementById('recording-timer'),
+      cancelRecordingBtn: document.getElementById('cancel-recording-btn'),
+      messagesContainer: document.getElementById('messages-container'),
+      clearChatBtn: document.getElementById('clear-chat-btn'),
+      refreshDashboardBtn: document.getElementById('refresh-dashboard-btn'),
+      kpiMonthlyTotal: document.getElementById('kpi-monthly-total'),
+      kpiVisitCount: document.getElementById('kpi-visit-count'),
+      kpiTopStore: document.getElementById('kpi-top-store'),
+      storeBreakdownContainer: document.getElementById('store-breakdown-container'),
+      transactionsList: document.getElementById('transactions-list'),
+      txCountBadge: document.getElementById('tx-count-badge'),
+      tabChat: document.getElementById('tab-chat'),
+      tabDashboard: document.getElementById('tab-dashboard'),
+      chatPane: document.getElementById('chat-pane'),
+      dashboardPane: document.getElementById('dashboard-pane'),
+      toastContainer: document.getElementById('toast-container'),
+    };
+
+    // Initialize UI
+    function initApp() {
+      elements.userIdInput.value = state.userId;
+      elements.activeUserDisplay.textContent = state.userId;
+      
+      // Auto-resize textarea
+      elements.messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+      });
+
+      // Enter key sends message (Shift+Enter for new line)
+      elements.messageInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          elements.chatForm.dispatchEvent(new Event('submit'));
+        }
+      });
+
+      bindEvents();
+      fetchDashboard();
+      lucide.createIcons();
+    }
+
+    // Bind Event Listeners
+    function bindEvents() {
+      // User switcher
+      elements.switchUserBtn.addEventListener('click', () => switchUser(elements.userIdInput.value));
+      elements.userIdInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') switchUser(elements.userIdInput.value);
+      });
+
+      // Quick User Chips
+      document.querySelectorAll('.user-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const u = chip.getAttribute('data-user');
+          elements.userIdInput.value = u;
+          switchUser(u);
+        });
+      });
+
+      // Prompt Suggestion Chips
+      document.querySelectorAll('.prompt-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const prompt = chip.getAttribute('data-prompt');
+          elements.messageInput.value = prompt;
+          elements.chatForm.dispatchEvent(new Event('submit'));
+        });
+      });
+
+      // Chat Submit
+      elements.chatForm.addEventListener('submit', handleTextMessageSubmit);
+
+      // Microphone Recording Toggle
+      elements.micBtn.addEventListener('click', toggleRecording);
+      elements.cancelRecordingBtn.addEventListener('click', cancelRecording);
+
+      // Clear Chat
+      elements.clearChatBtn.addEventListener('click', () => {
+        elements.messagesContainer.innerHTML = '';
+        showToast('Chat history cleared from view', 'info');
+      });
+
+      // Refresh Dashboard
+      elements.refreshDashboardBtn.addEventListener('click', () => {
+        fetchDashboard();
+        showToast('Ledger refreshed', 'info');
+      });
+
+      // Mobile Tabs
+      elements.tabChat.addEventListener('click', () => setMobileTab('chat'));
+      elements.tabDashboard.addEventListener('click', () => setMobileTab('dashboard'));
+    }
+
+    // Switch User Logic
+    function switchUser(newUserId) {
+      const clean = (newUserId || '').trim() || 'default';
+      state.userId = clean;
+      localStorage.setItem('hisaab_user_id', clean);
+      elements.userIdInput.value = clean;
+      elements.activeUserDisplay.textContent = clean;
+      
+      showToast(`Switched account to: ${clean}`, 'success');
+      appendSystemMessage(`Active user switched to **${clean}**. All transactions and queries are isolated to this account.`);
+      fetchDashboard();
+    }
+
+    // Mobile Tab Switching
+    function setMobileTab(tab) {
+      state.activeTab = tab;
+      if (tab === 'chat') {
+        elements.tabChat.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors';
+        elements.tabDashboard.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors';
+        elements.chatPane.classList.remove('hidden');
+        elements.dashboardPane.classList.add('hidden');
+        elements.dashboardPane.classList.remove('flex');
+      } else {
+        elements.tabDashboard.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors';
+        elements.tabChat.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors';
+        elements.chatPane.classList.add('hidden');
+        elements.dashboardPane.classList.remove('hidden');
+        elements.dashboardPane.classList.add('flex');
+      }
+    }
+
+    // =========================================================================
+    // Chat Message Flow
+    // =========================================================================
+    async function handleTextMessageSubmit(e) {
+      e.preventDefault();
+      const message = elements.messageInput.value.trim();
+      if (!message) return;
+
+      // Add user message to UI
+      appendUserMessage(message, null);
+      elements.messageInput.value = '';
+      elements.messageInput.style.height = 'auto';
+
+      // Send to API
+      await sendChatRequest({ message });
+    }
+
+    async function sendChatRequest({ message = null, audioBlob = null }) {
+      const loadingBubble = appendLoadingBubble();
+      elements.sendBtn.disabled = true;
+
+      const formData = new FormData();
+      formData.append('user_id', state.userId);
+      if (message) formData.append('message', message);
+      if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({ detail: 'Server error' }));
+          throw new Error(errData.detail || 'Failed to communicate with HisaabAI');
+        }
+
+        const data = await response.json();
+        removeLoadingBubble(loadingBubble);
+
+        // Render AI Reply
+        appendAssistantMessage(data.reply);
+
+        // Auto-refresh ledger dashboard after any action
+        fetchDashboard();
+      } catch (err) {
+        removeLoadingBubble(loadingBubble);
+        appendErrorMessage(err.message || 'Error occurred while contacting server.');
+        showToast(err.message, 'error');
+      } finally {
+        elements.sendBtn.disabled = false;
+      }
+    }
+
+    // =========================================================================
+    // Web Audio MediaRecorder API (Voice Notes)
+    // =========================================================================
+    async function toggleRecording() {
+      if (state.isRecording) {
+        stopRecording(true); // Stop and submit
+      } else {
+        startRecording();
+      }
+    }
+
+    async function startRecording() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast('Your browser does not support audio recording.', 'error');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+        }
+
+        state.mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+        state.audioChunks = [];
+
+        state.mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            state.audioChunks.push(event.data);
+          }
+        };
+
+        state.mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(track => track.stop());
+          if (state.audioChunks.length > 0 && state.shouldSendAudio) {
+            const audioBlob = new Blob(state.audioChunks, { type: state.mediaRecorder.mimeType || 'audio/webm' });
+            appendUserMessage("🎤 [Voice Note Uploaded]", "Transcribing voice with Groq Whisper...");
+            await sendChatRequest({ audioBlob });
+          }
+        };
+
+        state.shouldSendAudio = true;
+        state.mediaRecorder.start(250);
+        state.isRecording = true;
+
+        // UI Updates for Recording
+        elements.recordingBanner.classList.remove('hidden');
+        elements.micBtn.classList.add('bg-rose-600', 'text-white', 'border-rose-500', 'animate-pulse');
+        elements.micBtn.classList.remove('bg-surface-800', 'text-slate-300');
+        elements.recordingSeconds = 0;
+        updateRecordingTimer();
+        state.recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
+
+      } catch (err) {
+        console.error('Microphone access denied:', err);
+        showToast('Microphone permission denied or microphone not found.', 'error');
+      }
+    }
+
+    function stopRecording(send = true) {
+      if (!state.isRecording) return;
+      state.shouldSendAudio = send;
+      state.isRecording = false;
+
+      if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+        state.mediaRecorder.stop();
+      }
+
+      clearInterval(state.recordingTimerInterval);
+      elements.recordingBanner.classList.add('hidden');
+      elements.micBtn.classList.remove('bg-rose-600', 'text-white', 'border-rose-500', 'animate-pulse');
+      elements.micBtn.classList.add('bg-surface-800', 'text-slate-300');
+    }
+
+    function cancelRecording() {
+      stopRecording(false);
+      state.audioChunks = [];
+      showToast('Recording cancelled', 'info');
+    }
+
+    function updateRecordingTimer() {
+      state.recordingSeconds++;
+      const mins = String(Math.floor(state.recordingSeconds / 60)).padStart(2, '0');
+      const secs = String(state.recordingSeconds % 60).padStart(2, '0');
+      elements.recordingTimer.textContent = `${mins}:${secs}`;
+    }
+
+    // =========================================================================
+    // UI Message Rendering
+    // =========================================================================
+    function appendUserMessage(text, voiceSubtext) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex justify-end gap-2.5 max-w-xl ml-auto';
+
+      let innerContent = `<p class="whitespace-pre-wrap">${escapeHtml(text)}</p>`;
+      if (voiceSubtext) {
+        innerContent = `
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 mb-1">
+            <i data-lucide="mic" class="w-3.5 h-3.5"></i> ${escapeHtml(voiceSubtext)}
+          </div>
+          <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
+        `;
+      }
+
+      wrapper.innerHTML = `
+        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 text-xs sm:text-sm shadow-md">
+          ${innerContent}
+        </div>
+      `;
+
+      elements.messagesContainer.appendChild(wrapper);
+      scrollToBottom();
+      lucide.createIcons();
+    }
+
+    function appendAssistantMessage(markdownContent) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex gap-3 max-w-xl';
+
+      const parsedHtml = marked.parse(markdownContent || '');
+
+      wrapper.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-1">
+          <i data-lucide="bot" class="w-4 h-4"></i>
+        </div>
+        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-xs sm:text-sm text-slate-100 shadow-sm leading-relaxed prose prose-invert prose-xs max-w-none">
+          ${parsedHtml}
+        </div>
+      `;
+
+      elements.messagesContainer.appendChild(wrapper);
+      scrollToBottom();
+      lucide.createIcons();
+    }
+
+    function appendSystemMessage(markdownContent) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'text-center my-2';
+      wrapper.innerHTML = `
+        <span class="inline-block px-3 py-1 rounded-full bg-surface-800 border border-slate-700 text-[11px] text-slate-400">
+          ${marked.parseInline(markdownContent)}
+        </span>
+      `;
+      elements.messagesContainer.appendChild(wrapper);
+      scrollToBottom();
+    }
+
+    function appendLoadingBubble() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex gap-3 max-w-xl loading-bubble';
+      wrapper.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
+          <i data-lucide="bot" class="w-4 h-4 animate-spin"></i>
+        </div>
+        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-slate-400 flex items-center gap-2">
+          <span>HisaabAI is thinking...</span>
+          <div class="flex gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:0.2s]"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:0.4s]"></span>
+          </div>
+        </div>
+      `;
+      elements.messagesContainer.appendChild(wrapper);
+      scrollToBottom();
+      lucide.createIcons();
+      return wrapper;
+    }
+
+    function removeLoadingBubble(bubble) {
+      if (bubble && bubble.parentNode) {
+        bubble.parentNode.removeChild(bubble);
+      }
+    }
+
+    function appendErrorMessage(errorText) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex gap-3 max-w-xl';
+      wrapper.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-rose-600/20 border border-rose-500/40 flex items-center justify-center shrink-0 text-rose-400 mt-1">
+          <i data-lucide="alert-circle" class="w-4 h-4"></i>
+        </div>
+        <div class="bg-rose-950/40 border border-rose-800/50 rounded-2xl rounded-tl-sm p-3.5 text-xs sm:text-sm text-rose-200 shadow-sm leading-relaxed">
+          <p class="font-semibold text-rose-300 mb-0.5">Processing Issue</p>
+          <p>${escapeHtml(errorText)}</p>
+        </div>
+      `;
+      elements.messagesContainer.appendChild(wrapper);
+      scrollToBottom();
+      lucide.createIcons();
+    }
+
+    function scrollToBottom() {
+      elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+    }
+
+    // =========================================================================
+    // Dashboard & Live Ledger Flow
+    // =========================================================================
+    async function fetchDashboard() {
+      try {
+        const response = await fetch(`/api/transactions/${encodeURIComponent(state.userId)}`);
+        if (!response.ok) throw new Error('Failed to load user ledger');
+
+        const data = await response.json();
+        renderDashboard(data);
+      } catch (err) {
+        console.error('Error fetching dashboard:', err);
+      }
+    }
+
+    function renderDashboard(data) {
+      // 1. KPI Cards
+      elements.kpiMonthlyTotal.textContent = `PKR ${formatMoney(data.monthly_total || 0)}`;
+      elements.kpiVisitCount.textContent = data.monthly_count || 0;
+      elements.kpiTopStore.textContent = data.top_store || 'N/A';
+
+      // 2. Store Breakdown
+      elements.storeBreakdownContainer.innerHTML = '';
+      if (data.store_breakdown && data.store_breakdown.length > 0) {
+        data.store_breakdown.forEach(item => {
+          const pill = document.createElement('div');
+          pill.className = 'px-2.5 py-1 rounded-lg bg-surface-800 border border-slate-700/80 flex items-center gap-1.5 text-xs';
+          pill.innerHTML = `
+            <span class="font-medium text-slate-200">${escapeHtml(item.store_name)}</span>
+            <span class="text-[11px] text-emerald-400 font-bold">PKR ${formatMoney(item.total_pkr)}</span>
+            <span class="text-[10px] text-slate-500">(${item.visit_count})</span>
+          `;
+          elements.storeBreakdownContainer.appendChild(pill);
+        });
+      } else {
+        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-slate-500 italic">No store data yet for this user.</span>`;
+      }
+
+      // 3. Transactions List
+      const txs = data.recent_transactions || [];
+      elements.txCountBadge.textContent = `${txs.length} records`;
+      elements.transactionsList.innerHTML = '';
+
+      if (txs.length === 0) {
+        elements.transactionsList.innerHTML = `
+          <div class="text-center py-10 text-slate-500 text-xs">
+            <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+            No transactions found for <strong>${escapeHtml(state.userId)}</strong>.<br>Record an expense to see it here!
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      txs.forEach(tx => {
+        const card = document.createElement('div');
+        card.className = 'bg-surface-850/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3 transition-colors shadow-sm';
+        
+        let itemsHtml = '';
+        if (tx.items && tx.items.length > 0) {
+          const itemsBadges = tx.items.map(it => `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-900 border border-slate-800 text-[11px] text-slate-300">
+              <span class="text-slate-200 font-medium">${escapeHtml(it.item_name)}</span>
+              ${it.quantity > 1 ? `<span class="text-slate-400">×${it.quantity}</span>` : ''}
+              <span class="text-emerald-400 font-mono">Rs ${formatMoney(it.price * it.quantity)}</span>
+            </span>
+          `).join('');
+          itemsHtml = `<div class="flex flex-wrap gap-1 mt-2">${itemsBadges}</div>`;
+        }
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-lg bg-surface-800 border border-slate-700 flex items-center justify-center text-emerald-400 shrink-0">
+                <i data-lucide="shopping-bag" class="w-3.5 h-3.5"></i>
+              </div>
+              <div>
+                <h4 class="text-xs sm:text-sm font-bold text-white capitalize flex items-center gap-1.5">
+                  ${escapeHtml(tx.store_name)}
+                  <span class="text-[10px] text-slate-500 font-normal">#${tx.id}</span>
+                </h4>
+                <span class="text-[11px] text-slate-400">${escapeHtml(tx.transaction_date || '')}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-xs sm:text-sm font-bold text-emerald-400 font-mono">
+                PKR ${formatMoney(tx.total_amount)}
+              </span>
+              <button 
+                class="delete-tx-btn p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-colors"
+                data-id="${tx.id}"
+                data-store="${escapeHtml(tx.store_name)}"
+                title="Delete Transaction"
+              >
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+          ${itemsHtml}
+        `;
+
+        elements.transactionsList.appendChild(card);
+      });
+
+      // Bind delete buttons
+      document.querySelectorAll('.delete-tx-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const txId = btn.getAttribute('data-id');
+          const store = btn.getAttribute('data-store');
+          if (confirm(`Are you sure you want to delete transaction #${txId} (${store})?`)) {
+            await deleteTransaction(txId);
+          }
+        });
+      });
+
+      lucide.createIcons();
+    }
+
+    async function deleteTransaction(transactionId) {
+      try {
+        const response = await fetch(`/api/transactions/${encodeURIComponent(state.userId)}/${transactionId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({ detail: 'Failed to delete' }));
+          throw new Error(errData.detail || 'Delete failed');
+        }
+
+        showToast(`Transaction #${transactionId} deleted`, 'success');
+        fetchDashboard();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+    function formatMoney(amount) {
+      return Number(amount).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      });
+    }
+
+    function escapeHtml(string) {
+      if (!string) return '';
+      return String(string)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      const bgColors = {
+        success: 'bg-emerald-900/90 border-emerald-500/50 text-emerald-200',
+        error: 'bg-rose-900/90 border-rose-500/50 text-rose-200',
+        info: 'bg-surface-800/90 border-slate-700 text-slate-200',
+      };
+      const icons = {
+        success: 'check-circle',
+        error: 'alert-triangle',
+        info: 'info',
+      };
+
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border backdrop-blur-md shadow-lg text-xs font-medium transition-all transform duration-200 translate-y-2 opacity-0 ${bgColors[type] || bgColors.info}`;
+      toast.innerHTML = `
+        <i data-lucide="${icons[type] || 'info'}" class="w-4 h-4 shrink-0"></i>
+        <span>${escapeHtml(message)}</span>
+      `;
+
+      elements.toastContainer.appendChild(toast);
+      lucide.createIcons();
+
+      // Animate in
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      // Remove after 3.5s
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 200);
+      }, 3500);
+    }
+
+    // Initialize application when DOM is ready
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
+
