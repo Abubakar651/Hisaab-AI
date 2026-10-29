@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import init_db, get_db, Transaction, TransactionItem
-from agent import run_agent, transcribe_audio
+from agent import run_agent, transcribe_audio, clear_user_history
 
 load_dotenv()
 
@@ -60,11 +60,12 @@ async def chat_endpoint(
     user_id: str = Form(...),
     message: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None),
+    history: Optional[str] = Form(None),
 ):
     """
     Accepts text message, audio voice note, or both from the frontend.
-    Transcribes audio using Groq whisper-large-v3, executes the LangChain agent,
-    and returns the structured response.
+    Transcribes audio using Groq whisper-large-v3, executes the LangChain agent
+    with multi-turn conversation memory, and returns the structured response.
     """
     clean_user_id = (user_id or "default").strip()
     if not clean_user_id:
@@ -108,12 +109,24 @@ async def chat_endpoint(
             detail="Either a text message or a valid audio recording must be provided.",
         )
 
+    # Parse chat history if provided
+    parsed_history = []
+    if history:
+        try:
+            import json
+            parsed_history = json.loads(history)
+            if not isinstance(parsed_history, list):
+                parsed_history = []
+        except Exception:
+            parsed_history = []
+
     # Execute LangChain Agent
     try:
         reply = run_agent(
             user_id=clean_user_id,
             user_text=effective_text,
             raw_transcript=raw_transcript_record,
+            chat_history=parsed_history,
         )
         return {
             "user_id": clean_user_id,
@@ -126,6 +139,13 @@ async def chat_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent execution error: {str(e)}",
         )
+
+
+@app.post("/api/chat/clear")
+async def clear_chat_history(user_id: str = Form(...)):
+    """Clears conversation context for user."""
+    clear_user_history(user_id)
+    return {"status": "success", "message": f"History cleared for user {user_id}"}
 
 
 # ---------------------------------------------------------------------------

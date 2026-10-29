@@ -222,6 +222,21 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
    - Any time user asks to delete their last entry ("delete my last entry", "pichla record mita do", "ghalat likha gaya"):
      **YOU MUST CALL `delete_last_transaction`**.
 
+### SMART DEFAULTS & USER-FRIENDLY BEHAVIOR:
+- **DO NOT INTERROGATE THE USER:** Never refuse to log an expense or repeatedly question the user if they did not provide a branded store name or exact item breakdown.
+- **Default Store:** In Pakistan, most people buy from street vendors, open markets, or local neighbourhood shops. If the user does not specify a store name, DO NOT ask them to name a store. Instead, use a sensible default:
+  * By default: `"local store"`
+  * If item is vegetables/fruits ("sabzi", "phal"): `"local store"` or `"sabzi market"`
+  * If item is milk/yogurt ("doodh", "dahi"): `"dairy shop"`
+  * If item is fuel ("petrol"): `"petrol pump"`
+- **Default Item:** If the user specifies an amount and store or general shopping without item details (e.g., "1500 da saman", "1500 ka kharcha"):
+  * Default item: `"general items"` or `"groceries"`
+- **Phrases like "bs enj hi add krle" / "aise hi add kar lo" / "just add it" / "record kar lo":**
+  * This is an explicit command from the user to stop asking questions and immediately save the expense.
+  * Combine the numbers and items mentioned in previous conversation messages and CALL `log_expense` IMMEDIATELY with sensible defaults.
+- **Multi-Turn Context Retention:**
+  * When reading previous conversation messages, maintain context! If the user mentioned "1500" in turn 1 and "sabzia" in turn 2, combine them to log Rs. 1500 for vegetables!
+
 ### CRITICAL RULES:
 
 1. **MULTILINGUAL SCRIPT & LANGUAGE MIRRORING:**
@@ -575,11 +590,26 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
 
 
 # ---------------------------------------------------------------------------
-# Agent Invocation Runner
+# Agent Invocation Runner with Multi-Turn Memory
 # ---------------------------------------------------------------------------
-def run_agent(user_id: str, user_text: str, raw_transcript: str = "") -> str:
+_IN_MEMORY_SESSIONS: Dict[str, List[Any]] = {}
+
+
+def clear_user_history(user_id: str):
+    """Clears in-memory session history for user."""
+    clean_id = (user_id or "default").strip()
+    _IN_MEMORY_SESSIONS.pop(clean_id, None)
+
+
+def run_agent(
+    user_id: str,
+    user_text: str,
+    raw_transcript: str = "",
+    chat_history: Optional[List[Dict[str, str]]] = None,
+) -> str:
     """
     Executes the LangChain agent for the given user, scoping tools to user_id.
+    Maintains and respects multi-turn conversation history across turns.
     """
     if not user_text or not user_text.strip():
         return "Please provide an expense message or voice note."
@@ -589,6 +619,27 @@ def run_agent(user_id: str, user_text: str, raw_transcript: str = "") -> str:
     system_prompt = build_system_prompt()
     llm = get_chat_llm()
 
+    # Construct conversation history
+    messages = []
+    if chat_history and len(chat_history) > 0:
+        # Load from client-supplied history (most accurate for active UI tab)
+        for msg in chat_history[-12:]:
+            role = msg.get("role", "user")
+            content = (msg.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                from langchain_core.messages import AIMessage
+                messages.append(AIMessage(content=content))
+    elif clean_user_id in _IN_MEMORY_SESSIONS:
+        # Fallback to server in-memory history
+        messages.extend(_IN_MEMORY_SESSIONS[clean_user_id][-10:])
+
+    # Append current turn
+    messages.append(HumanMessage(content=user_text))
+
     # Create agent using modern LangChain agent API
     agent = create_agent(
         model=llm,
@@ -597,14 +648,24 @@ def run_agent(user_id: str, user_text: str, raw_transcript: str = "") -> str:
     )
 
     try:
-        response = agent.invoke({"messages": [HumanMessage(content=user_text)]})
+        response = agent.invoke({"messages": messages})
         final_message = response["messages"][-1]
-        return final_message.content if hasattr(final_message, "content") else str(final_message)
+        reply_text = final_message.content if hasattr(final_message, "content") else str(final_message)
+
+        # Update in-memory session history
+        from langchain_core.messages import AIMessage
+        if clean_user_id not in _IN_MEMORY_SESSIONS:
+            _IN_MEMORY_SESSIONS[clean_user_id] = []
+        _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=user_text))
+        _IN_MEMORY_SESSIONS[clean_user_id].append(AIMessage(content=reply_text))
+        if len(_IN_MEMORY_SESSIONS[clean_user_id]) > 20:
+            _IN_MEMORY_SESSIONS[clean_user_id] = _IN_MEMORY_SESSIONS[clean_user_id][-20:]
+
+        return reply_text
     except Exception as e:
         logger.error(f"Agent execution error: {e}")
         # Graceful fallback attempt
         try:
-            # If standard invocation failed, try direct LLM with tools
             llm_fallback = ChatGroq(
                 model="qwen/qwen3.8-27b",
                 temperature=0,
@@ -616,8 +677,9 @@ def run_agent(user_id: str, user_text: str, raw_transcript: str = "") -> str:
                 tools=tools,
                 system_prompt=system_prompt,
             )
-            fallback_res = fallback_agent.invoke({"messages": [HumanMessage(content=user_text)]})
-            return fallback_res["messages"][-1].content
+            fallback_res = fallback_agent.invoke({"messages": messages})
+            fallback_reply = fallback_res["messages"][-1].content
+            return fallback_reply
         except Exception as e2:
             logger.error(f"Fallback agent execution error: {e2}")
             return f"Maafi chahte hain, processing ke dauraan masla pesh aya: {str(e2)}"
