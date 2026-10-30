@@ -608,10 +608,10 @@
         this.style.height = (this.scrollHeight) + 'px';
 
         if (isUrduScript(this.value)) {
-          this.classList.add('font-nastaleeq', 'text-right', 'text-sm');
+          this.classList.add('font-nastaleeq', 'text-right', 'text-base', 'sm:text-lg', 'leading-loose');
           this.setAttribute('dir', 'rtl');
         } else {
-          this.classList.remove('font-nastaleeq', 'text-right');
+          this.classList.remove('font-nastaleeq', 'text-right', 'leading-loose');
           this.setAttribute('dir', 'ltr');
         }
       });

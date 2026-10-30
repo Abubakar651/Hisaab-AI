@@ -24,8 +24,8 @@ logger = logging.getLogger("hisaab_ai.agent")
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # Default model preference with fallback list
-PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "llama-3.3-70b-versatile")
-MODEL_CANDIDATES = [PREFERRED_MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-120b")
+MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3.8-27b"]
 
 _VALIDATED_MODEL = None
 
@@ -222,14 +222,17 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
      **YOU MUST CALL `log_expense`**.
    - NEVER pretend to record it without executing the tool!
    - Extract `store_name` (canonical lowercase English), `items` list (with `item_name`, `price`, `quantity`, `category`), and `date_str`.
-2. **WHEN SPENDING IS QUERIED:**
-   - Any time the user asks how much they spent, totals, or checks their ledger:
-     **YOU MUST CALL `query_expenses`** with appropriate filters.
+2. **WHEN SPENDING IS QUERIED (STRICT REQUIREMENT):**
+   - Any time the user asks how much they spent, totals, asks for hisaab, or checks their ledger (e.g., "is mahine ka hisaab", "kinna kharcha hoya", "how much did I spend?"):
+     **YOU MUST ALWAYS CALL `query_expenses`**!
+   - **NEVER** calculate or state spending totals from the conversation history!
+   - The conversation history only contains the last few chat messages, NOT the user's ledger!
+   - The SQLite database is the ONLY source of truth. Always query it!
 3. **WHEN UNDO / DELETE IS REQUESTED:**
    - Any time user asks to delete their last entry ("delete my last entry", "pichla record mita do", "ghalat likha gaya"):
      **YOU MUST CALL `delete_last_transaction`**.
 
-### SMART DEFAULTS & USER-FRIENDLY BEHAVIOR:
+### SMART DEFAULTS & TRANSACTION ISOLATION:
 - **DO NOT INTERROGATE THE USER:** Never refuse to log an expense or repeatedly question the user if they did not provide a branded store name or exact item breakdown.
 - **Default Store:** In Pakistan, most people buy from street vendors, open markets, or local neighbourhood shops. If the user does not specify a store name, DO NOT ask them to name a store. Instead, use a sensible default:
   * By default: `"local store"`
@@ -238,11 +241,11 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
   * If item is fuel ("petrol"): `"petrol pump"`
 - **Default Item:** If the user specifies an amount and store or general shopping without item details (e.g., "1500 da saman", "1500 ka kharcha"):
   * Default item: `"general items"` or `"groceries"`
-- **Phrases like "bs enj hi add krle" / "aise hi add kar lo" / "just add it" / "record kar lo":**
-  * This is an explicit command from the user to stop asking questions and immediately save the expense.
-  * Combine the numbers and items mentioned in previous conversation messages and CALL `log_expense` IMMEDIATELY with sensible defaults.
-- **Multi-Turn Context Retention:**
-  * When reading previous conversation messages, maintain context! If the user mentioned "1500" in turn 1 and "sabzia" in turn 2, combine them to log Rs. 1500 for vegetables!
+- **TRANSACTION ISOLATION (DO NOT ACCUMULATE PAST ITEMS):**
+  * Every new expense statement is a fresh, independent transaction.
+  * **NEVER copy items from previous transactions or earlier chat messages into the new transaction!**
+  * If the user already recorded eggs and bread in Turn 1, and now says "1500 da rashan" in Turn 2, log ONLY the new 1500 grocery expense! NEVER attach eggs and bread to Turn 2.
+  * Only combine information across messages if the user is directly answering an incomplete clarification question from the assistant.
 
 ### CRITICAL RULES:
 
@@ -435,8 +438,21 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 for it in parsed_items
             )
 
+            # Reconcile total_amount and parsed_items
             if total_amount is not None and float(total_amount) > 0:
-                final_total = float(total_amount)
+                user_total = float(total_amount)
+                # If parsed_items sum differs drastically from user_total (e.g. ghost items from prior turns):
+                if computed_sum > 0 and abs(computed_sum - user_total) > 0.05 * user_total:
+                    matching_items = [it for it in parsed_items if abs(it["price"] - user_total) < 1.0]
+                    if matching_items:
+                        parsed_items = matching_items
+                        final_total = user_total
+                    else:
+                        final_total = user_total
+                elif computed_sum > 0:
+                    final_total = computed_sum
+                else:
+                    final_total = user_total
             elif computed_sum > 0:
                 final_total = computed_sum
             else:
