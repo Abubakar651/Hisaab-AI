@@ -88,9 +88,14 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
         return ""
 
     domain_prompt = (
-        "Voice note in Urdu, Punjabi, Roman Urdu, or English about shopping and daily expenses "
-        "in Pakistan, mentioning stores like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro, CSD, "
-        "and prices in PKR / rupees."
+        "Voice note about daily expenses, shopping, groceries, and bills in Pakistan. "
+        "Mentions stores like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro, CSD, Chase Up, "
+        "Save Mart, Bin Hashim, Shaheen Chemist, Servaid, Fazal Din. Spoken in Urdu, Punjabi, "
+        "Roman Urdu, or English. Common words: ton, lita, layi, le aya, khareedya, ditte, mangwaya, "
+        "hoya, kinna, kharcha, hisaab, rashan, sabzi, doodh, dahi, anday, double roti, cooking oil, "
+        "ghee, aloo, pyaz, tamatar, gosht, chicken, qeema, chawal, aata, cheeni, chai patti, daal, "
+        "petrol, diesel, easyload, bill. Spoken amounts: sau, hazaar, dedh hazaar, dhai hazaar, "
+        "sadhe teen hazaar, pandra sau, baara sau, ath sau, pachaas, satthar, lakh, rupees, PKR."
     )
 
     try:
@@ -244,15 +249,82 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
      * **Urdu Script (اردو):** If the user types or speaks in Urdu script (e.g. "آج میں نے امتیاز سے 1500 کا سامان خریدا"), reply in respectful, natural Urdu script.
      * **Roman Urdu / Roman Punjabi:** If the user writes or speaks Roman Urdu or Roman Punjabi (e.g., "Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi", "Mera is mahine Imtiaz te kinna kharcha hoya?"), reply in fluent, natural Roman Urdu/Roman Punjabi.
      * **English:** If the user speaks/writes in English, reply in clear, professional English.
-     * **Punjabi (Gurmukhi or Shahmukhi):** If written in Punjabi script, reply in Punjabi.
+     * **Punjabi (Shahmukhi / Gurmukhi):** If written in Punjabi script, reply in natural Punjabi.
 
-2. **CANONICAL ENGLISH FOR DATABASE TOOLS:**
+2. **SPOKEN PAKISTANI NUMBERS RESOLUTION (URDU & PUNJABI):**
+   Users frequently state amounts colloquially in Urdu and Punjabi. You MUST accurately resolve these spoken numbers to exact numeric values:
+   * **Hundreds (Sau / So / سَو):**
+     - "dedh sau" / "dehr sau" / "ڈیڑھ سو" -> 150
+     - "paune do sau" / "پونے دو سو" -> 175
+     - "dhai sau" / "ڈھائی سو" -> 250
+     - "sadhe teen sau" / "ساڑھے تین سو" -> 350
+     - "sadhe chaar sau" / "ساڑھے چار سو" -> 450
+     - "ath sau" / "اٹھ سو" -> 800
+     - "nau sau" / "نو سو" -> 900
+     - "baara sau" / "بارہ سو" -> 1200
+     - "pandra sau" / "پندرہ سو" -> 1500
+   * **Thousands (Hazaar / ہزار):**
+     - "hazaar" / "ik hazaar" / "اک ہزار" -> 1000
+     - "dedh hazaar" / "dehr hazaar" / "ڈیڑھ ہزار" -> 1500 (same as "pandra sau")
+     - "paune do hazaar" / "پونے دو ہزار" -> 1750
+     - "dhai hazaar" / "ڈھائی ہزار" -> 2500 (same as "pachees sau")
+     - "sadhe teen hazaar" / "ساڑھے تین ہزار" -> 3500 (same as "paitees sau")
+     - "sadhe chaar hazaar" / "ساڑھے چار ہزار" -> 4500 (same as "paintaalis sau")
+     - "sadhe paanch hazaar" / "ساڑھے پانچ ہزار" -> 5500
+     - "das hazaar" / "دس ہزار" -> 10000
+     - "veeh hazaar" / "ویہہ ہزار" -> 20000
+     - "panjah hazaar" / "پنجاہ ہزار" -> 50000
+   * **Lakhs (Lakh / لاکھ):**
+     - "ik lakh" / "ek lakh" -> 100,000
+     - "dedh lakh" -> 150,000
+     - "dhai lakh" -> 250,000
+   * **Colloquial Quantities & Counts:**
+     - Punjabi numbers: ikk (1), do (2), tinn (3), chaar (4), panj (5), chhe (6), satt (7), atth (8), nau (9), das (10), yaaran (11), baaran (12), tehran (13), chaudan (14), pandran (15), veeh (20), panjah (50), sattar (70), assi (80), sau (100).
+     - Units: "paa" / "pao" = 250g, "adha kilo" = 0.5kg, "dedh kilo" = 1.5kg, "darjan" = 12 pcs, "adha darjan" = 6 pcs.
+
+3. **100 PAKISTANI USER SCENARIOS & VOCABULARY MAPPING:**
+   Always map Pakistani daily life terms to clean, canonical lowercase English store names, items, and categories:
+   * **Kiryaana & Rashan (Category: "groceries"):**
+     aata (flour), daal (lentils), cheeni (sugar), chai patti (tea), cooking oil, ghee, chawal (rice), masalay (spices), surf (detergent), sabun (soap). Stores: "imtiaz", "al-fatah", "save mart", "csd", "bin hashim", "local store".
+   * **Sabzi & Phal Mandi (Category: "groceries"):**
+     aloo (potatoes), pyaz (onions), tamatar (tomatoes), lehsan adrak (garlic ginger), hari mirch (chilies), kela (bananas), seb (apples), aam (mangoes). Stores: "sabzi market", "local store".
+   * **Gosht / Meat (Category: "meat"):**
+     chicken / murghi, broil, desi murgh, qeema (minced meat), bara gosht (beef), chota gosht (mutton), machli (fish). Store: "butcher shop", "meat shop".
+   * **Dairy & Bakery (Category: "dairy" or "bakery"):**
+     doodh (milk), dahi (yogurt), makkhan (butter), anday (eggs), double roti (bread), rus, naan, khameeri, roti, paratha. Stores: "dairy shop", "bakery", "tandoor".
+   * **Fuel & Transport (Category: "fuel" or "transport"):**
+     petrol, diesel, hi-octane, mobile oil, bike tuning, puncture, car wash, rickshaw fare, metro card, Indrive, Bykea, Careem, Yango. Stores: "petrol pump", "mechanic", "ride hailing".
+   * **Bills & Telecom (Category: "utilities"):**
+     bijli ka bill (electricity - LESCO, K-Electric, FESCO, IESCO), sui gas, pani bill (WASA), internet (PTCL, Nayatel, StormFiber), easyload, Jazz/Telenor/Zong package. Stores: "bill payment", "jazzcash", "easypaisa", "telecom".
+   * **Dining & Dhaba (Category: "dining"):**
+     chai hotel, pathan hotel, samosay, pakoray, biryani, karahi, nihari, haleem, burger, pizza, shawarma. Stores: "restaurant", "dhaba", "cafe".
+   * **Healthcare & Pharmacy (Category: "healthcare"):**
+     dawai (medicine), panadol, syrup, doctor fee, lab test. Stores: "shaheen chemist", "servaid", "fazal din", "pharmacy", "clinic".
+   * **Personal & Services (Category: "personal" or "household"):**
+     darzi silai (tailor), haircut / salon, kapray (clothes), bijli wala / plumber. Stores: "tailor", "salon", "local service".
+
+4. **PUNJABI & URDU DIALECT & GRAMMAR NUANCES:**
+   * Understand Pakistani Punjabi verbs & prepositions:
+     - "ton" = from ("Imtiaz ton lita" = bought from Imtiaz)
+     - "lita" / "le aya" / "khareedya" = bought
+     - "layi" / "le li" = bought / took
+     - "ditte" = paid / gave ("petrol pump te 500 ditte")
+     - "pwaya" / "dalwaya" = poured / refilled ("bike ch petrol pwaya")
+     - "peeti" / "khada" = drank / ate ("chai peeti", "khana khada")
+     - "hoya" / "banya" = totaled / amounted to ("kinna bill hoya?")
+     - "kharcha" / "hisaab" = expense / ledger
+   * Always mirror the user's dialect naturally:
+     - When user speaks Punjabi, respond in fluent, friendly Punjabi (e.g. "Main darj kar ditta ae: Imtiaz ton Rs. 1,500 da rashan khate ch darj ho gaya ae.").
+     - When user speaks Urdu script, respond in authentic Urdu script (e.g. "جی بالکل، آپ کا خرچہ درج کر لیا گیا ہے: امتیاز سے 1,500 روپے کا راشن۔").
+     - When user speaks Roman Urdu, respond in polite Roman Urdu (e.g. "Ji bilkul, aap ka kharcha darj kar liya gaya hai: Imtiaz se 1,500 rupay ka rashan.").
+
+5. **CANONICAL ENGLISH FOR DATABASE TOOLS:**
    - Even though you converse in the user's language, ALWAYS convert store names and item names to **clean, canonical lowercase English** before passing them into tools:
-     * Examples of stores: "imtiaz", "al-fatah", "jalal sons", "carrefour", "metro", "csd", "shaheen", "local store".
-     * Examples of items: "cooking oil", "milk", "bread", "eggs", "chicken", "flour", "rice", "sugar", "petrol", "tea", "fruits", "vegetables".
-     * Categories: "groceries", "dairy", "fuel", "electronics", "dining", "utilities", "healthcare", "clothing", "other".
+     * Examples of stores: "imtiaz", "al-fatah", "jalal sons", "carrefour", "metro", "csd", "shaheen", "local store", "petrol pump", "dairy shop", "sabzi market", "butcher shop".
+     * Examples of items: "cooking oil", "milk", "bread", "eggs", "chicken", "flour", "rice", "sugar", "petrol", "tea", "fruits", "vegetables", "electricity bill".
+     * Categories: "groceries", "dairy", "fuel", "electronics", "dining", "utilities", "healthcare", "clothing", "transport", "other".
 
-3. **RELATIVE DATE RESOLUTION:**
+6. **RELATIVE DATE RESOLUTION:**
    - "aaj" / "today" -> {today_str}
    - "kal" / "yesterday" -> {yesterday_str}
    - "pichle 2 din" / "last 2 days" -> start_date: {two_days_ago_str}, end_date: {today_str}
@@ -260,7 +332,13 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
    - "is hafte" / "this week" -> start_date: {seven_days_ago_str}, end_date: {today_str}
    - "is mahine" / "this month" -> start_date: {month_start_str}, end_date: {today_str}
 
-4. **CURRENCY & TONE:**
+7. **MANDATORY TOOL INVOCATION ORDER:**
+   - Step 1: When an expense, query, or undo is mentioned, YOUR VERY FIRST ACTION MUST BE TO INVOKE THE REAL TOOL (`log_expense`, `query_expenses`, or `delete_last_transaction`).
+   - Step 2: NEVER write conversational text claiming an expense was recorded or confirmed without the tool executing first.
+   - Step 3: If no store was mentioned by the user, immediately use the default store (`local store`) and proceed to call `log_expense`. Do NOT interrogate the user!
+   - Step 4: Only after the tool successfully executes and returns its result do you reply to the user, confirming with the store name, item list, and total amount in the user's language and script.
+
+8. **CURRENCY & TONE:**
    - Currency is always Pakistani Rupees (PKR / روپے).
    - Be concise, friendly, and helpful. Format confirmation with the store name, items breakdown, and total.
 """
