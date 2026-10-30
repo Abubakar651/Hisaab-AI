@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HisaabAI — Voice & Text Expense Tracker</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
-  
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+
   <!-- Google Fonts: Noto Nastaliq Urdu (Official Nastaleeq Font from Google) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
 
   <!-- Jameel Noori Nastaleeq Web Font CDN -->
   <link href="https://cdn.jsdelivr.net/npm/jameel-noori@1.1.2/jameel-noori.min.css" rel="stylesheet">
@@ -56,8 +59,8 @@
     @font-face {
       font-family: 'Jameel Noori Nastaleeq';
       src: local('Jameel Noori Nastaleeq'),
-           local('Noori Nastaleeq'),
-           url('https://cdn.jsdelivr.net/gh/tariq-abdullah/urdu-web-font-CDN/JameelNooriNastaleeq.woff') format('woff');
+        local('Noori Nastaleeq'),
+        url('https://cdn.jsdelivr.net/gh/tariq-abdullah/urdu-web-font-CDN/JameelNooriNastaleeq.woff') format('woff');
       font-weight: normal;
       font-style: normal;
       font-display: swap;
@@ -68,43 +71,55 @@
     .urdu-text,
     [dir="rtl"] {
       font-family: 'Jameel Noori Nastaleeq', 'Noori Nastaleeq', 'Noto Nastaliq Urdu', 'Urdu Typesetting', serif;
-      line-height: 2.3 !important;
-      font-size: 1.125rem;
+      line-height: 2.5 !important;
+      font-size: 1.35rem;
+      word-spacing: 4px;
+      letter-spacing: 0.5px;
     }
+
     @media (min-width: 640px) {
+
       .font-nastaleeq,
       .urdu-text,
       [dir="rtl"] {
-        font-size: 1.25rem;
+        font-size: 1.5rem;
+        word-spacing: 5px;
       }
     }
 
     /* ChatGPT & Gemini-style chat typography */
     .prose {
-      font-size: 0.95rem !important;
+      font-size: 1.1rem !important;
       line-height: 1.75 !important;
     }
+
     @media (min-width: 640px) {
       .prose {
-        font-size: 1.025rem !important;
-        line-height: 1.8 !important;
+        font-size: 1.18rem !important;
+        line-height: 1.85 !important;
       }
     }
+
     .prose p {
       margin-top: 0.45rem;
       margin-bottom: 0.45rem;
     }
-    .prose ul, .prose ol {
+
+    .prose ul,
+    .prose ol {
       margin-top: 0.45rem;
       margin-bottom: 0.45rem;
       padding-left: 1.25rem;
     }
+
     .prose li {
       margin-top: 0.25rem;
       margin-bottom: 0.25rem;
     }
+
     .prose strong {
-      color: #34d399; /* soft emerald accent for bold amounts/items */
+      color: #34d399;
+      /* soft emerald accent for bold amounts/items */
       font-weight: 600;
     }
 
@@ -113,44 +128,65 @@
       width: 6px;
       height: 6px;
     }
+
     ::-webkit-scrollbar-track {
       background: #0f172a;
     }
+
     ::-webkit-scrollbar-thumb {
       background: #334155;
       border-radius: 9999px;
     }
+
     ::-webkit-scrollbar-thumb:hover {
       background: #475569;
     }
-    
+
     @keyframes pulse-ring {
-      0% { transform: scale(0.95); opacity: 0.8; }
-      50% { transform: scale(1.15); opacity: 0.4; }
-      100% { transform: scale(0.95); opacity: 0.8; }
+      0% {
+        transform: scale(0.95);
+        opacity: 0.8;
+      }
+
+      50% {
+        transform: scale(1.15);
+        opacity: 0.4;
+      }
+
+      100% {
+        transform: scale(0.95);
+        opacity: 0.8;
+      }
     }
+
     .recording-ring {
       animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
   </style>
 </head>
-<body class="bg-surface-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+<body
+  class="bg-surface-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
 
   <!-- Toast Notification Container -->
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
   <!-- Microphone Permission Guide Modal -->
-  <div id="mic-permission-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-surface-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative text-slate-200 animate-in fade-in zoom-in duration-200">
-      
+  <div id="mic-permission-modal"
+    class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      class="bg-surface-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative text-slate-200 animate-in fade-in zoom-in duration-200">
+
       <!-- Close Button -->
-      <button id="close-mic-modal-btn" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+      <button id="close-mic-modal-btn"
+        class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
 
       <!-- Header Icon & Title -->
       <div class="flex items-center gap-3 mb-4">
-        <div class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+        <div
+          class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
           <i data-lucide="mic-off" class="w-6 h-6"></i>
         </div>
         <div>
@@ -160,25 +196,34 @@
       </div>
 
       <!-- Explanation & Steps -->
-      <div class="bg-surface-850 border border-slate-800 rounded-xl p-3.5 mb-4 text-xs space-y-2.5 leading-relaxed text-slate-300">
-        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium flex items-start gap-2">
+      <div
+        class="bg-surface-850 border border-slate-800 rounded-xl p-3.5 mb-4 text-xs space-y-2.5 leading-relaxed text-slate-300">
+        <div
+          class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium flex items-start gap-2">
           <i data-lucide="info" class="w-4 h-4 shrink-0 text-amber-400 mt-0.5"></i>
-          <span><strong>Why Chrome blocked it:</strong> You accessed via <code>http://0.0.0.0:8000</code>. Google Chrome completely disables the microphone on <code>0.0.0.0</code> for privacy. It only allows it on <strong><code>http://localhost:8000</code></strong>.</span>
+          <span><strong>Why Chrome blocked it:</strong> You accessed via <code>http://0.0.0.0:8000</code>. Google Chrome
+            completely disables the microphone on <code>0.0.0.0</code> for privacy. It only allows it on
+            <strong><code>http://localhost:8000</code></strong>.</span>
         </div>
         <p class="font-semibold text-slate-200">How to fix in 5 seconds:</p>
         <div class="flex items-start gap-2.5">
-          <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-          <span>Open <strong><a href="http://localhost:8000" class="text-emerald-400 underline hover:text-emerald-300 font-mono">http://localhost:8000</a></strong> in your browser address bar.</span>
+          <span
+            class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
+          <span>Open <strong><a href="http://localhost:8000"
+                class="text-emerald-400 underline hover:text-emerald-300 font-mono">http://localhost:8000</a></strong>
+            in your browser address bar.</span>
         </div>
         <div class="flex items-start gap-2.5">
-          <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
+          <span
+            class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
           <span>When prompted by Chrome, click <strong>"Allow"</strong> for microphone access.</span>
         </div>
       </div>
 
       <!-- Actions -->
       <div class="flex gap-2 justify-end">
-        <a href="http://localhost:8000" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-xs font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5">
+        <a href="http://localhost:8000"
+          class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-xs font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5">
           <i data-lucide="external-link" class="w-4 h-4"></i> Open http://localhost:8000
         </a>
       </div>
@@ -189,10 +234,11 @@
   <!-- Top Navbar -->
   <header class="bg-surface-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-4 lg:px-6 py-3">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-      
+
       <!-- Brand & Title -->
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white">
+        <div
+          class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white">
           <i data-lucide="wallet" class="w-5 h-5"></i>
         </div>
         <div>
@@ -200,7 +246,8 @@
             <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
               Hisaab<span class="text-emerald-400">AI</span>
             </h1>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+            <span
+              class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
               Urdu • Punjabi • English
             </span>
           </div>
@@ -210,21 +257,14 @@
 
       <!-- User Identification & Switcher -->
       <div class="flex items-center gap-2">
-        <div class="flex items-center bg-surface-800 border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:border-emerald-500 transition-colors">
+        <div
+          class="flex items-center bg-surface-800 border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:border-emerald-500 transition-colors">
           <i data-lucide="user" class="w-4 h-4 text-emerald-400 mr-2 shrink-0"></i>
           <span class="text-xs text-slate-400 mr-1.5 hidden md:inline">User ID:</span>
-          <input 
-            type="text" 
-            id="user-id-input" 
-            value="bakar" 
-            placeholder="Enter username" 
-            class="bg-transparent text-xs sm:text-sm font-medium text-emerald-300 focus:outline-none w-24 sm:w-28"
-          />
-          <button 
-            id="switch-user-btn" 
-            title="Switch User"
-            class="ml-1 p-1 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          >
+          <input type="text" id="user-id-input" value="bakar" placeholder="Enter username"
+            class="bg-transparent text-xs sm:text-sm font-medium text-emerald-300 focus:outline-none w-24 sm:w-28" />
+          <button id="switch-user-btn" title="Switch User"
+            class="ml-1 p-1 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">
             <i data-lucide="check" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -232,9 +272,15 @@
         <!-- Quick Switch Preset Chips -->
         <div class="hidden lg:flex items-center gap-1.5 text-xs text-slate-400">
           <span class="text-[11px]">Quick:</span>
-          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="bakar">bakar</button>
-          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="ali">ali</button>
-          <button class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors" data-user="home">home</button>
+          <button
+            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
+            data-user="bakar">bakar</button>
+          <button
+            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
+            data-user="ali">ali</button>
+          <button
+            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
+            data-user="home">home</button>
         </div>
       </div>
 
@@ -243,24 +289,28 @@
 
   <!-- Mobile Tab Switcher (Visible on mobile/tablet) -->
   <div class="lg:hidden bg-surface-900 border-b border-slate-800 px-4 py-2 flex gap-2">
-    <button id="tab-chat" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors">
+    <button id="tab-chat"
+      class="flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors">
       <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
       Chat & Voice
     </button>
-    <button id="tab-dashboard" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors">
+    <button id="tab-dashboard"
+      class="flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors">
       <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
       Live Ledger
     </button>
   </div>
 
   <!-- Main Dual-Pane Layout -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
-    
+  <main
+    class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
+
     <!-- ========================================================================= -->
     <!-- LEFT PANE: Chat & Voice Interface (7 Cols on desktop) -->
     <!-- ========================================================================= -->
-    <section id="chat-pane" class="lg:col-span-7 flex flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
-      
+    <section id="chat-pane"
+      class="lg:col-span-7 flex flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
+
       <!-- Chat Header -->
       <div class="px-4 py-3 border-b border-slate-800/80 bg-surface-850/60 flex items-center justify-between">
         <div class="flex items-center gap-2">
@@ -269,46 +319,65 @@
             Active Session: <span id="active-user-display" class="font-bold text-emerald-400">bakar</span>
           </span>
         </div>
-        <button id="clear-chat-btn" class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 hover:underline">
+        <button id="clear-chat-btn"
+          class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 hover:underline">
           <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Clear Screen
         </button>
       </div>
 
       <!-- Quick Suggestion Chips -->
-      <div class="px-4 py-2 border-b border-slate-800/60 bg-surface-900/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
-        <span class="text-slate-400 shrink-0 text-[11px]"><i data-lucide="sparkles" class="w-3 h-3 inline text-emerald-400 mr-0.5"></i> Try:</span>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi">
+      <div
+        class="px-4 py-2 border-b border-slate-800/60 bg-surface-900/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+        <span class="text-slate-400 shrink-0 text-[11px]"><i data-lucide="sparkles"
+            class="w-3 h-3 inline text-emerald-400 mr-0.5"></i> Try:</span>
+        <button
+          class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors"
+          data-prompt="Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi">
           🛒 Punjabi: Imtiaz 1500 oil, 450 bread
         </button>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] font-nastaleeq transition-colors" data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
+        <button
+          class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] font-nastaleeq transition-colors"
+          data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
           🇵🇰 اردو: الفتح گروسری 3200
         </button>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Mera is mahine Imtiaz te kinna kharcha hoya?">
+        <button
+          class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors"
+          data-prompt="Mera is mahine Imtiaz te kinna kharcha hoya?">
           🔍 Query: Imtiaz total this month?
         </button>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="What did I spend in the last 3 days?">
+        <button
+          class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors"
+          data-prompt="What did I spend in the last 3 days?">
           📅 Query: Last 3 days spending
         </button>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Delete my last entry">
+        <button
+          class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors"
+          data-prompt="Delete my last entry">
           🗑️ Undo last entry
         </button>
       </div>
 
       <!-- Messages Scroll Area -->
       <div id="messages-container" class="flex-1 p-4 overflow-y-auto space-y-4">
-        
+
         <!-- Welcome Message -->
         <div class="flex gap-3 max-w-2xl">
-          <div class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
+          <div
+            class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
             <i data-lucide="bot" class="w-5 h-5"></i>
           </div>
-          <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 text-sm sm:text-base text-slate-200 shadow-sm leading-relaxed">
+          <div
+            class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 text-sm sm:text-base text-slate-200 shadow-sm leading-relaxed">
             <p class="font-bold text-emerald-400 mb-2 flex items-center gap-1.5 text-base sm:text-lg">
               <span>Assalam-o-Alaikum! Welcome to HisaabAI.</span>
             </p>
-            <p class="text-slate-300">You can record your daily expenses by <strong>typing</strong> or tapping the <strong>microphone</strong> button below in:</p>
+            <p class="text-slate-300">You can record your daily expenses by <strong>typing</strong> or tapping the
+              <strong>microphone</strong> button below in:
+            </p>
             <ul class="list-disc pl-5 mt-3 space-y-2 text-slate-300 text-sm sm:text-[15px]">
-              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span class="font-nastaleeq text-base sm:text-lg text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان لیا"</span></li>
+              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span
+                  class="font-nastaleeq text-base sm:text-lg text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان
+                  لیا"</span></li>
               <li><strong>Punjabi (پنجابی):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
               <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
               <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
@@ -319,7 +388,8 @@
       </div>
 
       <!-- Voice Recording Status Banner (Visible during recording) -->
-      <div id="recording-banner" class="hidden px-4 py-2.5 bg-rose-950/70 border-t border-rose-500/30 flex items-center justify-between transition-all">
+      <div id="recording-banner"
+        class="hidden px-4 py-2.5 bg-rose-950/70 border-t border-rose-500/30 flex items-center justify-between transition-all">
         <div class="flex items-center gap-3">
           <div class="relative flex items-center justify-center w-4 h-4">
             <span class="absolute w-4 h-4 rounded-full bg-rose-500 recording-ring"></span>
@@ -328,7 +398,8 @@
           <span class="text-xs font-semibold text-rose-300 flex items-center gap-1.5">
             Recording voice note in Urdu/Punjabi/English...
           </span>
-          <span id="recording-timer" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700/50">00:00</span>
+          <span id="recording-timer"
+            class="text-xs font-mono px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700/50">00:00</span>
         </div>
         <button id="cancel-recording-btn" class="text-xs text-rose-300 hover:text-white underline">Cancel</button>
       </div>
@@ -336,34 +407,24 @@
       <!-- Bottom Chat Composer -->
       <div class="p-3 sm:p-4 border-t border-slate-800/80 bg-surface-850/80">
         <form id="chat-form" class="flex items-end gap-2">
-          
+
           <!-- Text Input Container -->
-          <div class="flex-1 bg-surface-900 border border-slate-700 rounded-xl focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all p-2 flex items-center">
-            <textarea 
-              id="message-input" 
-              rows="1" 
-              placeholder="Type your expense or ask a question in Urdu, Punjabi, English..." 
-              class="w-full bg-transparent px-3 py-1.5 text-sm sm:text-base text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-36 leading-relaxed"
-            ></textarea>
+          <div
+            class="flex-1 bg-surface-900 border border-slate-700 rounded-xl focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all p-2 flex items-center">
+            <textarea id="message-input" rows="1"
+              placeholder="Type your expense or ask a question in Urdu, Punjabi, English..."
+              class="w-full bg-transparent px-3 py-1.5 text-sm sm:text-base text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-36 leading-relaxed"></textarea>
           </div>
 
           <!-- Microphone Record Button -->
-          <button 
-            type="button" 
-            id="mic-btn" 
-            title="Record Voice Note"
-            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-emerald-400 flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-sm"
-          >
+          <button type="button" id="mic-btn" title="Record Voice Note"
+            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-emerald-400 flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-sm">
             <i data-lucide="mic" id="mic-icon" class="w-5 h-5"></i>
           </button>
 
           <!-- Send Text Button -->
-          <button 
-            type="submit" 
-            id="send-btn" 
-            title="Send Message"
-            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
-          >
+          <button type="submit" id="send-btn" title="Send Message"
+            class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-lg shadow-emerald-600/20 disabled:opacity-50">
             <i data-lucide="send" class="w-4 h-4"></i>
           </button>
 
@@ -378,37 +439,38 @@
     <!-- ========================================================================= -->
     <!-- RIGHT PANE: Live Ledger & Analytics Dashboard (5 Cols on desktop) -->
     <!-- ========================================================================= -->
-    <section id="dashboard-pane" class="hidden lg:flex lg:col-span-5 flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
-      
+    <section id="dashboard-pane"
+      class="hidden lg:flex lg:col-span-5 flex-col bg-surface-900/70 border border-slate-800 rounded-2xl shadow-xl overflow-hidden min-h-[550px] lg:min-h-0">
+
       <!-- Dashboard Header -->
       <div class="px-4 py-3 border-b border-slate-800/80 bg-surface-850/60 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
           <h2 class="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider">Live Expense Ledger</h2>
         </div>
-        <button 
-          id="refresh-dashboard-btn" 
-          title="Refresh Ledger" 
-          class="p-1.5 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors"
-        >
+        <button id="refresh-dashboard-btn" title="Refresh Ledger"
+          class="p-1.5 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
         </button>
       </div>
 
       <!-- Dashboard Scrollable Body -->
       <div class="flex-1 p-4 overflow-y-auto space-y-4">
-        
+
         <!-- KPI Cards Grid -->
         <div class="grid grid-cols-2 gap-3">
-          
+
           <!-- Card 1: Monthly Total -->
-          <div class="col-span-2 bg-gradient-to-br from-emerald-950/50 to-surface-850 border border-emerald-500/20 rounded-xl p-3.5 shadow-sm">
+          <div
+            class="col-span-2 bg-gradient-to-br from-emerald-950/50 to-surface-850 border border-emerald-500/20 rounded-xl p-3.5 shadow-sm">
             <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
               <span>This Month's Spending</span>
-              <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-400"><i data-lucide="trending-up" class="w-3.5 h-3.5"></i></span>
+              <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-400"><i data-lucide="trending-up"
+                  class="w-3.5 h-3.5"></i></span>
             </div>
             <div class="flex items-baseline gap-1.5">
-              <span class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight" id="kpi-monthly-total">PKR 0</span>
+              <span class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight" id="kpi-monthly-total">PKR
+                0</span>
             </div>
             <p class="text-[11px] text-slate-400 mt-1">Based on current calendar month</p>
           </div>
@@ -521,9 +583,9 @@
     function initApp() {
       elements.userIdInput.value = state.userId;
       elements.activeUserDisplay.textContent = state.userId;
-      
+
       // Auto-resize textarea and auto-detect Nastaleeq script
-      elements.messageInput.addEventListener('input', function() {
+      elements.messageInput.addEventListener('input', function () {
         this.style.height = 'auto';
         this.style.height = (this.scrollHeight) + 'px';
 
@@ -537,7 +599,7 @@
       });
 
       // Enter key sends message (Shift+Enter for new line)
-      elements.messageInput.addEventListener('keydown', function(e) {
+      elements.messageInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           elements.chatForm.dispatchEvent(new Event('submit'));
@@ -588,7 +650,7 @@
         state.chatHistory = [];
         const fd = new FormData();
         fd.append('user_id', state.userId);
-        fetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => {});
+        fetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
         showToast('Chat history cleared from view', 'info');
       });
 
@@ -629,7 +691,7 @@
       localStorage.setItem('hisaab_user_id', clean);
       elements.userIdInput.value = clean;
       elements.activeUserDisplay.textContent = clean;
-      
+
       showToast(`Switched account to: ${clean}`, 'success');
       appendSystemMessage(`Active user switched to **${clean}**. All transactions and queries are isolated to this account.`);
       fetchDashboard();
@@ -748,7 +810,7 @@
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
+
         let mimeType = 'audio/webm;codecs=opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) {
           mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
@@ -830,7 +892,7 @@
       wrapper.className = 'flex justify-end gap-2.5 max-w-2xl ml-auto';
 
       const isUrdu = isUrduScript(text);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-base sm:text-lg leading-loose text-right' : 'text-sm sm:text-base leading-relaxed';
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-lg sm:text-xl leading-loose text-right' : 'text-base sm:text-lg leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
 
       let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
@@ -859,7 +921,7 @@
       wrapper.className = 'flex gap-3 max-w-2xl';
 
       const isUrdu = isUrduScript(markdownContent);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-base sm:text-lg leading-loose' : 'text-sm sm:text-base leading-relaxed';
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-lg sm:text-xl leading-loose' : 'text-base sm:text-lg leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
       const parsedHtml = marked.parse(markdownContent || '');
 
@@ -995,7 +1057,7 @@
       txs.forEach(tx => {
         const card = document.createElement('div');
         card.className = 'bg-surface-850/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3 transition-colors shadow-sm';
-        
+
         let itemsHtml = '';
         if (tx.items && tx.items.length > 0) {
           const itemsBadges = tx.items.map(it => `
@@ -1136,5 +1198,5 @@
     document.addEventListener('DOMContentLoaded', initApp);
   </script>
 </body>
-</html>
 
+</html>
