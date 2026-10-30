@@ -10,7 +10,7 @@ from sqlalchemy import (
     Float,
     DateTime,
     ForeignKey,
-    Text,
+    Text,   
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 
