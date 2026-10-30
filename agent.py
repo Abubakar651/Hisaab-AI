@@ -40,6 +40,7 @@ def get_chat_llm() -> ChatGroq:
             model=_VALIDATED_MODEL,
             temperature=0,
             max_tokens=800,
+            max_retries=3,
             groq_api_key=os.getenv("GROQ_API_KEY"),
         )
 
@@ -60,6 +61,7 @@ def get_chat_llm() -> ChatGroq:
                 model=_VALIDATED_MODEL,
                 temperature=0,
                 max_tokens=800,
+                max_retries=3,
                 groq_api_key=os.getenv("GROQ_API_KEY"),
             )
         except Exception as e:
