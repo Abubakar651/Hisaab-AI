@@ -15,7 +15,15 @@ from langchain_groq import ChatGroq
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem
+from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense
+from analytics import (
+    normalize_payment_method,
+    detect_payment_method,
+    budget_status,
+    recurring_status,
+    month_start,
+    pay_recurring,
+)
 
 load_dotenv()
 logger = logging.getLogger("hisaab_ai.agent")
@@ -23,9 +31,9 @@ logger = logging.getLogger("hisaab_ai.agent")
 # Initialize Groq client for Whisper ASR
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# Default model preference with fallback list
-PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-120b")
-MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3.8-27b"]
+# Default model preference with fallback list matching active Groq account models
+PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-20b")
+MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
 
 _VALIDATED_MODEL = None
 
@@ -155,6 +163,44 @@ class LogExpenseInput(BaseModel):
         default=None,
         description="Date of transaction in YYYY-MM-DD format. Resolves relative terms like 'aaj' (today), 'kal' (yesterday). Defaults to today.",
     )
+    payment_method: Optional[str] = Field(
+        default="cash",
+        description="How it was paid: 'cash' (default), 'easypaisa', 'jazzcash', 'card', 'bank_transfer'. Use 'card' for debit/credit card, 'bank_transfer' for IBFT/Raast/bank app, SadaPay/NayaPay count as 'card'.",
+    )
+
+
+class SetBudgetInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    monthly_limit: float = Field(description="Monthly budget limit in PKR")
+    category: Optional[str] = Field(
+        default="total",
+        description="Category the budget applies to (groceries, fuel, dining, utilities...) or 'total' for the overall monthly budget",
+    )
+
+
+class AddRecurringInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    title: str = Field(description="Name of the obligation, e.g. 'house rent', 'lesco bill', 'bc committee', 'school fee'")
+    amount: float = Field(description="Monthly amount in PKR")
+    due_day: int = Field(default=1, description="Day of month (1-28) it is due")
+    category: Optional[str] = Field(default="utilities", description="Category, e.g. 'utilities', 'rent', 'education', 'other'")
+
+
+class MarkRecurringPaidInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    title: str = Field(description="Title (or part of it) of the recurring obligation that was paid this month")
+
+
+class GetBudgetStatusInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    refresh: Optional[bool] = Field(
+        default=True,
+        description="Whether to fetch the latest budget and recurring bill status",
+    )
 
 
 class QueryExpensesInput(BaseModel):
@@ -179,6 +225,10 @@ class QueryExpensesInput(BaseModel):
     category: Optional[str] = Field(
         default=None,
         description="Category filter, e.g. 'groceries', 'fuel', 'dining'",
+    )
+    payment_method: Optional[str] = Field(
+        default=None,
+        description="Payment method filter: 'cash', 'easypaisa', 'jazzcash', 'card', 'bank_transfer'",
     )
 
 
@@ -218,7 +268,7 @@ def build_system_prompt() -> str:
 - 7 Days Ago: {seven_days_ago_str}
 
 ### MANDATORY TOOL CALLING:
-You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, and `delete_last_transaction`.
+You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, and `mark_recurring_paid`.
 1. **WHEN AN EXPENSE IS MENTIONED:**
    - Any time the user states or implies buying items, spending money, or shopping:
      **YOU MUST CALL `log_expense`**.
@@ -233,6 +283,17 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
 3. **WHEN UNDO / DELETE IS REQUESTED:**
    - Any time user asks to delete their last entry ("delete my last entry", "pichla record mita do", "ghalat likha gaya"):
      **YOU MUST CALL `delete_last_transaction`**.
+4. **PAYMENT METHOD (always pass `payment_method` to `log_expense`):**
+   - Default is `"cash"`. Detect: "card se" / "debit card" / "SadaPay" / "NayaPay" -> `card`; "easypaisa" -> `easypaisa`; "jazzcash" / "jazz cash" -> `jazzcash`; "bank transfer" / "raast" / "IBFT" -> `bank_transfer`.
+   - For questions like "card se kitna kharcha hua" call `query_expenses` with `payment_method`.
+5. **BUDGETS & ALERTS:**
+   - "mera mahana budget 50000 hai" / "fuel ka budget 15000" -> **CALL `set_budget`** (category `total` for the overall budget).
+   - "mera budget kitna bacha hai" / "budget status" -> **CALL `get_budget_status`**.
+   - After `log_expense`, if the result contains `budget_alerts`, ALWAYS warn the user in their language, quoting the exact `percent`, `spent_pkr` and `monthly_limit` values from the tool (e.g. "fuel ka budget 82% khatam ho chuka hai").
+6. **RECURRING MONTHLY BILLS (rent, electricity bill, school fee, committee):**
+   - "har mahine 1 tareekh ko 35000 kiraya" -> **CALL `add_recurring_expense`**.
+   - "is mahine ka kiraya / bill ada kar diya" / "paid electricity bill" -> **CALL `mark_recurring_paid`** with `title` (e.g. `title="electricity bill"` or `title="kiraya"`). **NEVER ask the user for the amount** because the recurring amount is already saved in the database! `mark_recurring_paid` automatically retrieves the saved amount and logs the expense.
+   - "kaun se bills baqi hain" -> **CALL `get_budget_status`** and list recurring items where `paid_this_month` is false.
 
 ### SMART DEFAULTS & TRANSACTION ISOLATION:
 - **DO NOT INTERROGATE THE USER:** Never refuse to log an expense or repeatedly question the user if they did not provide a branded store name or exact item breakdown.
@@ -377,6 +438,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         items: Optional[Any] = None,
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
+        payment_method: Optional[str] = "cash",
     ) -> str:
         """Logs an expense transaction with line items into the database for the current user."""
         db: Session = SessionLocal()
@@ -475,6 +537,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 total_amount=round(final_total, 2),
                 transaction_date=tx_date,
                 raw_transcript=raw_transcript or None,
+                payment_method=detect_payment_method(payment_method, raw_transcript),
             )
             db.add(tx)
             db.flush()  # Populates tx.id
@@ -521,6 +584,11 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             db.commit()
             db.refresh(tx)
 
+            # Deterministic budget alerts (computed by SQL, reported verbatim by the agent)
+            alerts = [
+                b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+            ]
+
             result = {
                 "status": "success",
                 "message": "Expense successfully recorded.",
@@ -528,9 +596,11 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "user_id": user_id,
                 "store_name": canonical_store,
                 "total_amount_pkr": round(final_total, 2),
+                "payment_method": tx.payment_method,
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
                 "items_count": len(logged_items),
                 "items": logged_items,
+                "budget_alerts": alerts,
             }
             return json.dumps(result, ensure_ascii=False)
         except Exception as e:
@@ -547,8 +617,9 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         store_name: Optional[str] = None,
         item_name: Optional[str] = None,
         category: Optional[str] = None,
+        payment_method: Optional[str] = None,
     ) -> str:
-        """Queries expenses and totals for the current user with date, store, item, or category filters."""
+        """Queries expenses and totals for the current user with date, store, item, category, or payment-method filters."""
         db: Session = SessionLocal()
         try:
             query = db.query(Transaction).filter(Transaction.user_id == user_id)
@@ -594,6 +665,11 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     )
                 )
 
+            if payment_method:
+                query = query.filter(
+                    Transaction.payment_method == normalize_payment_method(payment_method)
+                )
+
             transactions = query.order_by(Transaction.transaction_date.desc()).all()
 
             total_spent = sum(tx.total_amount for tx in transactions)
@@ -617,6 +693,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                         if cleaned_item in it.item_name.lower():
                             item_specific_total += it.price
 
+            # Deterministic spending split per payment method
+            payment_totals: Dict[str, float] = {}
+            for tx in transactions:
+                pm = tx.payment_method or "cash"
+                payment_totals[pm] = payment_totals.get(pm, 0.0) + tx.total_amount
+
             tx_list = []
             for tx in transactions[:15]:  # Return up to 15 recent matching transactions
                 tx_list.append(
@@ -624,6 +706,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                         "id": tx.id,
                         "store_name": tx.store_name,
                         "total_amount_pkr": round(tx.total_amount, 2),
+                        "payment_method": tx.payment_method or "cash",
                         "date": tx.transaction_date.strftime("%Y-%m-%d"),
                         "items": [
                             {
@@ -644,6 +727,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "total_spent_pkr": round(total_spent, 2),
                 "spending_by_store": {k: round(v, 2) for k, v in store_totals.items()},
                 "spending_by_category": {k: round(v, 2) for k, v in category_totals.items()},
+                "spending_by_payment_method": {k: round(v, 2) for k, v in payment_totals.items()},
                 "transactions": tx_list,
             }
 
@@ -703,7 +787,135 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         finally:
             db.close()
 
-    return [log_expense, query_expenses, delete_last_transaction]
+    @tool("set_budget", args_schema=SetBudgetInput)
+    def set_budget(monthly_limit: float, category: Optional[str] = "total") -> str:
+        """Sets (or updates) the monthly budget for the current user, overall ('total') or for one category, and returns live usage."""
+        db: Session = SessionLocal()
+        try:
+            cat = (category or "total").strip().lower()
+            if cat in ("overall", "all", "kul", "monthly"):
+                cat = "total"
+            if monthly_limit is None or float(monthly_limit) <= 0:
+                return json.dumps({"status": "error", "message": "Budget must be greater than 0."})
+            b = (
+                db.query(Budget)
+                .filter(Budget.user_id == user_id, Budget.category == cat)
+                .first()
+            )
+            if b:
+                b.monthly_limit = float(monthly_limit)
+            else:
+                db.add(Budget(user_id=user_id, category=cat, monthly_limit=float(monthly_limit)))
+            db.commit()
+            status = [s for s in budget_status(db, user_id) if s["category"] == cat]
+            return json.dumps(
+                {"status": "success", "message": "Budget saved.", "budget": status[0] if status else None},
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error setting budget for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    @tool("get_budget_status", args_schema=GetBudgetStatusInput)
+    def get_budget_status(refresh: bool = True) -> str:
+        """Returns spent / limit / remaining / percent for every budget and the status of recurring monthly bills (paid or pending)."""
+        db: Session = SessionLocal()
+        try:
+            return json.dumps(
+                {
+                    "status": "success",
+                    "budgets": budget_status(db, user_id),
+                    "recurring": recurring_status(db, user_id),
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            logger.error(f"Error reading budgets for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    @tool("add_recurring_expense", args_schema=AddRecurringInput)
+    def add_recurring_expense(
+        title: str,
+        amount: float,
+        due_day: int = 1,
+        category: Optional[str] = "utilities",
+    ) -> str:
+        """Registers a monthly recurring obligation (rent, bill, school fee, BC committee) with its due day."""
+        db: Session = SessionLocal()
+        try:
+            clean_title = (title or "").strip().lower()
+            if not clean_title or amount is None or float(amount) <= 0:
+                return json.dumps({"status": "error", "message": "Title and a positive amount are required."})
+            day = min(max(int(due_day or 1), 1), 28)
+            existing = (
+                db.query(RecurringExpense)
+                .filter(RecurringExpense.user_id == user_id, RecurringExpense.title == clean_title)
+                .first()
+            )
+            if existing:
+                existing.amount = float(amount)
+                existing.due_day = day
+                existing.category = (category or "utilities").strip().lower()
+            else:
+                db.add(
+                    RecurringExpense(
+                        user_id=user_id,
+                        title=clean_title,
+                        amount=float(amount),
+                        due_day=day,
+                        category=(category or "utilities").strip().lower(),
+                    )
+                )
+            db.commit()
+            return json.dumps(
+                {"status": "success", "message": "Recurring expense saved.", "recurring": recurring_status(db, user_id)},
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error adding recurring expense for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    @tool("mark_recurring_paid", args_schema=MarkRecurringPaidInput)
+    def mark_recurring_paid(title: str) -> str:
+        """Marks a recurring obligation as paid for the current month AND automatically logs it as an expense using its saved amount. NEVER ask the user for the amount."""
+        db: Session = SessionLocal()
+        try:
+            needle = (title or "").strip().lower()
+            item = (
+                db.query(RecurringExpense)
+                .filter(RecurringExpense.user_id == user_id, RecurringExpense.title.ilike(f"%{needle}%"))
+                .first()
+            )
+            if not item:
+                return json.dumps({"status": "not_found", "message": f"No recurring expense matching '{title}'."})
+            return json.dumps(
+                pay_recurring(db, user_id, item, raw_transcript=raw_transcript),
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error marking recurring paid for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    return [
+        log_expense,
+        query_expenses,
+        delete_last_transaction,
+        set_budget,
+        get_budget_status,
+        add_recurring_expense,
+        mark_recurring_paid,
+    ]
 
 
 # ---------------------------------------------------------------------------
