@@ -13,6 +13,7 @@ from database import (
     RecurringExpense,
     UserAccount,
     LoginAttempt,
+    PendingTransaction,
     get_pkt_now,
 )
 from analytics import (
@@ -23,6 +24,7 @@ from analytics import (
     export_rows,
     sanitize_csv_cell,
 )
+import analytics
 from agent import get_tools_for_user
 import main
 
@@ -952,16 +954,223 @@ def test_phone_pre_hijack_takeover_and_data_cleanup(client, db):
     )
     assert resp_attacker_login.status_code == 401
 
-    # 6. Attacker's pre-seeded transactions must NOT be visible to victim
+    # 6. Pre-existing transactions & budgets must be PRESERVED for the legitimate user
     resp_victim_ledger = client.get(
         f"/api/transactions/{victim_phone}",
         headers={"Authorization": f"Bearer {victim_token}"},
     )
     assert resp_victim_ledger.status_code == 200
     ledger_data = resp_victim_ledger.json()
-    assert ledger_data["monthly_total"] == 0.0, "Attacker pre-seeded transactions must be wiped/soft-deleted"
-    assert len(ledger_data["recent_transactions"]) == 0
-    assert len(ledger_data["budgets"]) == 0, "Pre-seeded budgets must be cleaned up"
+    assert ledger_data["monthly_total"] == 5000.0, "Pre-existing transactions must be preserved for verified user"
+    assert len(ledger_data["recent_transactions"]) == 1
+    assert ledger_data["recent_transactions"][0]["store_name"] == "attacker evil store"
+    assert len(ledger_data["budgets"]) == 1, "Pre-existing budgets must be preserved"
+
+
+def test_email_squat_reclaim(client, db):
+    """
+    Regression: Attacker squats victim's email address using password registration and creates transactions.
+    When the legitimate victim signs in with verified Google OAuth:
+    - Attacker password_hash is wiped (set to None)
+    - Attacker's active session token is immediately revoked (401)
+    - Attacker cannot log in with the old password (401)
+    - Legitimate user's token works and prior ledger data (transactions & budgets) is preserved
+    - Account identity_verified is marked True and provider is updated to 'google'
+    """
+    victim_email = "victim_squat@example.com"
+
+    # 1. Attacker squats victim's email with password registration
+    resp_reg = client.post(
+        "/api/auth/register",
+        json={"name": "Attacker Squatter", "email_or_phone": victim_email, "password": "EvilPassword123!"},
+    )
+    assert resp_reg.status_code == 200
+    attacker_token = resp_reg.json()["token"]
+
+    # Attacker seeds transactions & budgets
+    db.add(
+        Transaction(
+            user_id=victim_email,
+            store_name="grocery store",
+            total_amount=3500.0,
+            transaction_date=get_pkt_now(),
+            payment_method="cash",
+        )
+    )
+    db.add(Budget(user_id=victim_email, category="total", monthly_limit=40000.0))
+    db.commit()
+
+    # 2. Legitimate victim signs in with verified Google token
+    project_id = "test-hisaab-ai-project"
+    google_claims = {
+        "email": victim_email,
+        "email_verified": True,
+        "name": "Victim Owner",
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("main.verify_firebase_id_token", return_value=google_claims):
+        resp_google = client.post(
+            "/api/auth/login",
+            json={"provider": "google", "id_token": "valid_google_token"},
+        )
+        assert resp_google.status_code == 200
+        victim_token = resp_google.json()["token"]
+
+    # 3. Assert DB state
+    db.expire_all()
+    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
+    assert account.identity_verified is True
+    assert account.password_hash is None, "Password hash must be cleared upon verified Google claim"
+    assert account.auth_provider == "google"
+
+    # 4. Attacker token is revoked
+    resp_attacker_check = client.get(
+        f"/api/transactions/{victim_email}",
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp_attacker_check.status_code == 401, "Attacker old session must be rejected with 401"
+
+    # 5. Attacker cannot log in with password
+    resp_attacker_pw = client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": victim_email, "password": "EvilPassword123!"},
+    )
+    assert resp_attacker_pw.status_code == 401
+
+    # 6. Victim can access ledger and all data is preserved
+    resp_victim_ledger = client.get(
+        f"/api/transactions/{victim_email}",
+        headers={"Authorization": f"Bearer {victim_token}"},
+    )
+    assert resp_victim_ledger.status_code == 200
+    data = resp_victim_ledger.json()
+    assert data["monthly_total"] == 3500.0, "Transactions must be preserved for real user"
+    assert len(data["recent_transactions"]) == 1
+    assert len(data["budgets"]) == 1
+
+
+def test_rate_limit_per_account_lockout_across_ips(client, db):
+    """
+    Regression: A distributed brute-force attacker uses multiple IP addresses targeting a single account.
+    Even though each IP makes only 1 attempt, the per-account bucket must trigger 429 on the 11th attempt.
+    """
+    target_account = "victim_brute@example.com"
+    main.clear_failed_attempts(db, "global", "acct_login", target_account)
+
+    # Make 10 failed attempts from 10 distinct IP addresses
+    for i in range(10):
+        client_ip = f"10.200.1.{i + 1}"
+        main.clear_failed_attempts(db, client_ip, "login", target_account)
+        with patch("main.get_client_ip", return_value=client_ip):
+            resp = client.post(
+                "/api/auth/password-login",
+                json={"email_or_phone": target_account, "password": f"wrong_guess_{i}"},
+            )
+            assert resp.status_code == 401
+
+    # 11th attempt from an 11th new IP address must trigger HTTP 429 Too Many Requests
+    with patch("main.get_client_ip", return_value="10.200.1.99"):
+        resp_locked = client.post(
+            "/api/auth/password-login",
+            json={"email_or_phone": target_account, "password": "wrong_guess_11"},
+        )
+        assert resp_locked.status_code == 429, "Per-account lockout must trip across distributed IPs"
+
+
+def test_pending_confirm_single_transaction_rollback_restores_pending_row(client, db):
+    """
+    Regression: Atomic claim DELETE and transaction insert must happen in a single transaction.
+    If an unexpected database failure occurs before commit, rollback must restore the pending row.
+    """
+    user_id = "test_rollback_user@example.com"
+    db.add(UserAccount(user_id=user_id, auth_provider="guest", token_version=0))
+    now = get_pkt_now()
+    pending = PendingTransaction(
+        user_id=user_id,
+        store_name="Alfa Mall",
+        total_amount=25000000.0,
+        payment_method="cash",
+        raw_transcript="Alfa Mall se 250 lakh ka saman liya",
+        expires_at=now + timedelta(minutes=5),
+    )
+    db.add(pending)
+    db.commit()
+    pending_id = pending.id
+
+    # Simulate an error during Transaction creation/flushing
+    with patch.object(db, "flush", side_effect=RuntimeError("Simulated DB connection failure")):
+        with pytest.raises(RuntimeError):
+            analytics.commit_pending_transaction(db, user_id)
+
+    # Verify PendingTransaction row was restored by rollback
+    restored = db.query(PendingTransaction).filter(PendingTransaction.id == pending_id).first()
+    assert restored is not None, "Pending transaction must be restored if commit fails"
+    assert restored.total_amount == 25000000.0
+    # No Transaction was persisted
+    assert db.query(Transaction).filter(Transaction.user_id == user_id).count() == 0
+
+
+def test_expired_pending_transaction_cannot_be_claimed(client, db):
+    """
+    Regression: Expired pending transactions (expires_at <= now) must NOT be claimed by the DELETE WHERE clause.
+    Must return 409 Conflict.
+    """
+    user_id = "test_expired_claim_user@example.com"
+    db.add(UserAccount(user_id=user_id, auth_provider="guest", token_version=0))
+    now = get_pkt_now()
+    pending = PendingTransaction(
+        user_id=user_id,
+        store_name="Expired Store",
+        total_amount=15000000.0,
+        payment_method="cash",
+        expires_at=now - timedelta(seconds=15),  # Already expired
+    )
+    db.add(pending)
+    db.commit()
+
+    token = main.create_session_token(user_id, "guest")
+    resp = client.post(
+        "/api/transactions/pending/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 409
+    assert "expired" in resp.json()["detail"].lower()
+    assert db.query(Transaction).filter(Transaction.user_id == user_id).count() == 0
+
+
+def test_pending_buttons_restored_after_reload(client, db):
+    """
+    Regression: Active pending transaction is returned via GET /api/transactions/pending
+    so the UI can restore the confirm/cancel action buttons when the user reloads the page.
+    """
+    user_id = "test_reload_user@example.com"
+    db.add(UserAccount(user_id=user_id, auth_provider="guest", token_version=0))
+    now = get_pkt_now()
+    pending = PendingTransaction(
+        user_id=user_id,
+        store_name="Car Showroom",
+        total_amount=12000000.0,
+        payment_method="cash",
+        items_json=json.dumps([{"item_name": "Car", "price": 12000000.0, "quantity": 1.0}]),
+        expires_at=now + timedelta(minutes=5),
+    )
+    db.add(pending)
+    db.commit()
+
+    token = main.create_session_token(user_id, "guest")
+    resp = client.get(
+        "/api/transactions/pending",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pending"] is not None
+    assert data["pending"]["store_name"] == "Car Showroom"
+    assert data["pending"]["total_amount"] == 12000000.0
+    assert len(data["pending"]["items"]) == 1
+
 
 
 def test_rate_limit_x_forwarded_for_spoofing_prevented(client, db, monkeypatch):
@@ -1073,20 +1282,55 @@ def test_security_headers_middleware(client):
 def test_frontend_xss_sink_sanitization_and_integrity():
     """
     P1-3 Regression: templates/index.html must load DOMPurify with integrity/crossorigin,
-    must use DOMPurify.sanitize around marked.parse, and avatar photo_url must validate https protocol.
+    must use external /static/app.js without inline scripts, and must use DOMPurify.sanitize around marked.parse.
     """
     with open("templates/index.html", "r", encoding="utf-8") as f:
         html = f.read()
 
-    # DOMPurify loaded
+    # DOMPurify loaded with integrity
     assert "purify.min.js" in html or "DOMPurify" in html
     assert 'integrity="' in html, "External CDN scripts must be pinned with integrity attributes"
 
-    # marked.parse wrapped with DOMPurify.sanitize
-    assert "DOMPurify.sanitize(marked.parse(" in html
-    # Check that bare marked.parse without DOMPurify is not used for HTML injection
+    # External app.js loaded and NO inline <script> tags in index.html
+    assert '<script src="/static/app.js"></script>' in html
     import re
-    bare_marked = re.findall(r"(?<!DOMPurify\.sanitize\()marked\.parse\([^\)]+\)", html)
-    assert len(bare_marked) == 0, f"Found unsanitized marked.parse calls: {bare_marked}"
+    inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+    assert len(inline_scripts) == 0, f"Expected no inline scripts in index.html, found: {inline_scripts}"
+
+    # marked.parse wrapped with DOMPurify.sanitize inside static/app.js
+    with open("static/app.js", "r", encoding="utf-8") as f:
+        js = f.read()
+    assert "DOMPurify.sanitize(marked.parse(" in js
+    bare_marked = re.findall(r"(?<!DOMPurify\.sanitize\()marked\.parse\([^\)]+\)", js)
+    assert len(bare_marked) == 0, f"Found unsanitized marked.parse calls in static/app.js: {bare_marked}"
+
+
+def test_csp_no_unsafe_inline_in_script_src(client):
+    """
+    App's Content-Security-Policy must NOT contain 'unsafe-inline' in script-src.
+    """
+    resp = client.get("/")
+    assert resp.status_code == 200
+    csp = resp.headers.get("Content-Security-Policy", "")
+    import re
+    match = re.search(r"script-src\s+([^;]+)", csp)
+    assert match is not None, "CSP must contain script-src directive"
+    script_src = match.group(1)
+    assert "'unsafe-inline'" not in script_src, f"script-src must not allow 'unsafe-inline': {script_src}"
+
+
+def test_ui_pending_conflict_409_handling():
+    """
+    Regression: The frontend UI must catch HTTP 409 Conflict when confirming/cancelling pending transactions,
+    render a user-friendly Urdu/English warning message, and refresh the dashboard.
+    """
+    with open("static/app.js", "r", encoding="utf-8") as f:
+        js = f.read()
+
+    assert "resp.status === 409" in js, "UI script must check for HTTP 409 status code"
+    assert "Already confirmed, cancelled, or expired" in js, "UI must display conflict toast message on 409"
+    assert "fetchDashboard()" in js, "UI must refresh ledger dashboard on conflict"
+
+
 
 

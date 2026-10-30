@@ -414,25 +414,25 @@ def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
     raw_transcript = pending.raw_transcript
     items_json = pending.items_json
 
-    # Atomic claim: delete row matching id and active expiry in current transaction
-    deleted = (
-        db.query(PendingTransaction)
-        .filter(
-            PendingTransaction.id == pending_id,
-            PendingTransaction.user_id == user_id,
-            PendingTransaction.expires_at > now,
-        )
-        .delete(synchronize_session=False)
-    )
-
-    if deleted != 1:
-        db.rollback()
-        return {
-            "status": "conflict",
-            "message": "Already confirmed or expired.",
-        }
-
     try:
+        # Atomic claim: delete row matching id and active expiry in current transaction
+        deleted = (
+            db.query(PendingTransaction)
+            .filter(
+                PendingTransaction.id == pending_id,
+                PendingTransaction.user_id == user_id,
+                PendingTransaction.expires_at > now,
+            )
+            .delete(synchronize_session=False)
+        )
+
+        if deleted != 1:
+            db.rollback()
+            return {
+                "status": "conflict",
+                "message": "Already confirmed or expired.",
+            }
+
         tx_date = get_pkt_now()
         if date_str:
             try:

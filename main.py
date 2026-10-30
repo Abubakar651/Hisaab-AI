@@ -111,9 +111,9 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com https://apis.google.com; "
+        "script-src 'self' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com https://apis.google.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://unpkg.com data:; "
         "img-src 'self' data: https:; "
         "connect-src 'self' https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com; "
         "frame-ancestors 'none';"
@@ -868,21 +868,13 @@ async def auth_login(
         # or has an untrusted password_hash when claimed by a verified provider (Google or Phone OTP):
         if is_verified_provider and (not account.identity_verified or account.password_hash or account.auth_provider == "credentials"):
             logger.warning(
-                f"Verified {provider} sign-in for {uid}. Clearing unverified credentials, "
-                "revoking old sessions, and sanitizing unverified transactions."
+                f"Verified {provider} sign-in for {uid}. Clearing unverified credentials "
+                "and revoking old sessions while preserving existing ledger data."
             )
             account.password_hash = None
             account.identity_verified = True
             account.auth_provider = provider
             account.token_version = (account.token_version or 0) + 1
-            # Soft-delete prior untrusted transactions seeded by pre-hijacker
-            db.query(Transaction).filter(
-                Transaction.user_id == uid,
-                Transaction.deleted_at.is_(None),
-            ).update({"deleted_at": get_pkt_now()}, synchronize_session=False)
-            # Delete prior untrusted budgets and recurring obligations
-            db.query(Budget).filter(Budget.user_id == uid).delete(synchronize_session=False)
-            db.query(RecurringExpense).filter(RecurringExpense.user_id == uid).delete(synchronize_session=False)
 
         account.last_login = get_pkt_now()
         if display_name:
