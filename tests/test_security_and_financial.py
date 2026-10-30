@@ -3,10 +3,18 @@ import json
 import base64
 import hashlib
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
-from database import Transaction, TransactionItem, Budget, RecurringExpense, UserAccount, get_pkt_now
+from database import (
+    Transaction,
+    TransactionItem,
+    Budget,
+    RecurringExpense,
+    UserAccount,
+    LoginAttempt,
+    get_pkt_now,
+)
 from analytics import (
     validate_transaction_amount,
     check_amount_plausibility,
@@ -197,13 +205,14 @@ def test_password_hash_auto_migration_from_100k_to_600k(client, db):
     assert account.password_hash.startswith("pbkdf2_sha256$600000$")
 
 
-def test_amount_handling_and_confirmation(db):
+def test_amount_handling_and_confirmation(client, db, auth_headers):
     """
     Amount handling tests:
     - '200 lakh' -> 20,000,000 stays intact and requests confirmation
     - '20000 lakh' is flagged for confirmation (not rewritten to 20,000)
     - '6000 hazaar' stays 6,000,000
     - '60 lakh jazzcash' is flagged for confirmation (not truncated to 60)
+    - Confirmed exclusively via human UI endpoint; agent tool only cancels
     """
     # 1. '200 lakh' -> 20,000,000 stays intact
     val_200_lakh = validate_transaction_amount(20_000_000)
@@ -231,10 +240,14 @@ def test_amount_handling_and_confirmation(db):
     assert "Jazzcash" in plaus_jazz["reason"]
 
     # 5. Test log_expense server-held pending confirmation flow
-    tools = {t.name: t for t in get_tools_for_user("test_user_amounts")}
+    user_id = "test_user_amounts"
+    headers = auth_headers(user_id)
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
     log_expense_tool = tools["log_expense"]
-    confirm_pending_tool = tools["confirm_pending_expense"]
     cancel_pending_tool = tools["cancel_pending_expense"]
+
+    # Agent cannot confirm: confirm_pending_expense must not exist in tools
+    assert "confirm_pending_expense" not in tools
 
     # Call for 20M creates pending transaction and returns needs_confirmation
     res_unconfirmed = json.loads(log_expense_tool.invoke({
@@ -245,12 +258,13 @@ def test_amount_handling_and_confirmation(db):
     assert res_unconfirmed["status"] == "needs_confirmation"
     assert res_unconfirmed["amount"] == 20_000_000.0
 
-    # Confirmed call with confirm_pending_expense (parameterless) saves exact payload to DB
-    res_confirmed = json.loads(confirm_pending_tool.invoke({}))
-    assert res_confirmed["status"] == "success"
-    assert res_confirmed["total_amount_pkr"] == 20_000_000.0
+    # Confirmed call via human authenticated UI endpoint commits exact payload
+    res_confirmed = client.post("/api/transactions/pending/confirm", headers=headers)
+    assert res_confirmed.status_code == 200
+    assert res_confirmed.json()["status"] == "success"
+    assert res_confirmed.json()["transaction"]["total_amount"] == 20_000_000.0
 
-    # Call for another large transaction and test cancellation
+    # Call for another large transaction and test agent cancel tool
     res_cancel_test = json.loads(log_expense_tool.invoke({
         "store_name": "car showroom",
         "total_amount": 15_000_000,
@@ -769,3 +783,310 @@ def test_fail_closed_environment_and_secret_requirements():
     # Verify IS_DEV in test environment
     assert main.IS_DEV is True
     assert len(main.SESSION_SECRET) >= 32
+
+
+def test_concurrent_pending_confirm_race(client, db, auth_headers):
+    """
+    P0-1 Regression: Concurrent POST /api/transactions/pending/confirm calls
+    must atomically serialize. Exactly one 200 must succeed; the remaining must receive 409 Conflict.
+    Exactly one Transaction row must exist.
+    """
+    import concurrent.futures
+    user_id = "concurrent_user"
+    headers = auth_headers(user_id)
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+
+    # Create one pending expense
+    tools["log_expense"].invoke({
+        "store_name": "property dealer",
+        "total_amount": 20_000_000,
+        "payment_method": "bank_transfer",
+    })
+
+    # Spawn 8 concurrent threads hitting confirm
+    results = []
+    def hit_confirm():
+        return client.post("/api/transactions/pending/confirm", headers=headers)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(hit_confirm) for _ in range(8)]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+
+    successes = [r for r in results if r.status_code == 200]
+    conflicts = [r for r in results if r.status_code == 409]
+
+    assert len(successes) == 1, f"Expected 1 success, got {len(successes)}"
+    assert len(conflicts) == 7, f"Expected 7 conflicts, got {len(conflicts)}"
+
+    db.expire_all()
+    tx_count = db.query(Transaction).filter(Transaction.user_id == user_id).count()
+    assert tx_count == 1, f"Expected exactly 1 transaction, got {tx_count}"
+
+
+def test_agent_cannot_confirm_pending_expense():
+    """
+    P0-2 Regression: The LangChain agent MUST NOT have a confirm_pending_expense tool.
+    Confirmation must be strictly human consent via the UI endpoint.
+    The agent retains cancel_pending_expense only.
+    """
+    tools = {t.name: t for t in get_tools_for_user("test_user_no_confirm_tool")}
+    assert "confirm_pending_expense" not in tools, "LLM must NOT have confirm_pending_expense tool"
+    assert "cancel_pending_expense" in tools, "cancel_pending_expense tool must remain available"
+
+
+def test_firebase_audience_and_issuer_verification(client):
+    """
+    P0-3 Regression: verify_firebase_id_token must strictly assert claims['aud'] == project_id
+    and claims['iss'] == f'https://securetoken.google.com/{project_id}'.
+    Rejects tokens from attacker's rogue Firebase projects.
+    """
+    project_id = "test-hisaab-ai-project"
+
+    # 1. Wrong aud
+    fake_claims_wrong_aud = {
+        "email": "victim@gmail.com",
+        "email_verified": True,
+        "aud": "rogue-attacker-project",
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("os.getenv", side_effect=lambda k, d=None: project_id if k == "FIREBASE_PROJECT_ID" else (d if d is not None else "")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_aud):
+            resp = client.post("/api/auth/login", json={"provider": "google", "id_token": "token_with_wrong_aud"})
+            assert resp.status_code == 401
+            assert "audience" in resp.json()["detail"].lower()
+
+    # 2. Wrong iss
+    fake_claims_wrong_iss = {
+        "email": "victim@gmail.com",
+        "email_verified": True,
+        "aud": project_id,
+        "iss": "https://attacker-idp.example.com",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("os.getenv", side_effect=lambda k, d=None: project_id if k == "FIREBASE_PROJECT_ID" else (d if d is not None else "")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_iss):
+            resp = client.post("/api/auth/login", json={"provider": "google", "id_token": "token_with_wrong_iss"})
+            assert resp.status_code == 401
+            assert "issuer" in resp.json()["detail"].lower()
+
+
+def test_firebase_project_id_required_in_production(monkeypatch):
+    """
+    P0-3 Regression: In production (not IS_DEV), missing FIREBASE_PROJECT_ID
+    must fail token verification with a RuntimeError.
+    """
+    monkeypatch.setattr("main.IS_DEV", False)
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "")
+    with pytest.raises(RuntimeError) as exc_info:
+        main.verify_firebase_id_token("any_token")
+    assert "FIREBASE_PROJECT_ID" in str(exc_info.value)
+
+
+def test_phone_pre_hijack_takeover_and_data_cleanup(client, db):
+    """
+    P1-1 Regression: Attacker registers victim's phone number with a password and seeds transactions.
+    When victim authenticates via verified phone OTP:
+    - Attacker's password must be wiped
+    - Attacker's session token must be revoked (401)
+    - Pre-seeded attacker transactions must be soft-deleted and not visible to victim
+    - Account identity_verified must be set to True
+    """
+    victim_phone = "+923001234567"
+
+    # 1. Attacker registers victim's phone number with credentials
+    resp_reg = client.post(
+        "/api/auth/register",
+        json={"name": "Attacker", "email_or_phone": victim_phone, "password": "AttackerPass123!"},
+    )
+    assert resp_reg.status_code == 200
+    attacker_token = resp_reg.json()["token"]
+
+    # Attacker seeds a transaction
+    tx_attacker = Transaction(
+        user_id=victim_phone,
+        store_name="attacker evil store",
+        total_amount=5000.0,
+        transaction_date=get_pkt_now(),
+        payment_method="cash",
+    )
+    db.add(tx_attacker)
+    db.add(Budget(user_id=victim_phone, category="total", monthly_limit=50000.0))
+    db.commit()
+
+    # 2. Real victim signs in with verified phone OTP
+    project_id = "test-hisaab-ai-project"
+    verified_phone_claims = {
+        "phone_number": victim_phone,
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "phone"},
+    }
+    with patch("main.verify_firebase_id_token", return_value=verified_phone_claims):
+        resp_otp = client.post(
+            "/api/auth/login",
+            json={"provider": "phone", "id_token": "valid_phone_otp_token"},
+        )
+        assert resp_otp.status_code == 200
+        victim_token = resp_otp.json()["token"]
+
+    # 3. Check DB state
+    db.expire_all()
+    account = db.query(UserAccount).filter(UserAccount.user_id == victim_phone).first()
+    assert account.identity_verified is True, "Account must be marked identity_verified=True"
+    assert account.password_hash is None, "Attacker password hash must be cleared"
+    assert account.auth_provider == "phone"
+
+    # 4. Attacker's token is revoked
+    resp_attacker_tx = client.get(
+        f"/api/transactions/{victim_phone}",
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp_attacker_tx.status_code == 401
+
+    # 5. Attacker cannot log in with old password
+    resp_attacker_login = client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": victim_phone, "password": "AttackerPass123!"},
+    )
+    assert resp_attacker_login.status_code == 401
+
+    # 6. Attacker's pre-seeded transactions must NOT be visible to victim
+    resp_victim_ledger = client.get(
+        f"/api/transactions/{victim_phone}",
+        headers={"Authorization": f"Bearer {victim_token}"},
+    )
+    assert resp_victim_ledger.status_code == 200
+    ledger_data = resp_victim_ledger.json()
+    assert ledger_data["monthly_total"] == 0.0, "Attacker pre-seeded transactions must be wiped/soft-deleted"
+    assert len(ledger_data["recent_transactions"]) == 0
+    assert len(ledger_data["budgets"]) == 0, "Pre-seeded budgets must be cleaned up"
+
+
+def test_rate_limit_x_forwarded_for_spoofing_prevented(client, db, monkeypatch):
+    """
+    P1-2 Regression: Attacker rotates X-Forwarded-For to bypass IP-based rate limiting.
+    When TRUSTED_PROXY is false (default), X-Forwarded-For must be ignored and the client
+    must be rate-limited after 5 failed login attempts.
+    """
+    monkeypatch.delenv("TRUSTED_PROXY", raising=False)
+    target_user = "test_spoof_user@example.com"
+
+    # Send 5 failed attempts with different spoofed X-Forwarded-For headers
+    for i in range(5):
+        resp = client.post(
+            "/api/auth/password-login",
+            json={"email_or_phone": target_user, "password": f"wrong_{i}"},
+            headers={"X-Forwarded-For": f"198.51.100.{i + 1}"},
+        )
+        assert resp.status_code == 401
+
+    # The 6th attempt from the same client must be blocked with HTTP 429 despite new spoofed header
+    resp_blocked = client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": target_user, "password": "wrong_6"},
+        headers={"X-Forwarded-For": "198.51.100.99"},
+    )
+    assert resp_blocked.status_code == 429, "Spoofed X-Forwarded-For must not bypass rate limiting"
+
+
+def test_rate_limit_identifier_normalization(client, db):
+    """
+    P1-2 Regression: Guesses sent to 0300..., +92300..., 0300-... target the same account
+    and must share the same rate-limit bucket.
+    """
+    variants = [
+        "03001234567",
+        "+923001234567",
+        "0300-1234567",
+        "0300 1234567",
+        "+92 300 1234567",
+    ]
+
+    for variant in variants:
+        resp = client.post(
+            "/api/auth/password-login",
+            json={"email_or_phone": variant, "password": "wrong_password"},
+        )
+        assert resp.status_code == 401
+
+    # 6th attempt with another variant must be 429
+    resp_blocked = client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": "03001234567", "password": "wrong_again"},
+    )
+    assert resp_blocked.status_code == 429, "Normalized variants of phone number must share rate limit bucket"
+
+
+def test_login_attempts_table_is_pruned(client, db):
+    """
+    P1-2 Regression: login_attempts rows older than the retention window must be pruned.
+    """
+    old_time = get_pkt_now() - timedelta(hours=2)
+    # Insert old junk attempts
+    for i in range(10):
+        db.add(LoginAttempt(key=f"old_junk_{i}", attempted_at=old_time))
+    db.commit()
+
+    assert db.query(LoginAttempt).filter(LoginAttempt.attempted_at == old_time).count() == 10
+
+    # Making a login attempt triggers pruning
+    client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": "prune_test@example.com", "password": "wrong"},
+    )
+
+    # Old attempts must be pruned
+    assert db.query(LoginAttempt).filter(LoginAttempt.attempted_at == old_time).count() == 0
+
+
+def test_timing_oracle_dummy_hash_verification(client, db):
+    """
+    P1-2 Regression: Login attempts for non-existent accounts must execute PBKDF2 dummy hash
+    verification so latency does not leak user existence.
+    """
+    with patch("main.verify_and_check_rehash", wraps=main.verify_and_check_rehash) as mock_verify:
+        resp = client.post(
+            "/api/auth/password-login",
+            json={"email_or_phone": "nonexistent_account@example.com", "password": "anypassword"},
+        )
+        assert resp.status_code == 401
+        assert mock_verify.called, "verify_and_check_rehash must be called even for non-existent users"
+
+
+def test_security_headers_middleware(client):
+    """
+    P1-3 Regression: App must attach Content-Security-Policy, X-Content-Type-Options,
+    X-Frame-Options, and Referrer-Policy headers to responses.
+    """
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+    assert resp.headers.get("X-Frame-Options") in ("DENY", "SAMEORIGIN")
+    assert resp.headers.get("Referrer-Policy") == "same-origin"
+    csp = resp.headers.get("Content-Security-Policy", "")
+    assert "default-src" in csp
+    assert "script-src" in csp
+
+
+def test_frontend_xss_sink_sanitization_and_integrity():
+    """
+    P1-3 Regression: templates/index.html must load DOMPurify with integrity/crossorigin,
+    must use DOMPurify.sanitize around marked.parse, and avatar photo_url must validate https protocol.
+    """
+    with open("templates/index.html", "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # DOMPurify loaded
+    assert "purify.min.js" in html or "DOMPurify" in html
+    assert 'integrity="' in html, "External CDN scripts must be pinned with integrity attributes"
+
+    # marked.parse wrapped with DOMPurify.sanitize
+    assert "DOMPurify.sanitize(marked.parse(" in html
+    # Check that bare marked.parse without DOMPurify is not used for HTML injection
+    import re
+    bare_marked = re.findall(r"(?<!DOMPurify\.sanitize\()marked\.parse\([^\)]+\)", html)
+    assert len(bare_marked) == 0, f"Found unsanitized marked.parse calls: {bare_marked}"
+
+

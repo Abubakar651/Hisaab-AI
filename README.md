@@ -41,10 +41,11 @@ Configure these in your `.env` file:
 | Variable | Description | Required / Default |
 |---|---|---|
 | `GROQ_API_KEY` | API key from [console.groq.com](https://console.groq.com) | **Required** |
-| `SESSION_SECRET` | Secret key used to sign HS256 session JWTs | **Required in production** (dev fallback provided) |
-| `APP_ENV` | Environment mode (`development`, `dev`, `production`) | Default: `development` |
+| `SESSION_SECRET` | Secret key used to sign HS256 session JWTs (min 32 chars) | **Required in production** (fails closed if missing) |
+| `APP_ENV` | Environment mode (`development`, `production`) | Default: `production` (fail-closed) |
+| `TRUSTED_PROXY` | Set `true` only if behind trusted reverse proxy | Default: `false` (prevents IP spoofing) |
 | `DATABASE_URL` | SQLAlchemy database URL | Default: `sqlite:///./expenses.db` |
-| `FIREBASE_PROJECT_ID` | Firebase project ID for server-side token verification | Required for Firebase token verification |
+| `FIREBASE_PROJECT_ID` | Firebase project ID for server-side token verification | **Required in production** |
 | `FIREBASE_API_KEY` | Firebase Web API key for client SDK initialization | Optional (for Firebase UI) |
 | `FIREBASE_AUTH_DOMAIN` | Firebase Auth domain | Optional |
 | `FIREBASE_STORAGE_BUCKET` | Firebase storage bucket | Optional |
@@ -52,6 +53,28 @@ Configure these in your `.env` file:
 | `FIREBASE_APP_ID` | Firebase Application ID | Optional |
 | `APP_HOST` | FastAPI bind address | Default: `127.0.0.1` |
 | `APP_PORT` | FastAPI port | Default: `8000` |
+
+---
+
+## Deploying Securely to Production
+
+When deploying HisaabAI to production:
+
+1. **Fail-Closed Environment Gate:**
+   - Always set `APP_ENV=production`.
+   - The application will strictly refuse to start if `SESSION_SECRET` is unset, shorter than 32 characters, or if `FIREBASE_PROJECT_ID` is missing.
+2. **Reverse Proxy & Spoofing Protection:**
+   - Leave `TRUSTED_PROXY=false` if the app is exposed directly.
+   - If running behind Nginx, Caddy, or Cloudflare, set `TRUSTED_PROXY=true` and ensure the proxy strips or overwrites untrusted upstream `X-Forwarded-For` headers.
+3. **Database Concurrency & Atomic Actions:**
+   - SQLite is configured with Write-Ahead Logging (`WAL` mode) and `busy_timeout=5000`.
+   - Financial operations and pending transaction confirmations execute atomic row claiming (`DELETE ... WHERE id=... AND user_id=...`) to prevent race conditions or double commits.
+4. **Content Security Policy & XSS Defense:**
+   - Strict HTTP response headers are enforced: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, and `Content-Security-Policy`.
+   - Frontend markdown is parsed and sanitized via DOMPurify with Subresource Integrity (`SRI`) on third-party CDNs.
+5. **Session Revocation & Credential Rotation:**
+   - Token revocation is enforced via `token_version` stored in the user account and signed within JWT claims.
+   - Users or administrators can immediately invalidate all active sessions via `POST /api/auth/logout-all`.
 
 ---
 

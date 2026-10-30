@@ -82,6 +82,10 @@ if not SESSION_SECRET or len(SESSION_SECRET) < 32:
             "SESSION_SECRET environment variable is required and must be at least 32 characters in production mode."
         )
 
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+if not IS_DEV and not FIREBASE_PROJECT_ID:
+    raise RuntimeError("FIREBASE_PROJECT_ID environment variable is required in production mode.")
+
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
 PBKDF2_ITERATIONS = 600_000
@@ -97,6 +101,24 @@ app = FastAPI(
     description="Multilingual (Urdu, Punjabi, English) Expense Tracker powered by Groq and LangChain",
     version="1.0.0",
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Enforces strict defense-in-depth security headers (CSP, nosniff, frame denial)."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com https://apis.google.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com; "
+        "frame-ancestors 'none';"
+    )
+    return response
 
 # Global 500 error handler returning sanitized generic response with request ID
 @app.exception_handler(Exception)
@@ -233,10 +255,16 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
 # Password Hashing & Persistent Rate Limiting Helpers
 # ---------------------------------------------------------------------------
 def get_client_ip(request: Request) -> str:
-    """Safely extracts client IP, honoring X-Forwarded-For if available."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """
+    Safely extracts client IP.
+    By default (TRUSTED_PROXY=false), ignores X-Forwarded-For to prevent spoofing.
+    Only trusts X-Forwarded-For when TRUSTED_PROXY is explicitly enabled.
+    """
+    trusted_proxy = os.getenv("TRUSTED_PROXY", "false").strip().lower() in ("true", "1", "yes")
+    if trusted_proxy:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     if request.client and request.client.host:
         return request.client.host.strip()
     return "127.0.0.1"
@@ -253,8 +281,13 @@ def check_rate_limit(
     """
     Enforces persistent database-backed rate limiting across multiple workers.
     Raises HTTP 429 Too Many Requests if threshold is exceeded.
+    Also automatically prunes stale attempt records older than 1 hour.
     """
     now = get_pkt_now()
+    # Prune stale records older than 1 hour to prevent unbounded growth of login_attempts table
+    prune_cutoff = now - timedelta(seconds=3600)
+    db.query(LoginAttempt).filter(LoginAttempt.attempted_at < prune_cutoff).delete(synchronize_session=False)
+
     cutoff = now - timedelta(seconds=window_seconds)
     key = f"{client_ip}:{action}:{identifier.lower()}"
 
@@ -273,8 +306,12 @@ def check_rate_limit(
 
 def record_failed_attempt(db: Session, client_ip: str, action: str, identifier: str):
     """Records an attempt in the persistent login_attempts table."""
+    now = get_pkt_now()
+    prune_cutoff = now - timedelta(seconds=3600)
+    db.query(LoginAttempt).filter(LoginAttempt.attempted_at < prune_cutoff).delete(synchronize_session=False)
+
     key = f"{client_ip}:{action}:{identifier.lower()}"
-    attempt = LoginAttempt(key=key, attempted_at=get_pkt_now())
+    attempt = LoginAttempt(key=key, attempted_at=now)
     db.add(attempt)
     db.commit()
 
@@ -282,15 +319,18 @@ def record_failed_attempt(db: Session, client_ip: str, action: str, identifier: 
 def clear_failed_attempts(db: Session, client_ip: str, action: str, identifier: str):
     """Resets failed attempt counter upon successful authentication."""
     key = f"{client_ip}:{action}:{identifier.lower()}"
-    db.query(LoginAttempt).filter(LoginAttempt.key == key).delete()
+    db.query(LoginAttempt).filter(LoginAttempt.key == key).delete(synchronize_session=False)
     db.commit()
 
 
 def clear_login_rate_limit(client_ip: str, identifier: str):
     """Convenience helper to clear login rate limit for tests and administrative resets."""
+    is_email = "@" in identifier
+    uid = identifier.lower() if is_email else normalize_pakistan_phone(identifier)
     db: Session = SessionLocal()
     try:
-        clear_failed_attempts(db, client_ip, "login", identifier)
+        clear_failed_attempts(db, client_ip, "login", uid)
+        clear_failed_attempts(db, "global", "acct_login", uid)
     finally:
         db.close()
 
@@ -337,6 +377,11 @@ def verify_and_check_rehash(password: str, hashed: str) -> Tuple[bool, bool]:
         return False, False
 
 
+# Precomputed constant-time dummy hash to eliminate timing oracle on non-existent accounts
+DUMMY_PBKDF2_HASH = hash_password("dummy_password_timing_oracle", iterations=PBKDF2_ITERATIONS)
+
+
+
 def normalize_pakistan_phone(phone: str) -> str:
     """Normalizes Pakistani phone numbers to standard E.164: +923001234567."""
     digits = re.sub(r"[^\d+]", "", phone.strip())
@@ -352,7 +397,7 @@ def normalize_pakistan_phone(phone: str) -> str:
 def verify_firebase_id_token(id_token_str: str) -> Dict[str, Any]:
     """
     Verifies Firebase ID token server-side using google-auth.
-    Extracts verified claims (email, phone_number, name, picture).
+    Enforces non-empty project_id, matching audience, and valid issuer.
     """
     project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
     if not id_token_str or not id_token_str.strip():
@@ -360,20 +405,49 @@ def verify_firebase_id_token(id_token_str: str) -> Dict[str, Any]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Firebase id_token is required.",
         )
+
+    if not project_id:
+        if not IS_DEV:
+            raise RuntimeError("FIREBASE_PROJECT_ID is not configured in production mode.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase authentication requires FIREBASE_PROJECT_ID to be configured.",
+        )
+
     try:
         request_adapter = google_requests.Request()
         claims = google_id_token.verify_firebase_token(
             id_token_str.strip(),
             request_adapter,
-            audience=project_id or None,
+            audience=project_id,
         )
-        return claims
     except Exception as e:
         logger.warning(f"Firebase token verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired Firebase authentication token.",
         )
+
+    # Strictly verify audience and issuer
+    aud = claims.get("aud")
+    iss = claims.get("iss")
+    expected_iss = f"https://securetoken.google.com/{project_id}"
+
+    if aud != project_id:
+        logger.warning(f"Firebase token audience mismatch: got '{aud}', expected '{project_id}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase token audience mismatch (token issued for different project).",
+        )
+
+    if iss != expected_iss:
+        logger.warning(f"Firebase token issuer mismatch: got '{iss}', expected '{expected_iss}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firebase token issuer mismatch.",
+        )
+
+    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -542,72 +616,19 @@ async def confirm_pending_transaction(
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Commits active server-held pending transaction with zero parameter drift."""
-    now = get_pkt_now()
-    pending = (
-        db.query(PendingTransaction)
-        .filter(PendingTransaction.user_id == current_user, PendingTransaction.expires_at > now)
-        .order_by(PendingTransaction.created_at.desc())
-        .first()
-    )
-    if not pending:
+    """Commits active server-held pending transaction atomically. Rejects concurrent confirms with 409 Conflict."""
+    res = analytics.commit_pending_transaction(db, current_user)
+    if res["status"] == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active pending expense found to confirm, or the 5-minute confirmation window has expired.",
+            detail=res["message"],
         )
-
-    tx_date = get_pkt_now()
-    if pending.date_str:
-        try:
-            parsed_date = datetime.strptime(pending.date_str.strip(), "%Y-%m-%d")
-            tx_date = parsed_date.replace(hour=tx_date.hour, minute=tx_date.minute, second=tx_date.second)
-        except Exception:
-            pass
-
-    tx = Transaction(
-        user_id=current_user,
-        store_name=pending.store_name,
-        total_amount=round(pending.total_amount, 2),
-        transaction_date=tx_date,
-        raw_transcript=pending.raw_transcript,
-        payment_method=pending.payment_method,
-    )
-    db.add(tx)
-    db.flush()
-
-    logged_items = []
-    if pending.items_json:
-        p_items = json.loads(pending.items_json)
-        for it in p_items:
-            t_item = TransactionItem(
-                transaction_id=tx.id,
-                item_name=it["item_name"],
-                category=it.get("category", "groceries"),
-                price=round(it["price"], 2),
-                quantity=float(it.get("quantity", 1.0)),
-            )
-            db.add(t_item)
-            logged_items.append(t_item.to_dict())
-    else:
-        t_item = TransactionItem(
-            transaction_id=tx.id,
-            item_name="general purchase",
-            category="other",
-            price=round(pending.total_amount, 2),
-            quantity=1.0,
+    if res["status"] == "conflict":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=res["message"],
         )
-        db.add(t_item)
-        logged_items.append(t_item.to_dict())
-
-    db.delete(pending)
-    db.commit()
-    db.refresh(tx)
-
-    return {
-        "status": "success",
-        "message": f"Confirmed and logged PKR {tx.total_amount:,.2f} at {tx.store_name.title()}.",
-        "transaction": tx.to_dict(),
-    }
+    return res
 
 
 @app.post("/api/transactions/pending/cancel")
@@ -616,24 +637,18 @@ async def cancel_pending_transaction(
     db: Session = Depends(get_db),
 ):
     """Cancels and discards active pending expense."""
-    pending = (
-        db.query(PendingTransaction)
-        .filter(PendingTransaction.user_id == current_user)
-        .first()
-    )
-    if not pending:
+    res = analytics.cancel_pending_transaction(db, current_user)
+    if res["status"] == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No pending transaction found to cancel.",
+            detail=res["message"],
         )
-    cancelled_amt = pending.total_amount
-    cancelled_store = pending.store_name
-    db.delete(pending)
-    db.commit()
-    return {
-        "status": "cancelled",
-        "message": f"Cancelled pending expense of PKR {cancelled_amt:,.2f} at {cancelled_store.title()}.",
-    }
+    if res["status"] == "conflict":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=res["message"],
+        )
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -846,14 +861,28 @@ async def auth_login(
         provider = "guest"
 
     account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
+    is_verified_provider = provider in ("google", "phone")
+
     if account:
-        # Pre-hijacking mitigation: if account was registered with credentials without email verification,
-        # clear password_hash, elevate provider to google, and increment token_version to invalidate attacker's sessions!
-        if provider == "google" and (account.password_hash or account.auth_provider == "credentials"):
-            logger.warning(f"Google login verified for {uid}. Clearing unverified credentials password and revoking old tokens.")
+        # Pre-hijacking mitigation: if account was registered with credentials without verification,
+        # or has an untrusted password_hash when claimed by a verified provider (Google or Phone OTP):
+        if is_verified_provider and (not account.identity_verified or account.password_hash or account.auth_provider == "credentials"):
+            logger.warning(
+                f"Verified {provider} sign-in for {uid}. Clearing unverified credentials, "
+                "revoking old sessions, and sanitizing unverified transactions."
+            )
             account.password_hash = None
-            account.auth_provider = "google"
+            account.identity_verified = True
+            account.auth_provider = provider
             account.token_version = (account.token_version or 0) + 1
+            # Soft-delete prior untrusted transactions seeded by pre-hijacker
+            db.query(Transaction).filter(
+                Transaction.user_id == uid,
+                Transaction.deleted_at.is_(None),
+            ).update({"deleted_at": get_pkt_now()}, synchronize_session=False)
+            # Delete prior untrusted budgets and recurring obligations
+            db.query(Budget).filter(Budget.user_id == uid).delete(synchronize_session=False)
+            db.query(RecurringExpense).filter(RecurringExpense.user_id == uid).delete(synchronize_session=False)
 
         account.last_login = get_pkt_now()
         if display_name:
@@ -866,6 +895,8 @@ async def auth_login(
             account.phone_number = phone_number
         if provider != "guest":
             account.auth_provider = provider
+        if is_verified_provider:
+            account.identity_verified = True
     else:
         account = UserAccount(
             user_id=uid,
@@ -874,6 +905,7 @@ async def auth_login(
             email=email,
             phone_number=phone_number,
             photo_url=photo_url,
+            identity_verified=is_verified_provider,
             token_version=0,
             created_at=get_pkt_now(),
             last_login=get_pkt_now(),
@@ -958,6 +990,7 @@ async def auth_register(
         email=email,
         phone_number=phone,
         password_hash=pwd_hash,
+        identity_verified=False,
         token_version=0,
         created_at=get_pkt_now(),
         last_login=get_pkt_now(),
@@ -987,15 +1020,21 @@ async def auth_password_login(
 
     client_ip = get_client_ip(request)
 
-    # Enforce 5 failed attempts/min per IP+identifier with 429
-    check_rate_limit(db, client_ip, "login", ident, max_attempts=5, window_seconds=60)
-
+    # Normalize identifier BEFORE rate limiting so 0300..., +92300..., 0300-... share the same bucket
     is_email = "@" in ident
     uid = ident.lower() if is_email else normalize_pakistan_phone(ident)
 
+    # Enforce 5 failed attempts/min per IP+normalized identifier with 429
+    check_rate_limit(db, client_ip, "login", uid, max_attempts=5, window_seconds=60)
+    # Also enforce 10 failed attempts/15min globally per account (distributed brute-force protection)
+    check_rate_limit(db, "global", "acct_login", uid, max_attempts=10, window_seconds=900)
+
     account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
     if not account or not account.password_hash:
-        record_failed_attempt(db, client_ip, "login", ident)
+        # Eliminate timing oracle: perform dummy PBKDF2 verification with equal iterations
+        verify_and_check_rehash(password, DUMMY_PBKDF2_HASH)
+        record_failed_attempt(db, client_ip, "login", uid)
+        record_failed_attempt(db, "global", "acct_login", uid)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/phone or password.",
@@ -1003,7 +1042,8 @@ async def auth_password_login(
 
     is_valid, needs_rehash = verify_and_check_rehash(password, account.password_hash)
     if not is_valid:
-        record_failed_attempt(db, client_ip, "login", ident)
+        record_failed_attempt(db, client_ip, "login", uid)
+        record_failed_attempt(db, "global", "acct_login", uid)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/phone or password.",
@@ -1016,7 +1056,8 @@ async def auth_password_login(
     account.last_login = get_pkt_now()
     db.commit()
 
-    clear_failed_attempts(db, client_ip, "login", ident)
+    clear_failed_attempts(db, client_ip, "login", uid)
+    clear_failed_attempts(db, "global", "acct_login", uid)
     session_token = create_session_token(
         uid,
         account.auth_provider or "credentials",
@@ -1343,5 +1384,5 @@ if __name__ == "__main__":
 
     host = os.getenv("APP_HOST", "127.0.0.1")
     port = int(os.getenv("APP_PORT", "8000"))
-    reload = os.getenv("APP_ENV", "dev").lower() == "dev"
+    reload = IS_DEV
     uvicorn.run("main:app", host=host, port=port, reload=reload)

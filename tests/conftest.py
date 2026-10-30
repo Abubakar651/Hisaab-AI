@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 # Configure test environment
 os.environ["APP_ENV"] = "test"
 os.environ["SESSION_SECRET"] = "test-secret-key-32-bytes-long-for-tests-12345"
+os.environ["FIREBASE_PROJECT_ID"] = "test-hisaab-ai-project"
 os.environ["DATABASE_URL"] = "sqlite:///./test_expenses.db"
 
 import database
@@ -20,6 +21,17 @@ import agent
 TEST_DB_URL = "sqlite:///./test_expenses.db"
 test_engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+from sqlalchemy import event
+
+@event.listens_for(test_engine, "connect")
+def set_test_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.execute("PRAGMA busy_timeout=5000;")
+    cursor.execute("PRAGMA foreign_keys=ON;")
+    cursor.close()
 
 # Override engine & SessionLocal in database module
 database.engine = test_engine

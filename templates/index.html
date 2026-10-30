@@ -49,10 +49,12 @@
     }
   </script>
 
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <!-- Marked.js for markdown rendering -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Lucide Icons (Pinned with SRI) -->
+  <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js" integrity="sha384-c4W8Fm5eAFkR+fiwPvJ1sXKBeXCtwThNMMceQyANSRz0w5ilnJFrNESyvcx/UJII" crossorigin="anonymous"></script>
+  <!-- DOMPurify for XSS Sanitization (Pinned with SRI) -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+  <!-- Marked.js for markdown rendering (Pinned with SRI) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
 
   <style>
     /* Jameel Noori Nastaleeq local & CDN fallback */
@@ -186,8 +188,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 
-  <!-- Chart.js for dashboard analytics -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- Chart.js for dashboard analytics (Pinned with SRI) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt" crossorigin="anonymous"></script>
 
   <!-- Firebase Auth SDK (compat v10) for Google Sign-In & Phone Number Auth -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -1034,7 +1036,7 @@
       if (dropSubEl) dropSubEl.textContent = `${label} • ${account.email || account.phone_number || account.user_id}`;
 
       if (avatarBox) {
-        if (account.photo_url) {
+        if (account.photo_url && /^https:\/\//i.test(account.photo_url)) {
           avatarBox.innerHTML = `<img src="${escapeHtml(account.photo_url)}" alt="avatar" class="w-full h-full object-cover rounded-full" />`;
         } else {
           const letter = (account.display_name || account.user_id || 'U').charAt(0).toUpperCase();
@@ -1668,7 +1670,7 @@
       const isUrdu = isUrduScript(markdownContent);
       const nastaleeqClass = isUrdu ? 'font-nastaleeq text-lg sm:text-xl leading-loose' : 'text-base sm:text-lg leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
-      const parsedHtml = marked.parse(markdownContent || '');
+      const parsedHtml = DOMPurify.sanitize(marked.parse(markdownContent || ''));
 
       wrapper.innerHTML = `
         <div class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
@@ -1687,9 +1689,10 @@
     function appendSystemMessage(markdownContent) {
       const wrapper = document.createElement('div');
       wrapper.className = 'text-center my-2';
+      const parsedInline = DOMPurify.sanitize(marked.parseInline(markdownContent || ''));
       wrapper.innerHTML = `
         <span class="inline-block px-3 py-1 rounded-full bg-surface-800 border border-slate-700 text-[11px] text-slate-400">
-          ${marked.parseInline(markdownContent)}
+          ${parsedInline}
         </span>
       `;
       elements.messagesContainer.appendChild(wrapper);

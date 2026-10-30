@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Float,
+    Boolean,
     DateTime,
     ForeignKey,
     Text,
@@ -191,6 +192,7 @@ class UserAccount(Base):
     phone_number = Column(String(50), index=True, nullable=True)
     photo_url = Column(String(500), nullable=True)
     password_hash = Column(String(255), nullable=True)
+    identity_verified = Column(Boolean, default=False, nullable=False)
     token_version = Column(Integer, default=0, nullable=False)  # Incremented on password change or log out everywhere
     created_at = Column(DateTime, default=get_pkt_now, nullable=False)
     last_login = Column(DateTime, default=get_pkt_now, nullable=False)
@@ -204,6 +206,7 @@ class UserAccount(Base):
             "email": self.email,
             "phone_number": self.phone_number,
             "photo_url": self.photo_url,
+            "identity_verified": bool(self.identity_verified),
             "token_version": self.token_version,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
             "last_login": self.last_login.strftime("%Y-%m-%d %H:%M") if self.last_login else None,
@@ -271,6 +274,8 @@ def _migrate_sqlite():
         user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
         if user_cols and "password_hash" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN password_hash VARCHAR(255) NULL"))
+        if user_cols and "identity_verified" not in user_cols:
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN identity_verified BOOLEAN NOT NULL DEFAULT 0"))
         if user_cols and "token_version" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
 

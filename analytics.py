@@ -5,13 +5,14 @@ Used by both the FastAPI dashboard endpoints and the LangChain agent tools so
 that the chat answers and the dashboard always agree.
 """
 import math
+import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import Transaction, TransactionItem, Budget, RecurringExpense, get_pkt_now, PKT_TZ
+from database import Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, get_pkt_now, PKT_TZ
 
 PAYMENT_METHODS = ["cash", "easypaisa", "jazzcash", "card", "bank_transfer"]
 
@@ -385,3 +386,140 @@ EXPORT_HEADER = [
     "Payment Method",
     "Transaction Total (PKR)",
 ]
+
+
+def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
+    """
+    Atomically claims and commits a server-held pending transaction.
+    Whoever deletes the active pending row wins; concurrent attempts receive conflict.
+    """
+    now = get_pkt_now()
+    pending = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.user_id == user_id, PendingTransaction.expires_at > now)
+        .order_by(PendingTransaction.created_at.desc())
+        .first()
+    )
+    if not pending:
+        return {
+            "status": "conflict",
+            "message": "Already confirmed or expired.",
+        }
+
+    pending_id = pending.id
+    store_name = pending.store_name
+    total_amount = round(pending.total_amount, 2)
+    payment_method = pending.payment_method
+    date_str = pending.date_str
+    raw_transcript = pending.raw_transcript
+    items_json = pending.items_json
+
+    # Atomic claim: delete row matching id and active expiry in current transaction
+    deleted = (
+        db.query(PendingTransaction)
+        .filter(
+            PendingTransaction.id == pending_id,
+            PendingTransaction.user_id == user_id,
+            PendingTransaction.expires_at > now,
+        )
+        .delete(synchronize_session=False)
+    )
+
+    if deleted != 1:
+        db.rollback()
+        return {
+            "status": "conflict",
+            "message": "Already confirmed or expired.",
+        }
+
+    try:
+        tx_date = get_pkt_now()
+        if date_str:
+            try:
+                parsed_date = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+                tx_date = parsed_date.replace(hour=tx_date.hour, minute=tx_date.minute, second=tx_date.second)
+            except Exception:
+                pass
+
+        tx = Transaction(
+            user_id=user_id,
+            store_name=store_name,
+            total_amount=total_amount,
+            transaction_date=tx_date,
+            raw_transcript=raw_transcript,
+            payment_method=payment_method,
+        )
+        db.add(tx)
+        db.flush()
+
+        logged_items = []
+        if items_json:
+            p_items = json.loads(items_json)
+            for it in p_items:
+                t_item = TransactionItem(
+                    transaction_id=tx.id,
+                    item_name=it["item_name"],
+                    category=it.get("category", "groceries"),
+                    price=round(it["price"], 2),
+                    quantity=float(it.get("quantity", 1.0)),
+                )
+                db.add(t_item)
+                logged_items.append(t_item.to_dict())
+        else:
+            t_item = TransactionItem(
+                transaction_id=tx.id,
+                item_name="general purchase",
+                category="other",
+                price=total_amount,
+                quantity=1.0,
+            )
+            db.add(t_item)
+            logged_items.append(t_item.to_dict())
+
+        db.commit()
+        db.refresh(tx)
+
+        alerts = [b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")]
+
+        return {
+            "status": "success",
+            "message": f"Confirmed and logged PKR {tx.total_amount:,.2f} at {tx.store_name.title()}.",
+            "transaction": tx.to_dict(),
+            "budget_alerts": alerts,
+        }
+    except Exception as e:
+        db.rollback()
+        raise e
+
+
+def cancel_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
+    """
+    Atomically claims and cancels a server-held pending transaction.
+    """
+    pending = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.user_id == user_id)
+        .order_by(PendingTransaction.created_at.desc())
+        .first()
+    )
+    if not pending:
+        return {"status": "not_found", "message": "No pending expense found to cancel."}
+
+    pending_id = pending.id
+    cancelled_amt = pending.total_amount
+    cancelled_store = pending.store_name
+
+    deleted = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.id == pending_id, PendingTransaction.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
+    if deleted != 1:
+        db.rollback()
+        return {"status": "conflict", "message": "Already confirmed, cancelled, or expired."}
+
+    db.commit()
+    return {
+        "status": "cancelled",
+        "message": f"Cancelled pending expense of PKR {cancelled_amt:,.2f} at {cancelled_store.title()}.",
+    }
