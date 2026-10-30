@@ -259,6 +259,36 @@ def normalize_pakistan_phone(phone: str) -> str:
     return digits
 
 
+def hash_password(password: str) -> str:
+    """Secure PBKDF2-HMAC-SHA256 password hash with random 16-byte salt."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+    return base64.b64encode(salt + dk).decode("utf-8")
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verifies a password against the stored PBKDF2-HMAC-SHA256 hash."""
+    try:
+        raw = base64.b64decode(hashed.encode("utf-8"))
+        salt = raw[:16]
+        expected_dk = raw[16:]
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+        return hmac.compare_digest(expected_dk, dk)
+    except Exception:
+        return False
+
+
+class RegisterPayload(BaseModel):
+    name: str
+    email_or_phone: str
+    password: str
+
+
+class PasswordLoginPayload(BaseModel):
+    email_or_phone: str
+    password: str
+
+
 class LoginPayload(BaseModel):
     provider: str = "guest"  # 'google', 'phone', 'guest'
     user_id: Optional[str] = None
@@ -364,6 +394,78 @@ async def get_user_profile(user_id: str, db: Session = Depends(get_db)):
             "photo_url": None,
         }
     }
+
+
+@app.post("/api/auth/register")
+async def auth_register(payload: RegisterPayload, db: Session = Depends(get_db)):
+    """Creates a new user account with Name, Email/Phone, and Password."""
+    ident = payload.email_or_phone.strip()
+    name = payload.name.strip()
+    password = payload.password.strip()
+
+    if not name or len(name) < 2:
+        raise HTTPException(status_code=400, detail="Name must be at least 2 characters.")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+
+    is_email = "@" in ident
+    if is_email:
+        email = ident.lower()
+        phone = None
+        uid = email
+    else:
+        email = None
+        phone = normalize_pakistan_phone(ident)
+        uid = phone
+
+    existing = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
+    if existing and existing.password_hash:
+        raise HTTPException(status_code=400, detail="An account with this email/phone already exists. Please sign in.")
+
+    pwd_hash = hash_password(password)
+
+    if existing:
+        existing.display_name = name
+        existing.password_hash = pwd_hash
+        existing.auth_provider = "credentials"
+        existing.last_login = datetime.utcnow()
+        account = existing
+    else:
+        account = UserAccount(
+            user_id=uid,
+            auth_provider="credentials",
+            display_name=name,
+            email=email,
+            phone_number=phone,
+            password_hash=pwd_hash,
+            created_at=datetime.utcnow(),
+            last_login=datetime.utcnow(),
+        )
+        db.add(account)
+
+    db.commit()
+    return {"status": "success", "message": "Account created successfully!", "user": account.to_dict()}
+
+
+@app.post("/api/auth/password-login")
+async def auth_password_login(payload: PasswordLoginPayload, db: Session = Depends(get_db)):
+    """Signs in a user with Email/Phone and Password."""
+    ident = payload.email_or_phone.strip()
+    password = payload.password.strip()
+
+    is_email = "@" in ident
+    uid = ident.lower() if is_email else normalize_pakistan_phone(ident)
+
+    account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
+    if not account or not account.password_hash:
+        raise HTTPException(status_code=401, detail="Account not found. Please create an account first.")
+
+    if not verify_password(password, account.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
+
+    account.last_login = datetime.utcnow()
+    db.commit()
+    return {"status": "success", "user": account.to_dict()}
 
 
 # ---------------------------------------------------------------------------

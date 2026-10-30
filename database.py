@@ -151,6 +151,7 @@ class UserAccount(Base):
     email = Column(String(150), index=True, nullable=True)
     phone_number = Column(String(50), index=True, nullable=True)
     photo_url = Column(String(500), nullable=True)
+    password_hash = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_login = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -183,6 +184,9 @@ def _migrate_sqlite():
                     "VARCHAR(30) NOT NULL DEFAULT 'cash'"
                 )
             )
+        user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
+        if user_cols and "password_hash" not in user_cols:
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN password_hash VARCHAR(255) NULL"))
 
 
 def init_db():
