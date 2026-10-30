@@ -68,7 +68,44 @@
     .urdu-text,
     [dir="rtl"] {
       font-family: 'Jameel Noori Nastaleeq', 'Noori Nastaleeq', 'Noto Nastaliq Urdu', 'Urdu Typesetting', serif;
-      line-height: 2.1 !important;
+      line-height: 2.3 !important;
+      font-size: 1.125rem;
+    }
+    @media (min-width: 640px) {
+      .font-nastaleeq,
+      .urdu-text,
+      [dir="rtl"] {
+        font-size: 1.25rem;
+      }
+    }
+
+    /* ChatGPT & Gemini-style chat typography */
+    .prose {
+      font-size: 0.95rem !important;
+      line-height: 1.75 !important;
+    }
+    @media (min-width: 640px) {
+      .prose {
+        font-size: 1.025rem !important;
+        line-height: 1.8 !important;
+      }
+    }
+    .prose p {
+      margin-top: 0.45rem;
+      margin-bottom: 0.45rem;
+    }
+    .prose ul, .prose ol {
+      margin-top: 0.45rem;
+      margin-bottom: 0.45rem;
+      padding-left: 1.25rem;
+    }
+    .prose li {
+      margin-top: 0.25rem;
+      margin-bottom: 0.25rem;
+    }
+    .prose strong {
+      color: #34d399; /* soft emerald accent for bold amounts/items */
+      font-weight: 600;
     }
 
     /* Custom scrollbar */
@@ -261,17 +298,17 @@
       <div id="messages-container" class="flex-1 p-4 overflow-y-auto space-y-4">
         
         <!-- Welcome Message -->
-        <div class="flex gap-3 max-w-xl">
-          <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
-            <i data-lucide="bot" class="w-4 h-4"></i>
+        <div class="flex gap-3 max-w-2xl">
+          <div class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
+            <i data-lucide="bot" class="w-5 h-5"></i>
           </div>
-          <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-xs sm:text-sm text-slate-200 shadow-sm leading-relaxed">
-            <p class="font-semibold text-emerald-400 mb-1 flex items-center gap-1.5">
+          <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 text-sm sm:text-base text-slate-200 shadow-sm leading-relaxed">
+            <p class="font-bold text-emerald-400 mb-2 flex items-center gap-1.5 text-base sm:text-lg">
               <span>Assalam-o-Alaikum! Welcome to HisaabAI.</span>
             </p>
-            <p>You can record your daily expenses by <strong>typing</strong> or tapping the <strong>microphone</strong> button below in:</p>
-            <ul class="list-disc pl-4 mt-2 space-y-1.5 text-slate-300 text-xs">
-              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span class="font-nastaleeq text-sm text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان لیا"</span></li>
+            <p class="text-slate-300">You can record your daily expenses by <strong>typing</strong> or tapping the <strong>microphone</strong> button below in:</p>
+            <ul class="list-disc pl-5 mt-3 space-y-2 text-slate-300 text-sm sm:text-[15px]">
+              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span class="font-nastaleeq text-base sm:text-lg text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان لیا"</span></li>
               <li><strong>Punjabi (پنجابی):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
               <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
               <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
@@ -301,12 +338,12 @@
         <form id="chat-form" class="flex items-end gap-2">
           
           <!-- Text Input Container -->
-          <div class="flex-1 bg-surface-900 border border-slate-700 rounded-xl focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all p-1.5 flex items-center">
+          <div class="flex-1 bg-surface-900 border border-slate-700 rounded-xl focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all p-2 flex items-center">
             <textarea 
               id="message-input" 
               rows="1" 
               placeholder="Type your expense or ask a question in Urdu, Punjabi, English..." 
-              class="w-full bg-transparent px-2.5 py-1 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-28"
+              class="w-full bg-transparent px-3 py-1.5 text-sm sm:text-base text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-36 leading-relaxed"
             ></textarea>
           </div>
 
@@ -790,24 +827,24 @@
     // =========================================================================
     function appendUserMessage(text, voiceSubtext) {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex justify-end gap-2.5 max-w-xl ml-auto';
+      wrapper.className = 'flex justify-end gap-2.5 max-w-2xl ml-auto';
 
       const isUrdu = isUrduScript(text);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-sm sm:text-base leading-loose text-right' : 'text-xs sm:text-sm';
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-base sm:text-lg leading-loose text-right' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
 
       let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
       if (voiceSubtext) {
         innerContent = `
-          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 mb-1">
-            <i data-lucide="mic" class="w-3.5 h-3.5"></i> ${escapeHtml(voiceSubtext)}
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 mb-1.5">
+            <i data-lucide="mic" class="w-4 h-4"></i> ${escapeHtml(voiceSubtext)}
           </div>
           <p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>
         `;
       }
 
       wrapper.innerHTML = `
-        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 shadow-md">
+        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 sm:p-4 shadow-md">
           ${innerContent}
         </div>
       `;
@@ -819,18 +856,18 @@
 
     function appendAssistantMessage(markdownContent) {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex gap-3 max-w-xl';
+      wrapper.className = 'flex gap-3 max-w-2xl';
 
       const isUrdu = isUrduScript(markdownContent);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-sm sm:text-base leading-loose' : 'text-xs sm:text-sm leading-relaxed';
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-base sm:text-lg leading-loose' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
       const parsedHtml = marked.parse(markdownContent || '');
 
       wrapper.innerHTML = `
-        <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-1">
-          <i data-lucide="bot" class="w-4 h-4"></i>
+        <div class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
+          <i data-lucide="bot" class="w-5 h-5"></i>
         </div>
-        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-slate-100 shadow-sm ${nastaleeqClass} prose prose-invert prose-xs max-w-none" ${dirAttr}>
+        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 text-slate-100 shadow-sm ${nastaleeqClass} prose prose-invert max-w-none" ${dirAttr}>
           ${parsedHtml}
         </div>
       `;
