@@ -94,29 +94,26 @@
 
       <!-- Explanation & Steps -->
       <div class="bg-surface-850 border border-slate-800 rounded-xl p-3.5 mb-4 text-xs space-y-2.5 leading-relaxed text-slate-300">
-        <p class="font-semibold text-slate-200">How to unblock in your browser:</p>
+        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium flex items-start gap-2">
+          <i data-lucide="info" class="w-4 h-4 shrink-0 text-amber-400 mt-0.5"></i>
+          <span><strong>Why Chrome blocked it:</strong> You accessed via <code>http://0.0.0.0:8000</code>. Google Chrome completely disables the microphone on <code>0.0.0.0</code> for privacy. It only allows it on <strong><code>http://localhost:8000</code></strong>.</span>
+        </div>
+        <p class="font-semibold text-slate-200">How to fix in 5 seconds:</p>
         <div class="flex items-start gap-2.5">
           <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-          <span>In the site settings screen you opened (or by clicking the <strong>lock/sliders icon</strong> in the URL bar), find <strong>Microphone</strong>.</span>
+          <span>Open <strong><a href="http://localhost:8000" class="text-emerald-400 underline hover:text-emerald-300 font-mono">http://localhost:8000</a></strong> in your browser address bar.</span>
         </div>
         <div class="flex items-start gap-2.5">
           <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
-          <span>Click the blue <strong>"Reset permissions"</strong> button (top-right of your settings) or change the dropdown from <strong>Block</strong> to <strong>Allow</strong>.</span>
-        </div>
-        <div class="flex items-start gap-2.5">
-          <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
-          <span>Reload the page (<kbd class="px-1.5 py-0.5 rounded bg-surface-900 border border-slate-700 font-mono text-[10px]">Ctrl+R</kbd>) or click <strong>Test Microphone</strong> below.</span>
+          <span>When prompted by Chrome, click <strong>"Allow"</strong> for microphone access.</span>
         </div>
       </div>
 
       <!-- Actions -->
       <div class="flex gap-2 justify-end">
-        <button id="dismiss-mic-modal-btn" class="px-4 py-2 rounded-xl bg-surface-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors">
-          I'll Type Instead
-        </button>
-        <button id="retry-mic-btn" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-xs font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5">
-          <i data-lucide="mic" class="w-4 h-4"></i> Test Microphone Again
-        </button>
+        <a href="http://localhost:8000" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-xs font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5">
+          <i data-lucide="external-link" class="w-4 h-4"></i> Open http://localhost:8000
+        </a>
       </div>
 
     </div>
@@ -398,6 +395,11 @@
 
   <!-- Client-Side Application Script -->
   <script>
+    // Automatically redirect 0.0.0.0 to localhost because Chrome disables microphone on 0.0.0.0
+    if (window.location.hostname === '0.0.0.0') {
+      window.location.hostname = 'localhost';
+    }
+
     // State management
     const state = {
       userId: localStorage.getItem('hisaab_user_id') || 'bakar',
@@ -649,8 +651,18 @@
     }
 
     async function startRecording() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showToast('Your browser does not support audio recording.', 'error');
+      // Check if browser context is insecure (e.g. 0.0.0.0 or non-localhost HTTP)
+      if (window.isSecureContext === false || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+          showToast('Chrome blocks microphone on ' + window.location.hostname + '. Switching to localhost...', 'error');
+          window.location.hostname = 'localhost';
+          return;
+        }
+        if (elements.micModal) {
+          elements.micModal.classList.remove('hidden');
+          lucide.createIcons();
+        }
+        showToast('Microphone access blocked or not supported on this origin.', 'error');
         return;
       }
 
