@@ -139,6 +139,35 @@ class RecurringExpense(Base):
         }
 
 
+class UserAccount(Base):
+    """Registered or signed-in user accounts (Google, Phone Number, WhatsApp, or Guest)."""
+
+    __tablename__ = "user_accounts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String(100), unique=True, index=True, nullable=False)
+    auth_provider = Column(String(30), default="guest", nullable=False)  # 'google', 'phone', 'whatsapp', 'guest'
+    display_name = Column(String(150), nullable=True)
+    email = Column(String(150), index=True, nullable=True)
+    phone_number = Column(String(50), index=True, nullable=True)
+    photo_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_login = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "auth_provider": self.auth_provider,
+            "display_name": self.display_name or self.phone_number or self.email or self.user_id,
+            "email": self.email,
+            "phone_number": self.phone_number,
+            "photo_url": self.photo_url,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
+            "last_login": self.last_login.strftime("%Y-%m-%d %H:%M") if self.last_login else None,
+        }
+
+
 def _migrate_sqlite():
     """Adds columns introduced after the first release to existing SQLite files."""
     if not DATABASE_URL.startswith("sqlite"):

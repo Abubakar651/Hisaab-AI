@@ -188,6 +188,10 @@
 
   <!-- Chart.js for dashboard analytics -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <!-- Firebase Auth SDK (compat v10) for Google Sign-In & Phone Number Auth -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 
 <body
@@ -256,6 +260,115 @@
     </div>
   </div>
 
+  <!-- Account Setup & Sign In Modal -->
+  <div id="auth-modal"
+    class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      class="bg-surface-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative text-slate-200 animate-in fade-in zoom-in duration-200">
+
+      <!-- Close Button -->
+      <button id="close-auth-modal-btn"
+        class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <!-- Header Icon & Title -->
+      <div class="flex items-center gap-3 mb-4">
+        <div
+          class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="text-base sm:text-lg font-bold text-white">Account Setup & Sign In</h3>
+          <p class="text-xs text-slate-400">Google Account or Phone Number</p>
+        </div>
+      </div>
+
+      <!-- Auth Navigation Tabs -->
+      <div class="flex border-b border-slate-800 mb-4 gap-2">
+        <button id="auth-tab-phone"
+          class="pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors">
+          <i data-lucide="phone" class="w-3.5 h-3.5"></i> Phone Number
+        </button>
+        <button id="auth-tab-google"
+          class="pb-2 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/></svg> Google Account
+        </button>
+        <button id="auth-tab-guest"
+          class="pb-2 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors">
+          <i data-lucide="user" class="w-3.5 h-3.5"></i> Guest / ID
+        </button>
+      </div>
+
+      <!-- Tab Content: Phone Number -->
+      <div id="auth-panel-phone" class="space-y-3.5">
+        <p class="text-xs text-slate-300">
+          Enter your Pakistani mobile number. If you used the HisaabAI WhatsApp bot, this automatically syncs your WhatsApp ledger!
+        </p>
+        <div id="phone-input-step">
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Mobile Number</label>
+          <div class="flex items-center bg-surface-900 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-emerald-500">
+            <span class="text-sm font-semibold text-emerald-400 mr-2">+92</span>
+            <input type="tel" id="phone-number-input" placeholder="300 1234567"
+              class="bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none flex-1 font-mono" />
+          </div>
+          <div id="recaptcha-container" class="mt-2"></div>
+          <button id="send-phone-otp-btn"
+            class="mt-3 w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2">
+            <i data-lucide="send" class="w-4 h-4"></i> Sign In / Send Code
+          </button>
+        </div>
+
+        <div id="phone-otp-step" class="hidden space-y-3">
+          <label class="block text-xs font-semibold text-slate-300">Enter 6-digit Verification Code</label>
+          <input type="text" id="phone-otp-input" maxlength="6" placeholder="123456"
+            class="w-full bg-surface-900 border border-slate-700 rounded-xl px-3 py-2 text-center text-lg tracking-widest font-mono text-emerald-300 focus:outline-none focus:border-emerald-500" />
+          <button id="verify-phone-otp-btn"
+            class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2">
+            <i data-lucide="check-circle" class="w-4 h-4"></i> Confirm & Sign In
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Content: Google Account -->
+      <div id="auth-panel-google" class="hidden space-y-4">
+        <p class="text-xs text-slate-300">
+          Sign in securely with your Google Account to back up and sync your expenses across all your devices.
+        </p>
+        <button id="google-signin-btn"
+          class="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs transition-colors flex items-center justify-center gap-3 shadow-md">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/></svg>
+          Continue with Google
+        </button>
+        <div id="google-config-notice" class="text-[11px] text-slate-400 italic text-center">
+          Requires Firebase credentials in .env. Click to test or sign in.
+        </div>
+      </div>
+
+      <!-- Tab Content: Guest / ID Switcher -->
+      <div id="auth-panel-guest" class="hidden space-y-3.5">
+        <p class="text-xs text-slate-300">
+          Switch to a local profile without logging in (e.g. for testing or offline ledger use).
+        </p>
+        <div class="flex items-center bg-surface-900 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-emerald-500">
+          <input type="text" id="guest-id-input" placeholder="e.g. bakar, ali, home"
+            class="bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none flex-1 font-mono" />
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-slate-400">
+          <span>Quick:</span>
+          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="bakar">bakar</button>
+          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="ali">ali</button>
+          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="home">home</button>
+        </div>
+        <button id="confirm-guest-btn"
+          class="w-full py-2.5 rounded-xl bg-surface-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold text-xs transition-colors">
+          Use This ID
+        </button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- Top Navbar -->
   <header class="bg-surface-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-4 lg:px-6 py-3">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -280,32 +393,39 @@
         </div>
       </div>
 
-      <!-- User Identification & Switcher -->
-      <div class="flex items-center gap-2">
-        <div
-          class="flex items-center bg-surface-800 border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:border-emerald-500 transition-colors">
-          <i data-lucide="user" class="w-4 h-4 text-emerald-400 mr-2 shrink-0"></i>
-          <span class="text-xs text-slate-400 mr-1.5 hidden md:inline">User ID:</span>
-          <input type="text" id="user-id-input" value="bakar" placeholder="Enter username"
-            class="bg-transparent text-xs sm:text-sm font-medium text-emerald-300 focus:outline-none w-24 sm:w-28" />
-          <button id="switch-user-btn" title="Switch User"
-            class="ml-1 p-1 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">
-            <i data-lucide="check" class="w-3.5 h-3.5"></i>
-          </button>
-        </div>
+      <!-- User Account & Auth Button -->
+      <div class="relative flex items-center gap-2">
+        <!-- Hidden input to maintain compatibility with existing logic -->
+        <input type="hidden" id="user-id-input" value="bakar" />
 
-        <!-- Quick Switch Preset Chips -->
-        <div class="hidden lg:flex items-center gap-1.5 text-xs text-slate-400">
-          <span class="text-[11px]">Quick:</span>
-          <button
-            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
-            data-user="bakar">bakar</button>
-          <button
-            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
-            data-user="ali">ali</button>
-          <button
-            class="user-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-surface-850 border border-slate-700 text-slate-300 text-xs hover:border-emerald-500/50 transition-colors"
-            data-user="home">home</button>
+        <button id="account-btn"
+          class="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 transition-all shadow-sm focus:outline-none focus:border-emerald-500">
+          <div id="user-avatar"
+            class="w-7 h-7 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-xs font-bold text-emerald-300 overflow-hidden shrink-0">
+            <span id="avatar-letter">B</span>
+          </div>
+          <div class="text-left hidden sm:block">
+            <div id="user-display-name" class="text-xs font-semibold text-slate-100 leading-tight">bakar</div>
+            <div id="user-provider-badge" class="text-[10px] text-emerald-400 font-medium capitalize">Guest Profile</div>
+          </div>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-0.5"></i>
+        </button>
+
+        <!-- Account Dropdown Menu -->
+        <div id="account-dropdown"
+          class="hidden absolute right-0 top-full mt-2 w-64 bg-surface-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+          <div class="p-2.5 border-b border-slate-800 mb-1">
+            <div id="dropdown-name" class="text-xs font-bold text-slate-100 truncate">bakar</div>
+            <div id="dropdown-sub" class="text-[11px] text-slate-400 truncate">User ID: bakar</div>
+          </div>
+          <button id="open-auth-modal-btn"
+            class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-surface-800 hover:text-emerald-400 transition-colors">
+            <i data-lucide="user-plus" class="w-4 h-4 text-emerald-400"></i> Google / Phone Sign In
+          </button>
+          <button id="signout-btn"
+            class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-rose-300 hover:bg-rose-950/40 hover:text-rose-200 transition-colors">
+            <i data-lucide="log-out" class="w-4 h-4 text-rose-400"></i> Switch Account
+          </button>
         </div>
       </div>
 
@@ -718,23 +838,27 @@
 
       bindEvents();
       bindAnalyticsForms();
+      bindAuthEvents();
+      initAuth();
       fetchDashboard();
       lucide.createIcons();
     }
 
     // Bind Event Listeners
     function bindEvents() {
-      // User switcher
-      elements.switchUserBtn.addEventListener('click', () => switchUser(elements.userIdInput.value));
-      elements.userIdInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') switchUser(elements.userIdInput.value);
-      });
+      // User switcher (legacy support)
+      if (elements.switchUserBtn && elements.userIdInput) {
+        elements.switchUserBtn.addEventListener('click', () => switchUser(elements.userIdInput.value));
+        elements.userIdInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') switchUser(elements.userIdInput.value);
+        });
+      }
 
       // Quick User Chips
       document.querySelectorAll('.user-chip').forEach(chip => {
         chip.addEventListener('click', () => {
           const u = chip.getAttribute('data-user');
-          elements.userIdInput.value = u;
+          if (elements.userIdInput) elements.userIdInput.value = u;
           switchUser(u);
         });
       });
@@ -794,18 +918,322 @@
       elements.tabDashboard.addEventListener('click', () => setMobileTab('dashboard'));
     }
 
+    // Update Account UI in Header
+    function updateAccountUI(account) {
+      if (!account) return;
+      state.account = account;
+      state.userId = account.user_id;
+      localStorage.setItem('hisaab_user_id', account.user_id);
+      try { localStorage.setItem('hisaab_user_account', JSON.stringify(account)); } catch (e) { }
+
+      const nameEl = document.getElementById('user-display-name');
+      const badgeEl = document.getElementById('user-provider-badge');
+      const dropNameEl = document.getElementById('dropdown-name');
+      const dropSubEl = document.getElementById('dropdown-sub');
+      const avatarBox = document.getElementById('user-avatar');
+
+      const isGoogle = account.auth_provider === 'google';
+      const isPhone = account.auth_provider === 'phone';
+      const label = isGoogle ? 'Google Account' : (isPhone ? 'Phone Number' : 'Guest Profile');
+
+      if (nameEl) nameEl.textContent = account.display_name || account.user_id;
+      if (badgeEl) badgeEl.textContent = label;
+      if (dropNameEl) dropNameEl.textContent = account.display_name || account.user_id;
+      if (dropSubEl) dropSubEl.textContent = `${label} • ${account.email || account.phone_number || account.user_id}`;
+
+      if (avatarBox) {
+        if (account.photo_url) {
+          avatarBox.innerHTML = `<img src="${escapeHtml(account.photo_url)}" alt="avatar" class="w-full h-full object-cover rounded-full" />`;
+        } else {
+          const letter = (account.display_name || account.user_id || 'U').charAt(0).toUpperCase();
+          avatarBox.innerHTML = `<span id="avatar-letter">${escapeHtml(letter)}</span>`;
+        }
+      }
+
+      if (elements.userIdInput) elements.userIdInput.value = account.user_id;
+      if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = account.user_id;
+    }
+
     // Switch User Logic
     function switchUser(newUserId) {
       const clean = (newUserId || '').trim() || 'default';
       state.userId = clean;
       state.chatHistory = [];
       localStorage.setItem('hisaab_user_id', clean);
-      elements.userIdInput.value = clean;
-      elements.activeUserDisplay.textContent = clean;
+      if (elements.userIdInput) elements.userIdInput.value = clean;
+      if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = clean;
+      updateAccountUI({ user_id: clean, auth_provider: 'guest', display_name: clean });
 
       showToast(`Switched account to: ${clean}`, 'success');
       appendSystemMessage(`Active user switched to **${clean}**. All transactions and queries are isolated to this account.`);
       fetchDashboard();
+    }
+
+    // Initialize Authentication State & Firebase
+    async function initAuth() {
+      let cached = null;
+      try {
+        cached = JSON.parse(localStorage.getItem('hisaab_user_account'));
+      } catch (e) { }
+
+      const uid = cached && cached.user_id ? cached.user_id : (localStorage.getItem('hisaab_user_id') || 'bakar');
+
+      try {
+        const res = await fetch(`/api/auth/profile/${encodeURIComponent(uid)}`);
+        if (res.ok) {
+          const data = await res.json();
+          updateAccountUI(data.user);
+        } else {
+          updateAccountUI({ user_id: uid, auth_provider: 'guest', display_name: uid });
+        }
+      } catch (e) {
+        updateAccountUI({ user_id: uid, auth_provider: 'guest', display_name: uid });
+      }
+
+      // Check Firebase SDK configuration
+      try {
+        const cfgRes = await fetch('/api/auth/config');
+        const cfgData = await cfgRes.json();
+        if (cfgData.configured && window.firebase && !firebase.apps.length) {
+          firebase.initializeApp(cfgData.firebase);
+          window.firebaseAuth = firebase.auth();
+          const notice = document.getElementById('google-config-notice');
+          if (notice) notice.textContent = 'Firebase connected. Click to sign in.';
+        }
+      } catch (err) {
+        console.log('Firebase config note:', err);
+      }
+    }
+
+    // Bind Auth Modal and Events
+    function bindAuthEvents() {
+      const accountBtn = document.getElementById('account-btn');
+      const accountDropdown = document.getElementById('account-dropdown');
+      const authModal = document.getElementById('auth-modal');
+      const openAuthModalBtn = document.getElementById('open-auth-modal-btn');
+      const closeAuthModalBtn = document.getElementById('close-auth-modal-btn');
+      const signoutBtn = document.getElementById('signout-btn');
+
+      if (accountBtn && accountDropdown) {
+        accountBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          accountDropdown.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (e) => {
+          if (!accountDropdown.contains(e.target) && !accountBtn.contains(e.target)) {
+            accountDropdown.classList.add('hidden');
+          }
+        });
+      }
+
+      if (openAuthModalBtn) {
+        openAuthModalBtn.addEventListener('click', () => {
+          if (accountDropdown) accountDropdown.classList.add('hidden');
+          if (authModal) authModal.classList.remove('hidden');
+        });
+      }
+      if (closeAuthModalBtn) {
+        closeAuthModalBtn.addEventListener('click', () => {
+          if (authModal) authModal.classList.add('hidden');
+        });
+      }
+
+      // Tabs
+      const tabPhone = document.getElementById('auth-tab-phone');
+      const tabGoogle = document.getElementById('auth-tab-google');
+      const tabGuest = document.getElementById('auth-tab-guest');
+      const panelPhone = document.getElementById('auth-panel-phone');
+      const panelGoogle = document.getElementById('auth-panel-google');
+      const panelGuest = document.getElementById('auth-panel-guest');
+
+      function setAuthTab(tab) {
+        [tabPhone, tabGoogle, tabGuest].forEach(t => {
+          if (t) t.className = 'pb-2 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors';
+        });
+        [panelPhone, panelGoogle, panelGuest].forEach(p => p && p.classList.add('hidden'));
+
+        if (tab === 'phone') {
+          if (tabPhone) tabPhone.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors';
+          if (panelPhone) panelPhone.classList.remove('hidden');
+        } else if (tab === 'google') {
+          if (tabGoogle) tabGoogle.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors';
+          if (panelGoogle) panelGoogle.classList.remove('hidden');
+        } else if (tab === 'guest') {
+          if (tabGuest) tabGuest.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors';
+          if (panelGuest) panelGuest.classList.remove('hidden');
+        }
+      }
+
+      if (tabPhone) tabPhone.addEventListener('click', () => setAuthTab('phone'));
+      if (tabGoogle) tabGoogle.addEventListener('click', () => setAuthTab('google'));
+      if (tabGuest) tabGuest.addEventListener('click', () => setAuthTab('guest'));
+
+      // Google Sign-In
+      const googleBtn = document.getElementById('google-signin-btn');
+      if (googleBtn) {
+        googleBtn.addEventListener('click', async () => {
+          if (window.firebaseAuth) {
+            try {
+              const provider = new firebase.auth.GoogleAuthProvider();
+              const result = await firebase.auth().signInWithPopup(provider);
+              const u = result.user;
+              const idToken = await u.getIdToken();
+              const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  provider: 'google',
+                  email: u.email,
+                  display_name: u.displayName || u.email.split('@')[0],
+                  photo_url: u.photoURL,
+                  id_token: idToken,
+                }),
+              });
+              const data = await res.json();
+              updateAccountUI(data.user);
+              if (authModal) authModal.classList.add('hidden');
+              showToast(`Signed in as ${data.user.display_name}`, 'success');
+              fetchDashboard();
+            } catch (err) {
+              showToast(`Google Sign-In: ${err.message}`, 'error');
+            }
+          } else {
+            const email = prompt('Enter your Google email address to link and test account sync (or set FIREBASE_API_KEY in .env):');
+            if (email && email.includes('@')) {
+              const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  provider: 'google',
+                  email: email.trim().toLowerCase(),
+                  display_name: email.split('@')[0].toUpperCase(),
+                }),
+              });
+              const data = await res.json();
+              updateAccountUI(data.user);
+              if (authModal) authModal.classList.add('hidden');
+              showToast(`Signed in with Google: ${data.user.display_name}`, 'success');
+              fetchDashboard();
+            }
+          }
+        });
+      }
+
+      // Phone Sign-In
+      const sendPhoneBtn = document.getElementById('send-phone-otp-btn');
+      const verifyPhoneBtn = document.getElementById('verify-phone-otp-btn');
+      const phoneInput = document.getElementById('phone-number-input');
+      const otpInput = document.getElementById('phone-otp-input');
+      const phoneStep = document.getElementById('phone-input-step');
+      const otpStep = document.getElementById('phone-otp-step');
+
+      if (sendPhoneBtn) {
+        sendPhoneBtn.addEventListener('click', async () => {
+          let raw = (phoneInput.value || '').trim().replace(/\D/g, '');
+          if (raw.startsWith('92')) raw = raw.slice(2);
+          if (raw.startsWith('0')) raw = raw.slice(1);
+          if (!raw || raw.length < 10) {
+            showToast('Enter valid Pakistani phone (e.g. 300 1234567)', 'error');
+            return;
+          }
+          const formatted = '+92' + raw;
+
+          if (window.firebaseAuth) {
+            try {
+              if (!window.recaptchaVerifier) {
+                window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', { size: 'invisible' });
+              }
+              const conf = await firebase.auth().signInWithPhoneNumber(formatted, window.recaptchaVerifier);
+              window.phoneConfirmation = conf;
+              if (phoneStep) phoneStep.classList.add('hidden');
+              if (otpStep) otpStep.classList.remove('hidden');
+              showToast(`Verification code sent to ${formatted}`, 'success');
+            } catch (err) {
+              showToast(`SMS gateway notice: ${err.message}. Logging in with phone.`, 'warning');
+              completePhoneLogin(formatted);
+            }
+          } else {
+            completePhoneLogin(formatted);
+          }
+        });
+      }
+
+      if (verifyPhoneBtn) {
+        verifyPhoneBtn.addEventListener('click', async () => {
+          const code = (otpInput.value || '').trim();
+          if (!code || code.length < 6) {
+            showToast('Please enter the 6-digit code', 'error');
+            return;
+          }
+          if (window.phoneConfirmation) {
+            try {
+              const res = await window.phoneConfirmation.confirm(code);
+              completePhoneLogin(res.user.phoneNumber || ('+92' + phoneInput.value.replace(/\D/g, '')));
+            } catch (err) {
+              showToast('Invalid verification code: ' + err.message, 'error');
+            }
+          } else {
+            completePhoneLogin('+92' + phoneInput.value.replace(/\D/g, ''));
+          }
+        });
+      }
+
+      async function completePhoneLogin(phoneNum) {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'phone',
+            phone_number: phoneNum,
+            display_name: phoneNum,
+          }),
+        });
+        const data = await res.json();
+        updateAccountUI(data.user);
+        if (authModal) authModal.classList.add('hidden');
+        if (phoneStep) phoneStep.classList.remove('hidden');
+        if (otpStep) otpStep.classList.add('hidden');
+        showToast(`Signed in with phone ${data.user.phone_number}! WhatsApp ledger linked.`, 'success');
+        fetchDashboard();
+      }
+
+      // Guest / ID Switcher
+      const confirmGuestBtn = document.getElementById('confirm-guest-btn');
+      const guestInput = document.getElementById('guest-id-input');
+      if (confirmGuestBtn && guestInput) {
+        confirmGuestBtn.addEventListener('click', async () => {
+          const val = (guestInput.value || 'bakar').trim().toLowerCase();
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'guest', user_id: val }),
+          });
+          const data = await res.json();
+          updateAccountUI(data.user);
+          if (authModal) authModal.classList.add('hidden');
+          showToast(`Switched to user ID: ${data.user.user_id}`, 'success');
+          fetchDashboard();
+        });
+      }
+      document.querySelectorAll('.modal-guest-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          if (guestInput) guestInput.value = chip.dataset.user;
+          if (confirmGuestBtn) confirmGuestBtn.click();
+        });
+      });
+
+      // Sign out / switch to guest
+      if (signoutBtn) {
+        signoutBtn.addEventListener('click', async () => {
+          if (accountDropdown) accountDropdown.classList.add('hidden');
+          if (window.firebaseAuth) {
+            try { await firebase.auth().signOut(); } catch (e) { }
+          }
+          updateAccountUI({ user_id: 'bakar', auth_provider: 'guest', display_name: 'bakar' });
+          showToast('Switched to guest profile (bakar)', 'info');
+          fetchDashboard();
+        });
+      }
     }
 
     // Mobile Tab Switching

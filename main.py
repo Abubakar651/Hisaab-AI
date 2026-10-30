@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import csv
 import hmac
 import base64
@@ -10,6 +11,7 @@ from typing import Optional, List, Dict, Any
 
 import httpx
 from dotenv import load_dotenv
+from pydantic import BaseModel
 from fastapi import FastAPI, Request, Form, File, UploadFile, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
@@ -18,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import init_db, get_db, Transaction, TransactionItem, Budget, RecurringExpense
+from database import init_db, get_db, Transaction, TransactionItem, Budget, RecurringExpense, UserAccount
 from agent import run_agent, transcribe_audio, clear_user_history
 import analytics
 
@@ -166,6 +168,12 @@ async def get_user_transactions(user_id: str, db: Session = Depends(get_db)):
     and recent transactions for the live ledger dashboard.
     """
     clean_user_id = user_id.strip()
+    user_ids = [clean_user_id]
+    if clean_user_id.startswith("+"):
+        user_ids.append(f"wa:{clean_user_id}")
+    elif clean_user_id.startswith("wa:+"):
+        user_ids.append(clean_user_id.replace("wa:", ""))
+
     now = datetime.now()
     month_start = datetime(now.year, now.month, 1, 0, 0, 0)
 
@@ -176,7 +184,7 @@ async def get_user_transactions(user_id: str, db: Session = Depends(get_db)):
             func.count(Transaction.id).label("count"),
         )
         .filter(
-            Transaction.user_id == clean_user_id,
+            Transaction.user_id.in_(user_ids),
             Transaction.transaction_date >= month_start,
         )
         .first()
@@ -193,7 +201,7 @@ async def get_user_transactions(user_id: str, db: Session = Depends(get_db)):
             func.count(Transaction.id).label("visit_count"),
         )
         .filter(
-            Transaction.user_id == clean_user_id,
+            Transaction.user_id.in_(user_ids),
             Transaction.transaction_date >= month_start,
         )
         .group_by(Transaction.store_name)
@@ -215,7 +223,7 @@ async def get_user_transactions(user_id: str, db: Session = Depends(get_db)):
     # 3. Recent 25 transactions with line items
     recent_txs = (
         db.query(Transaction)
-        .filter(Transaction.user_id == clean_user_id)
+        .filter(Transaction.user_id.in_(user_ids))
         .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
         .limit(25)
         .all()
@@ -233,6 +241,128 @@ async def get_user_transactions(user_id: str, db: Session = Depends(get_db)):
         "budgets": analytics.budget_status(db, clean_user_id),
         "recurring": analytics.recurring_status(db, clean_user_id),
         "recent_transactions": [tx.to_dict() for tx in recent_txs],
+    }
+
+
+# ---------------------------------------------------------------------------
+# API: Authentication & User Accounts (Google & Phone Number via Firebase)
+# ---------------------------------------------------------------------------
+def normalize_pakistan_phone(phone: str) -> str:
+    """Normalizes Pakistani phone numbers to standard E.164: +923001234567."""
+    digits = re.sub(r"[^\d+]", "", phone.strip())
+    if digits.startswith("03") and len(digits) == 11:
+        return "+92" + digits[1:]
+    if digits.startswith("923") and len(digits) == 12:
+        return "+" + digits
+    if digits.startswith("+923") and len(digits) == 13:
+        return digits
+    return digits
+
+
+class LoginPayload(BaseModel):
+    provider: str = "guest"  # 'google', 'phone', 'guest'
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+    display_name: Optional[str] = None
+    photo_url: Optional[str] = None
+    id_token: Optional[str] = None
+
+
+@app.get("/api/auth/config")
+async def get_auth_config():
+    """Returns public Firebase configuration for client SDK."""
+    fb_key = os.getenv("FIREBASE_API_KEY", "")
+    return {
+        "firebase": {
+            "apiKey": fb_key,
+            "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
+            "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
+            "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
+            "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
+            "appId": os.getenv("FIREBASE_APP_ID", ""),
+        },
+        "configured": bool(fb_key),
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
+    """Logs in or registers a user via Google, Phone Number, or Guest mode."""
+    provider = payload.provider.strip().lower()
+
+    if provider == "google":
+        email = (payload.email or "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required for Google sign-in.")
+        uid = email
+        display_name = payload.display_name or email.split("@")[0].title()
+        photo_url = payload.photo_url
+        phone_number = None
+
+    elif provider == "phone":
+        raw_phone = (payload.phone_number or payload.user_id or "").strip()
+        if not raw_phone:
+            raise HTTPException(status_code=400, detail="Phone number is required.")
+        uid = normalize_pakistan_phone(raw_phone)
+        display_name = payload.display_name or uid
+        email = None
+        photo_url = None
+        phone_number = uid
+
+    else:  # 'guest' or custom username
+        raw_uid = (payload.user_id or "bakar").strip().lower()
+        uid = raw_uid or "bakar"
+        display_name = payload.display_name or uid.capitalize()
+        email = None
+        phone_number = None
+        photo_url = None
+
+    account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
+    if account:
+        account.last_login = datetime.utcnow()
+        if display_name:
+            account.display_name = display_name
+        if photo_url:
+            account.photo_url = photo_url
+        if email:
+            account.email = email
+        if phone_number:
+            account.phone_number = phone_number
+        if provider != "guest":
+            account.auth_provider = provider
+    else:
+        account = UserAccount(
+            user_id=uid,
+            auth_provider=provider,
+            display_name=display_name,
+            email=email,
+            phone_number=phone_number,
+            photo_url=photo_url,
+            created_at=datetime.utcnow(),
+            last_login=datetime.utcnow(),
+        )
+        db.add(account)
+
+    db.commit()
+    return {"status": "success", "user": account.to_dict()}
+
+
+@app.get("/api/auth/profile/{user_id}")
+async def get_user_profile(user_id: str, db: Session = Depends(get_db)):
+    clean_uid = user_id.strip()
+    account = db.query(UserAccount).filter(UserAccount.user_id == clean_uid).first()
+    if account:
+        return {"user": account.to_dict()}
+    return {
+        "user": {
+            "user_id": clean_uid,
+            "auth_provider": "guest",
+            "display_name": clean_uid.capitalize(),
+            "email": None,
+            "phone_number": clean_uid if clean_uid.startswith("+") else None,
+            "photo_url": None,
+        }
     }
 
 
