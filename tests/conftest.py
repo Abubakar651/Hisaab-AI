@@ -73,14 +73,31 @@ def client():
 
 @pytest.fixture
 def make_token():
-    def _make(user_id: str, provider: str = "credentials"):
-        return create_session_token(user_id=user_id, provider=provider)
+    def _make(user_id: str, provider: str = "credentials", token_version: int = 0):
+        return create_session_token(user_id=user_id, provider=provider, token_version=token_version)
     return _make
 
 
 @pytest.fixture
 def auth_headers(make_token):
-    def _headers(user_id: str, provider: str = "credentials"):
-        token = make_token(user_id, provider)
+    def _headers(user_id: str, provider: str = "credentials", token_version: int = 0):
+        session = TestingSessionLocal()
+        try:
+            acc = session.query(database.UserAccount).filter(database.UserAccount.user_id == user_id).first()
+            if not acc:
+                acc = database.UserAccount(
+                    user_id=user_id,
+                    auth_provider=provider,
+                    display_name=user_id.capitalize(),
+                    token_version=token_version,
+                )
+                session.add(acc)
+                session.commit()
+            else:
+                token_version = acc.token_version or 0
+        finally:
+            session.close()
+        token = make_token(user_id, provider, token_version=token_version)
         return {"Authorization": f"Bearer {token}"}
     return _headers
+

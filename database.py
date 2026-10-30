@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Generator
@@ -21,6 +22,7 @@ load_dotenv()
 # Standard Timezone for Pakistan
 PKT_TZ = ZoneInfo("Asia/Karachi")
 
+
 def get_pkt_now() -> datetime:
     """Returns the current Pakistan Standard Time (Asia/Karachi) as naive datetime for DB consistency."""
     return datetime.now(PKT_TZ).replace(tzinfo=None)
@@ -36,6 +38,7 @@ engine = create_engine(
     connect_args=connect_args,
     echo=False,
 )
+
 
 # SQLite Concurrency & Integrity: WAL mode, synchronous=NORMAL, busy_timeout=5000, foreign_keys=ON
 @event.listens_for(engine, "connect")
@@ -176,7 +179,7 @@ class RecurringExpense(Base):
 
 
 class UserAccount(Base):
-    """Registered or signed-in user accounts (Google, Phone Number, Credentials, or Guest)."""
+    """Registered or signed-in user accounts with token versioning for instant revocation."""
 
     __tablename__ = "user_accounts"
 
@@ -188,6 +191,7 @@ class UserAccount(Base):
     phone_number = Column(String(50), index=True, nullable=True)
     photo_url = Column(String(500), nullable=True)
     password_hash = Column(String(255), nullable=True)
+    token_version = Column(Integer, default=0, nullable=False)  # Incremented on password change or log out everywhere
     created_at = Column(DateTime, default=get_pkt_now, nullable=False)
     last_login = Column(DateTime, default=get_pkt_now, nullable=False)
 
@@ -200,8 +204,49 @@ class UserAccount(Base):
             "email": self.email,
             "phone_number": self.phone_number,
             "photo_url": self.photo_url,
+            "token_version": self.token_version,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
             "last_login": self.last_login.strftime("%Y-%m-%d %H:%M") if self.last_login else None,
+        }
+
+
+class LoginAttempt(Base):
+    """Persistent database-backed rate limiting table for authentication and registrations."""
+
+    __tablename__ = "login_attempts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(150), index=True, nullable=False)  # e.g., "127.0.0.1:login:victim@gmail.com"
+    attempted_at = Column(DateTime, default=get_pkt_now, index=True, nullable=False)
+
+
+class PendingTransaction(Base):
+    """Server-held pending transactions requiring explicit user confirmation before persisting to ledger."""
+
+    __tablename__ = "pending_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    store_name = Column(String(150), nullable=False)
+    total_amount = Column(Float, nullable=False)
+    payment_method = Column(String(30), default="cash", nullable=False)
+    date_str = Column(String(20), nullable=True)
+    raw_transcript = Column(Text, nullable=True)
+    items_json = Column(Text, nullable=True)  # JSON-encoded list of line items
+    created_at = Column(DateTime, default=get_pkt_now, nullable=False)
+    expires_at = Column(DateTime, index=True, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "store_name": self.store_name,
+            "total_amount": round(self.total_amount, 2),
+            "payment_method": self.payment_method,
+            "date_str": self.date_str,
+            "raw_transcript": self.raw_transcript,
+            "items": json.loads(self.items_json) if self.items_json else [],
+            "expires_at": self.expires_at.strftime("%Y-%m-%d %H:%M:%S") if self.expires_at else None,
         }
 
 
@@ -222,9 +267,12 @@ def _migrate_sqlite():
             )
         if cols and "deleted_at" not in cols:
             conn.execute(text("ALTER TABLE transactions ADD COLUMN deleted_at DATETIME NULL"))
+
         user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
         if user_cols and "password_hash" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN password_hash VARCHAR(255) NULL"))
+        if user_cols and "token_version" not in user_cols:
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
 
 
 def init_db():

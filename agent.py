@@ -15,7 +15,7 @@ from langchain_groq import ChatGroq
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, get_pkt_now
+from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, get_pkt_now
 from analytics import (
     normalize_payment_method,
     detect_payment_method,
@@ -140,7 +140,7 @@ class ExpenseItemSchema(BaseModel):
         description="Category: groceries, dairy, fuel, electronics, dining, utilities, healthcare, clothing, other",
     )
     price: float = Field(
-        description="Total cost in PKR (rupees) for this entire line item (e.g. 300 for 2 kg sugar, 400 for 12 eggs). NOT unit price."
+        description="Total cost in PKR (rupees) for this entire line item (e.g. 300 for 2 kg sugar, 400 for 12 eggs). THIS IS THE LINE TOTAL, NOT UNIT PRICE."
     )
     quantity: float = Field(
         default=1.0,
@@ -170,10 +170,14 @@ class LogExpenseInput(BaseModel):
         default="cash",
         description="How it was paid: 'cash' (default), 'easypaisa', 'jazzcash', 'card', 'bank_transfer'. Use 'card' for debit/credit card, 'bank_transfer' for IBFT/Raast/bank app, SadaPay/NayaPay count as 'card'.",
     )
-    confirmed: Optional[bool] = Field(
-        default=False,
-        description="Set to True only if the user has explicitly confirmed an unusually large expense amount (> 10,000,000 PKR, or > 1,000,000 for mobile wallets).",
-    )
+
+
+class ConfirmPendingInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+
+class CancelPendingInput(BaseModel):
+    model_config = {"extra": "ignore"}
 
 
 class SetBudgetInput(BaseModel):
@@ -275,12 +279,12 @@ def build_system_prompt() -> str:
 - 7 Days Ago: {seven_days_ago_str}
 
 ### MANDATORY TOOL CALLING:
-You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, and `mark_recurring_paid`.
+You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, `confirm_pending_expense`, and `cancel_pending_expense`.
 1. **WHEN AN EXPENSE IS MENTIONED:**
    - Any time the user states or implies buying items, spending money, or shopping:
      **YOU MUST CALL `log_expense`**.
    - NEVER pretend to record it without executing the tool!
-   - Extract `store_name` (canonical lowercase English), `items` list (with `item_name`, `price`, `quantity`, `category`), and `date_str`.
+   - Extract `store_name` (canonical lowercase English), `items` list (with `item_name`, `price`, `quantity`, `category`), and `date_str`. Note: `price` is always the line item total.
 2. **WHEN SPENDING IS QUERIED (STRICT REQUIREMENT):**
    - Any time the user asks how much they spent, totals, asks for hisaab, or checks their ledger (e.g., "is mahine ka hisaab", "kinna kharcha hoya", "how much did I spend?"):
      **YOU MUST ALWAYS CALL `query_expenses`**!
@@ -301,6 +305,14 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
    - "har mahine 1 tareekh ko 35000 kiraya" -> **CALL `add_recurring_expense`**.
    - "is mahine ka kiraya / bill ada kar diya" / "paid electricity bill" -> **CALL `mark_recurring_paid`** with `title` (e.g. `title="electricity bill"` or `title="kiraya"`). **NEVER ask the user for the amount** because the recurring amount is already saved in the database! `mark_recurring_paid` automatically retrieves the saved amount and logs the expense.
    - "kaun se bills baqi hain" -> **CALL `get_budget_status`** and list recurring items where `paid_this_month` is false.
+7. **SERVER-HELD LARGE EXPENSE CONFIRMATION (CRITICAL):**
+   - When `log_expense` returns `status: "needs_confirmation"`, the transaction is NOT saved yet. It is held in a pending state in SQLite for 5 minutes.
+   - You MUST ask the user in their language (Urdu or English) to confirm: "کیا آپ تصدیق کرتے ہیں کہ آپ نے ... روپے خرچ کیے ہیں؟"
+   - IF THE USER SAYS YES / CONFIRMS ("haan", "yes", "theek hai", "confirm", "kar do"):
+     **YOU MUST CALL `confirm_pending_expense`** (this tool takes NO arguments!). It commits the exact stored server payload with zero drift.
+   - IF THE USER SAYS NO / CANCELS ("nahi", "no", "cancel", "mat karo", "ghalat tha"):
+     **YOU MUST CALL `cancel_pending_expense`** (this tool takes NO arguments!).
+   - NEVER call `log_expense` again when confirming a pending expense! Always use `confirm_pending_expense`.
 
 ### SMART DEFAULTS & TRANSACTION ISOLATION:
 - **DO NOT INTERROGATE THE USER:** Never refuse to log an expense or repeatedly question the user if they did not provide a branded store name or exact item breakdown.
@@ -457,7 +469,6 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
         payment_method: Optional[str] = "cash",
-        confirmed: Optional[bool] = False,
     ) -> str:
         """Logs an expense transaction with line items into the database for the current user."""
         db: Session = SessionLocal()
@@ -558,14 +569,33 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 return json.dumps({"status": "error", "message": str(ve)})
 
             # Check plausibility: flag values > 10,000,000 PKR, or > 1,000,000 for easypaisa/jazzcash
+            # Server-held state: store in PendingTransaction table so LLM cannot bypass via hallucinated arguments
             plausibility = check_amount_plausibility(final_total, final_pm)
-            if plausibility["needs_confirmation"] and not confirmed:
+            if plausibility["needs_confirmation"]:
+                db.query(PendingTransaction).filter(PendingTransaction.user_id == user_id).delete()
+                expires_at = get_pkt_now() + timedelta(seconds=300)
+                pending = PendingTransaction(
+                    user_id=user_id,
+                    store_name=canonical_store,
+                    total_amount=round(final_total, 2),
+                    payment_method=final_pm,
+                    date_str=date_str,
+                    raw_transcript=raw_transcript or None,
+                    items_json=json.dumps(parsed_items) if parsed_items else None,
+                    created_at=get_pkt_now(),
+                    expires_at=expires_at,
+                )
+                db.add(pending)
+                db.commit()
                 return json.dumps({
                     "status": "needs_confirmation",
-                    "amount": final_total,
+                    "pending_id": pending.id,
+                    "amount": round(final_total, 2),
                     "payment_method": final_pm,
                     "store_name": canonical_store,
                     "message": plausibility["reason"],
+                    "expires_in_seconds": 300,
+                    "instruction": "This expense is held in pending status on the server. Ask the user in their language if they want to confirm or cancel it. If they confirm, execute confirm_pending_expense (takes no arguments). If they decline or cancel, execute cancel_pending_expense (takes no arguments)."
                 }, ensure_ascii=False)
 
             # If it was a money transfer and store defaulted to 'local store', assign clean transfer store
@@ -956,6 +986,121 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         finally:
             db.close()
 
+    @tool("confirm_pending_expense", args_schema=ConfirmPendingInput)
+    def confirm_pending_expense() -> str:
+        """Confirms and records the currently pending large expense for the user. Takes NO amount arguments (commits exact server-stored pending payload)."""
+        db: Session = SessionLocal()
+        try:
+            now = get_pkt_now()
+            pending = (
+                db.query(PendingTransaction)
+                .filter(PendingTransaction.user_id == user_id, PendingTransaction.expires_at > now)
+                .order_by(PendingTransaction.created_at.desc())
+                .first()
+            )
+            if not pending:
+                return json.dumps({
+                    "status": "not_found",
+                    "message": "No active pending expense found to confirm, or the 5-minute confirmation window has expired.",
+                }, ensure_ascii=False)
+
+            tx_date = get_pkt_now()
+            if pending.date_str:
+                try:
+                    parsed_date = datetime.strptime(pending.date_str.strip(), "%Y-%m-%d")
+                    tx_date = parsed_date.replace(hour=tx_date.hour, minute=tx_date.minute, second=tx_date.second)
+                except Exception:
+                    pass
+
+            tx = Transaction(
+                user_id=user_id,
+                store_name=pending.store_name,
+                total_amount=round(pending.total_amount, 2),
+                transaction_date=tx_date,
+                raw_transcript=pending.raw_transcript,
+                payment_method=pending.payment_method,
+            )
+            db.add(tx)
+            db.flush()
+
+            logged_items = []
+            if pending.items_json:
+                p_items = json.loads(pending.items_json)
+                for it in p_items:
+                    t_item = TransactionItem(
+                        transaction_id=tx.id,
+                        item_name=it["item_name"],
+                        category=it.get("category", "groceries"),
+                        price=round(it["price"], 2),
+                        quantity=float(it.get("quantity", 1.0)),
+                    )
+                    db.add(t_item)
+                    logged_items.append(t_item.to_dict())
+            else:
+                t_item = TransactionItem(
+                    transaction_id=tx.id,
+                    item_name="general purchase",
+                    category="other",
+                    price=round(pending.total_amount, 2),
+                    quantity=1.0,
+                )
+                db.add(t_item)
+                logged_items.append(t_item.to_dict())
+
+            db.delete(pending)
+            db.commit()
+            db.refresh(tx)
+
+            alerts = [b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")]
+
+            return json.dumps({
+                "status": "success",
+                "message": "Pending expense confirmed and successfully recorded.",
+                "transaction_id": tx.id,
+                "store_name": tx.store_name,
+                "total_amount_pkr": round(tx.total_amount, 2),
+                "payment_method": tx.payment_method,
+                "items": logged_items,
+                "budget_alerts": alerts,
+            }, ensure_ascii=False)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error confirming pending expense for {user_id}: {e}")
+            return json.dumps({"status": "error", "message": "Failed to confirm pending expense."})
+        finally:
+            db.close()
+
+    @tool("cancel_pending_expense", args_schema=CancelPendingInput)
+    def cancel_pending_expense() -> str:
+        """Cancels and discards the currently pending expense transaction for the user."""
+        db: Session = SessionLocal()
+        try:
+            pending = (
+                db.query(PendingTransaction)
+                .filter(PendingTransaction.user_id == user_id)
+                .first()
+            )
+            if not pending:
+                return json.dumps({
+                    "status": "not_found",
+                    "message": "No pending expense found to cancel.",
+                }, ensure_ascii=False)
+
+            cancelled_amount = pending.total_amount
+            cancelled_store = pending.store_name
+            db.delete(pending)
+            db.commit()
+
+            return json.dumps({
+                "status": "cancelled",
+                "message": f"Cancelled pending expense of PKR {cancelled_amount:,.2f} at {cancelled_store}.",
+            }, ensure_ascii=False)
+        except Exception as e:
+            db.rollback()
+            return json.dumps({"status": "error", "message": "Failed to cancel pending expense."})
+        finally:
+            db.close()
+
     return [
         log_expense,
         query_expenses,
@@ -964,6 +1109,8 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         get_budget_status,
         add_recurring_expense,
         mark_recurring_paid,
+        confirm_pending_expense,
+        cancel_pending_expense,
     ]
 
 

@@ -1516,6 +1516,7 @@
 
         // Auto-refresh ledger dashboard after any action
         fetchDashboard();
+        await checkAndRenderPendingConfirmation();
       } catch (err) {
         removeLoadingBubble(loadingBubble);
         appendErrorMessage(err.message || 'Error occurred while contacting server.');
@@ -1744,6 +1745,84 @@
       elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
     }
 
+    async function checkAndRenderPendingConfirmation() {
+      try {
+        const res = await authFetch('/api/transactions/pending');
+        if (!res.ok) return;
+        const data = await res.json();
+        const existingBanner = document.getElementById('pending-expense-banner');
+        if (existingBanner) existingBanner.remove();
+
+        if (data.pending) {
+          const p = data.pending;
+          const banner = document.createElement('div');
+          banner.id = 'pending-expense-banner';
+          banner.className = 'my-3 p-4 rounded-xl bg-amber-950/60 border border-amber-600/50 shadow-lg text-slate-100 max-w-xl';
+          banner.innerHTML = `
+            <div class="flex items-start gap-3">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 mt-0.5">
+                <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <h4 class="font-bold text-amber-300 text-sm flex items-center gap-2">
+                  <span>بڑے خرچے کی تصدیق درکار ہے</span>
+                  <span class="text-xs text-amber-400/80 font-normal">/ Large Expense Confirmation</span>
+                </h4>
+                <p class="text-xs text-slate-200 mt-1 leading-relaxed">
+                  <strong>${escapeHtml(p.store_name)}</strong> · <span class="font-mono text-amber-300 font-bold">PKR ${formatMoney(p.total_amount)}</span> (${escapeHtml(p.payment_method)})
+                </p>
+                <p class="text-[11px] text-slate-400 mt-0.5">
+                  یہ رقم سرور پر محفوظ ہے اور تصدیق کا انتظار ہے۔ کیا آپ اس خرچے کو درج کرنا چاہتے ہیں؟
+                </p>
+                <div class="flex items-center gap-2 mt-3">
+                  <button id="btn-confirm-pending" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>تصدیق کریں (Confirm)</span>
+                  </button>
+                  <button id="btn-cancel-pending" class="px-3 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 border border-slate-700 text-rose-300 hover:text-rose-200 font-semibold text-xs flex items-center gap-1.5 transition-colors">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                    <span>کینسل کریں (Cancel)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+          elements.messagesContainer.appendChild(banner);
+          scrollToBottom();
+          lucide.createIcons();
+
+          document.getElementById('btn-confirm-pending')?.addEventListener('click', async () => {
+            banner.remove();
+            appendUserMessage("Haan, confirm kar do.");
+            const resp = await authFetch('/api/transactions/pending/confirm', { method: 'POST' });
+            const resData = await resp.json();
+            if (resp.ok) {
+              appendAssistantMessage(`✅ آپ کا خرچہ درج کر لیا گیا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
+              showToast(resData.message || 'Expense confirmed', 'success');
+              fetchDashboard();
+            } else {
+              showToast(resData.detail || 'Failed to confirm', 'error');
+            }
+          });
+
+          document.getElementById('btn-cancel-pending')?.addEventListener('click', async () => {
+            banner.remove();
+            appendUserMessage("Nahi, cancel kar do.");
+            const resp = await authFetch('/api/transactions/pending/cancel', { method: 'POST' });
+            const resData = await resp.json();
+            if (resp.ok) {
+              appendAssistantMessage(`❌ خرچہ کینسل کر دیا گیا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
+              showToast('Expense cancelled', 'info');
+            } else {
+              showToast(resData.detail || 'Failed to cancel', 'error');
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Error checking pending transaction:', e);
+      }
+    }
+
     // =========================================================================
     // Dashboard & Live Ledger Flow
     // =========================================================================
@@ -1754,6 +1833,7 @@
 
         const data = await response.json();
         renderDashboard(data);
+        await checkAndRenderPendingConfirmation();
       } catch (err) {
         console.error('Error fetching dashboard:', err);
       }

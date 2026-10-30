@@ -9,10 +9,13 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("SESSION_SECRET", "test-secret-key-32-bytes-long-for-tests-12345")
+
 from dotenv import load_dotenv
 load_dotenv()
 
-from database import SessionLocal, init_db, Transaction, TransactionItem, Budget, RecurringExpense, get_pkt_now
+from database import SessionLocal, init_db, Transaction, TransactionItem, Budget, RecurringExpense, UserAccount, get_pkt_now
 from analytics import (
     normalize_payment_method,
     category_breakdown,
@@ -40,6 +43,19 @@ def cleanup():
             db.delete(t)
         db.query(Budget).filter(Budget.user_id == TEST_USER).delete()
         db.query(RecurringExpense).filter(RecurringExpense.user_id == TEST_USER).delete()
+
+        # Ensure UserAccount exists for auth verification
+        acc = db.query(UserAccount).filter(UserAccount.user_id == TEST_USER).first()
+        if not acc:
+            acc = UserAccount(
+                user_id=TEST_USER,
+                auth_provider="credentials",
+                display_name="Test Verification User",
+                token_version=0,
+            )
+            db.add(acc)
+        else:
+            acc.token_version = 0
         db.commit()
     finally:
         db.close()

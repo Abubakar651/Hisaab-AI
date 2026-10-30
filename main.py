@@ -4,12 +4,12 @@ import re
 import csv
 import hmac
 import time
+import json
 import uuid
 import base64
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
-from collections import defaultdict
 from typing import Optional, List, Dict, Any, Tuple
 
 import jwt
@@ -41,11 +41,14 @@ from database import (
     init_db,
     get_db,
     get_pkt_now,
+    SessionLocal,
     Transaction,
     TransactionItem,
     Budget,
     RecurringExpense,
     UserAccount,
+    LoginAttempt,
+    PendingTransaction,
 )
 from agent import run_agent, transcribe_audio, clear_user_history
 import analytics
@@ -60,17 +63,24 @@ logging.basicConfig(
 logger = logging.getLogger("hisaab_ai")
 
 # ---------------------------------------------------------------------------
-# Environment & Session Security Verification
+# Environment & Session Security Verification (Fail-Closed Default)
 # ---------------------------------------------------------------------------
-APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).lower()
+APP_ENV = os.getenv("APP_ENV", "production").strip().lower()
+IS_DEV = APP_ENV in ("dev", "development", "test")
 SESSION_SECRET = os.getenv("SESSION_SECRET")
 
-if not SESSION_SECRET:
-    if APP_ENV in ("dev", "development", "test"):
-        SESSION_SECRET = "hisaab-ai-dev-secret-key-do-not-use-in-production-1234567890"
-        logger.warning("SESSION_SECRET not set in environment. Using dev fallback secret.")
+if not SESSION_SECRET or len(SESSION_SECRET) < 32:
+    if IS_DEV:
+        SESSION_SECRET = (
+            SESSION_SECRET
+            if (SESSION_SECRET and len(SESSION_SECRET) >= 32)
+            else "hisaab-ai-dev-secret-key-do-not-use-in-production-1234567890"
+        )
+        logger.warning("Using dev fallback SESSION_SECRET (min 32 chars).")
     else:
-        raise RuntimeError("SESSION_SECRET environment variable is required in production mode.")
+        raise RuntimeError(
+            "SESSION_SECRET environment variable is required and must be at least 32 characters in production mode."
+        )
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
@@ -112,12 +122,13 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # ---------------------------------------------------------------------------
 # Session JWT Helpers & FastAPI Authentication Dependency
 # ---------------------------------------------------------------------------
-def create_session_token(user_id: str, provider: str = "credentials") -> str:
-    """Generates signed HS256 JWT session token with 7-day expiry."""
+def create_session_token(user_id: str, provider: str = "credentials", token_version: int = 0) -> str:
+    """Generates signed HS256 JWT session token with 7-day expiry and token version claim."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "provider": provider,
+        "ver": int(token_version or 0),
         "iat": now,
         "exp": now + timedelta(days=JWT_EXPIRY_DAYS),
     }
@@ -125,9 +136,14 @@ def create_session_token(user_id: str, provider: str = "credentials") -> str:
 
 
 def decode_session_token(token: str) -> Dict[str, Any]:
-    """Validates signature and claims of session JWT."""
+    """Validates signature and claims of session JWT (strictly HS256, requires exp, sub, iat)."""
     try:
-        return jwt.decode(token, SESSION_SECRET, algorithms=[JWT_ALGORITHM])
+        return jwt.decode(
+            token,
+            SESSION_SECRET,
+            algorithms=[JWT_ALGORITHM],
+            options={"require": ["exp", "sub", "iat"]},
+        )
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -148,10 +164,12 @@ security_bearer = HTTPBearer(auto_error=False)
 async def get_current_user(
     request: Request,
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+    db: Session = Depends(get_db),
 ) -> str:
     """
-    FastAPI dependency that reads Bearer token from Authorization header or session_token cookie.
-    Guarantees tenant identity and eliminates URL parameter IDOR attacks.
+    FastAPI dependency that reads Bearer token from Authorization header.
+    Validates token signature, expiration, account existence, and token_version match.
+    Guarantees tenant identity and provides instant token revocation.
     """
     token = None
     if auth_header and auth_header.credentials:
@@ -160,8 +178,6 @@ async def get_current_user(
         hdr = request.headers["Authorization"].strip()
         if hdr.lower().startswith("bearer "):
             token = hdr[7:].strip()
-    elif "session_token" in request.cookies:
-        token = request.cookies["session_token"].strip()
 
     if not token:
         raise HTTPException(
@@ -178,7 +194,27 @@ async def get_current_user(
             detail="Invalid token claims.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return str(user_id).strip()
+
+    clean_uid = str(user_id).strip()
+    token_ver = payload.get("ver", 0)
+
+    # Validate against DB: account must exist and token_version must match
+    account = db.query(UserAccount).filter(UserAccount.user_id == clean_uid).first()
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account does not exist or has been removed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if (account.token_version or 0) != token_ver:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been revoked. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return clean_uid
 
 
 def verify_user_access(requested_user_id: str, authenticated_user_id: str):
@@ -194,32 +230,69 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Password Hashing & Rate Limiting Helpers
+# Password Hashing & Persistent Rate Limiting Helpers
 # ---------------------------------------------------------------------------
-_LOGIN_ATTEMPTS: Dict[str, List[float]] = defaultdict(list)
+def get_client_ip(request: Request) -> str:
+    """Safely extracts client IP, honoring X-Forwarded-For if available."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host.strip()
+    return "127.0.0.1"
 
 
-def check_login_rate_limit(client_ip: str, identifier: str, max_attempts: int = 5, window_seconds: int = 60):
+def check_rate_limit(
+    db: Session,
+    client_ip: str,
+    action: str,
+    identifier: str,
+    max_attempts: int = 5,
+    window_seconds: int = 60,
+):
     """
-    Enforces 5 attempts per minute per IP + identifier.
-    Returns HTTP 429 Too Many Requests if exceeded.
+    Enforces persistent database-backed rate limiting across multiple workers.
+    Raises HTTP 429 Too Many Requests if threshold is exceeded.
     """
-    now = time.time()
-    key = f"{client_ip}:{identifier.lower()}"
-    attempts = [t for t in _LOGIN_ATTEMPTS[key] if now - t < window_seconds]
-    if len(attempts) >= max_attempts:
-        _LOGIN_ATTEMPTS[key] = attempts
+    now = get_pkt_now()
+    cutoff = now - timedelta(seconds=window_seconds)
+    key = f"{client_ip}:{action}:{identifier.lower()}"
+
+    count = (
+        db.query(func.count(LoginAttempt.id))
+        .filter(LoginAttempt.key == key, LoginAttempt.attempted_at >= cutoff)
+        .scalar()
+    ) or 0
+
+    if count >= max_attempts:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed login attempts. Please wait a minute and try again.",
+            detail="Too many attempts. Please wait a minute and try again.",
         )
-    attempts.append(now)
-    _LOGIN_ATTEMPTS[key] = attempts
+
+
+def record_failed_attempt(db: Session, client_ip: str, action: str, identifier: str):
+    """Records an attempt in the persistent login_attempts table."""
+    key = f"{client_ip}:{action}:{identifier.lower()}"
+    attempt = LoginAttempt(key=key, attempted_at=get_pkt_now())
+    db.add(attempt)
+    db.commit()
+
+
+def clear_failed_attempts(db: Session, client_ip: str, action: str, identifier: str):
+    """Resets failed attempt counter upon successful authentication."""
+    key = f"{client_ip}:{action}:{identifier.lower()}"
+    db.query(LoginAttempt).filter(LoginAttempt.key == key).delete()
+    db.commit()
 
 
 def clear_login_rate_limit(client_ip: str, identifier: str):
-    key = f"{client_ip}:{identifier.lower()}"
-    _LOGIN_ATTEMPTS.pop(key, None)
+    """Convenience helper to clear login rate limit for tests and administrative resets."""
+    db: Session = SessionLocal()
+    try:
+        clear_failed_attempts(db, client_ip, "login", identifier)
+    finally:
+        db.close()
 
 
 def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -446,6 +519,124 @@ async def clear_chat_history(
 
 
 # ---------------------------------------------------------------------------
+# API: Server-Held Pending Large Expenses (UI Confirmation & Cancellation)
+# ---------------------------------------------------------------------------
+@app.get("/api/transactions/pending")
+async def get_active_pending_transaction(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieves any active pending transaction awaiting user confirmation."""
+    now = get_pkt_now()
+    pending = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.user_id == current_user, PendingTransaction.expires_at > now)
+        .order_by(PendingTransaction.created_at.desc())
+        .first()
+    )
+    return {"pending": pending.to_dict() if pending else None}
+
+
+@app.post("/api/transactions/pending/confirm")
+async def confirm_pending_transaction(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Commits active server-held pending transaction with zero parameter drift."""
+    now = get_pkt_now()
+    pending = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.user_id == current_user, PendingTransaction.expires_at > now)
+        .order_by(PendingTransaction.created_at.desc())
+        .first()
+    )
+    if not pending:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active pending expense found to confirm, or the 5-minute confirmation window has expired.",
+        )
+
+    tx_date = get_pkt_now()
+    if pending.date_str:
+        try:
+            parsed_date = datetime.strptime(pending.date_str.strip(), "%Y-%m-%d")
+            tx_date = parsed_date.replace(hour=tx_date.hour, minute=tx_date.minute, second=tx_date.second)
+        except Exception:
+            pass
+
+    tx = Transaction(
+        user_id=current_user,
+        store_name=pending.store_name,
+        total_amount=round(pending.total_amount, 2),
+        transaction_date=tx_date,
+        raw_transcript=pending.raw_transcript,
+        payment_method=pending.payment_method,
+    )
+    db.add(tx)
+    db.flush()
+
+    logged_items = []
+    if pending.items_json:
+        p_items = json.loads(pending.items_json)
+        for it in p_items:
+            t_item = TransactionItem(
+                transaction_id=tx.id,
+                item_name=it["item_name"],
+                category=it.get("category", "groceries"),
+                price=round(it["price"], 2),
+                quantity=float(it.get("quantity", 1.0)),
+            )
+            db.add(t_item)
+            logged_items.append(t_item.to_dict())
+    else:
+        t_item = TransactionItem(
+            transaction_id=tx.id,
+            item_name="general purchase",
+            category="other",
+            price=round(pending.total_amount, 2),
+            quantity=1.0,
+        )
+        db.add(t_item)
+        logged_items.append(t_item.to_dict())
+
+    db.delete(pending)
+    db.commit()
+    db.refresh(tx)
+
+    return {
+        "status": "success",
+        "message": f"Confirmed and logged PKR {tx.total_amount:,.2f} at {tx.store_name.title()}.",
+        "transaction": tx.to_dict(),
+    }
+
+
+@app.post("/api/transactions/pending/cancel")
+async def cancel_pending_transaction(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cancels and discards active pending expense."""
+    pending = (
+        db.query(PendingTransaction)
+        .filter(PendingTransaction.user_id == current_user)
+        .first()
+    )
+    if not pending:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending transaction found to cancel.",
+        )
+    cancelled_amt = pending.total_amount
+    cancelled_store = pending.store_name
+    db.delete(pending)
+    db.commit()
+    return {
+        "status": "cancelled",
+        "message": f"Cancelled pending expense of PKR {cancelled_amt:,.2f} at {cancelled_store.title()}.",
+    }
+
+
+# ---------------------------------------------------------------------------
 # API: User Transactions Ledger & Summary
 # ---------------------------------------------------------------------------
 @app.get("/api/transactions/{user_id}")
@@ -578,11 +769,16 @@ async def get_auth_config():
 
 
 @app.post("/api/auth/login")
-async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
+async def auth_login(
+    request: Request,
+    payload: LoginPayload,
+    db: Session = Depends(get_db),
+):
     """
     Logs in or registers a user via Google, Phone Number, or Guest mode.
-    Enforces server-side token verification and issues signed JWT session tokens.
+    Enforces server-side token verification, pre-hijacking prevention, and issues signed JWT session tokens.
     """
+    client_ip = get_client_ip(request)
     provider = payload.provider.strip().lower()
 
     if provider == "google":
@@ -590,6 +786,16 @@ async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
         if not payload.id_token:
             raise HTTPException(status_code=400, detail="Firebase ID token is required for Google sign-in.")
         claims = verify_firebase_id_token(payload.id_token)
+
+        # Check email_verified is True
+        if not claims.get("email_verified", False):
+            raise HTTPException(status_code=401, detail="Google account email is not verified.")
+
+        # Check sign_in_provider is google.com
+        sign_in_provider = claims.get("firebase", {}).get("sign_in_provider", "")
+        if sign_in_provider != "google.com":
+            raise HTTPException(status_code=401, detail="Token was not issued by Google sign-in provider.")
+
         verified_email = claims.get("email")
         if not verified_email:
             raise HTTPException(status_code=401, detail="Google token does not contain a verified email.")
@@ -611,7 +817,7 @@ async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
             photo_url = None
             email = None
             phone_number = uid
-        elif APP_ENV in ("dev", "development") and (payload.phone_number or payload.user_id):
+        elif IS_DEV and (payload.phone_number or payload.user_id):
             # Development-only instant verification fallback for Pakistani numbers
             raw_phone = (payload.phone_number or payload.user_id or "").strip()
             uid = normalize_pakistan_phone(raw_phone)
@@ -626,6 +832,10 @@ async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
             )
 
     else:
+        # Rate limit guest account generation
+        check_rate_limit(db, client_ip, "guest", client_ip, max_attempts=10, window_seconds=60)
+        record_failed_attempt(db, client_ip, "guest", client_ip)
+
         # Secure Guest Mode: generate random unguessable guest ID
         guest_uuid = uuid.uuid4().hex[:12]
         uid = f"guest_{guest_uuid}"
@@ -637,6 +847,14 @@ async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
 
     account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
     if account:
+        # Pre-hijacking mitigation: if account was registered with credentials without email verification,
+        # clear password_hash, elevate provider to google, and increment token_version to invalidate attacker's sessions!
+        if provider == "google" and (account.password_hash or account.auth_provider == "credentials"):
+            logger.warning(f"Google login verified for {uid}. Clearing unverified credentials password and revoking old tokens.")
+            account.password_hash = None
+            account.auth_provider = "google"
+            account.token_version = (account.token_version or 0) + 1
+
         account.last_login = get_pkt_now()
         if display_name:
             account.display_name = display_name
@@ -656,13 +874,14 @@ async def auth_login(payload: LoginPayload, db: Session = Depends(get_db)):
             email=email,
             phone_number=phone_number,
             photo_url=photo_url,
+            token_version=0,
             created_at=get_pkt_now(),
             last_login=get_pkt_now(),
         )
         db.add(account)
 
     db.commit()
-    session_token = create_session_token(uid, provider)
+    session_token = create_session_token(uid, provider, token_version=account.token_version or 0)
     return {
         "status": "success",
         "token": session_token,
@@ -694,8 +913,15 @@ async def get_user_profile(
 
 
 @app.post("/api/auth/register")
-async def auth_register(payload: RegisterPayload, db: Session = Depends(get_db)):
-    """Creates a new user account with Name, Email/Phone, and Password. Prevents account squatting."""
+async def auth_register(
+    request: Request,
+    payload: RegisterPayload,
+    db: Session = Depends(get_db),
+):
+    """Creates a new user account with Name, Email/Phone, and Password. Prevents account squatting and rate limits registrations."""
+    client_ip = get_client_ip(request)
+    check_rate_limit(db, client_ip, "register", client_ip, max_attempts=5, window_seconds=60)
+
     ident = payload.email_or_phone.strip()
     name = payload.name.strip()
     password = payload.password  # Do NOT strip password
@@ -732,13 +958,15 @@ async def auth_register(payload: RegisterPayload, db: Session = Depends(get_db))
         email=email,
         phone_number=phone,
         password_hash=pwd_hash,
+        token_version=0,
         created_at=get_pkt_now(),
         last_login=get_pkt_now(),
     )
     db.add(account)
     db.commit()
 
-    session_token = create_session_token(uid, "credentials")
+    record_failed_attempt(db, client_ip, "register", client_ip)
+    session_token = create_session_token(uid, "credentials", token_version=0)
     return {
         "status": "success",
         "message": "Account created successfully!",
@@ -757,16 +985,17 @@ async def auth_password_login(
     ident = payload.email_or_phone.strip()
     password = payload.password  # Do NOT strip password
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
 
     # Enforce 5 failed attempts/min per IP+identifier with 429
-    check_login_rate_limit(client_ip, ident)
+    check_rate_limit(db, client_ip, "login", ident, max_attempts=5, window_seconds=60)
 
     is_email = "@" in ident
     uid = ident.lower() if is_email else normalize_pakistan_phone(ident)
 
     account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
     if not account or not account.password_hash:
+        record_failed_attempt(db, client_ip, "login", ident)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/phone or password.",
@@ -774,6 +1003,7 @@ async def auth_password_login(
 
     is_valid, needs_rehash = verify_and_check_rehash(password, account.password_hash)
     if not is_valid:
+        record_failed_attempt(db, client_ip, "login", ident)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/phone or password.",
@@ -786,13 +1016,30 @@ async def auth_password_login(
     account.last_login = get_pkt_now()
     db.commit()
 
-    clear_login_rate_limit(client_ip, ident)
-    session_token = create_session_token(uid, account.auth_provider or "credentials")
+    clear_failed_attempts(db, client_ip, "login", ident)
+    session_token = create_session_token(
+        uid,
+        account.auth_provider or "credentials",
+        token_version=account.token_version or 0,
+    )
     return {
         "status": "success",
         "token": session_token,
         "user": account.to_dict(),
     }
+
+
+@app.post("/api/auth/logout-all")
+async def logout_all_sessions(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Increments user's token_version, immediately revoking all issued JWT session tokens."""
+    account = db.query(UserAccount).filter(UserAccount.user_id == current_user).first()
+    if account:
+        account.token_version = (account.token_version or 0) + 1
+        db.commit()
+    return {"status": "success", "message": "All sessions revoked successfully. Please sign in again."}
 
 
 # ---------------------------------------------------------------------------
@@ -1006,7 +1253,12 @@ async def whatsapp_webhook(request: Request):
     form = await request.form()
     params = {k: str(v) for k, v in form.items()}
 
-    if os.getenv("WHATSAPP_VALIDATE_SIGNATURE", "true").lower() != "false":
+    validate_sig = os.getenv("WHATSAPP_VALIDATE_SIGNATURE", "true").lower() != "false"
+    if not validate_sig and not IS_DEV:
+        # Signature bypass is strictly prohibited outside development
+        validate_sig = True
+
+    if validate_sig:
         base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
         url = f"{base}/api/whatsapp" if base else str(request.url)
         if not _valid_twilio_signature(url, params, request.headers.get("X-Twilio-Signature", ""), token):

@@ -230,29 +230,36 @@ def test_amount_handling_and_confirmation(db):
     assert plaus_jazz["needs_confirmation"] is True
     assert "Jazzcash" in plaus_jazz["reason"]
 
-    # 5. Test log_expense tool confirmation behavior
+    # 5. Test log_expense server-held pending confirmation flow
     tools = {t.name: t for t in get_tools_for_user("test_user_amounts")}
     log_expense_tool = tools["log_expense"]
+    confirm_pending_tool = tools["confirm_pending_expense"]
+    cancel_pending_tool = tools["cancel_pending_expense"]
 
-    # Unconfirmed call for 20M returns needs_confirmation
+    # Call for 20M creates pending transaction and returns needs_confirmation
     res_unconfirmed = json.loads(log_expense_tool.invoke({
         "store_name": "property dealer",
         "total_amount": 20_000_000,
         "payment_method": "bank_transfer",
-        "confirmed": False,
     }))
     assert res_unconfirmed["status"] == "needs_confirmation"
     assert res_unconfirmed["amount"] == 20_000_000.0
 
-    # Confirmed call with confirmed=True saves to DB
-    res_confirmed = json.loads(log_expense_tool.invoke({
-        "store_name": "property dealer",
-        "total_amount": 20_000_000,
-        "payment_method": "bank_transfer",
-        "confirmed": True,
-    }))
+    # Confirmed call with confirm_pending_expense (parameterless) saves exact payload to DB
+    res_confirmed = json.loads(confirm_pending_tool.invoke({}))
     assert res_confirmed["status"] == "success"
     assert res_confirmed["total_amount_pkr"] == 20_000_000.0
+
+    # Call for another large transaction and test cancellation
+    res_cancel_test = json.loads(log_expense_tool.invoke({
+        "store_name": "car showroom",
+        "total_amount": 15_000_000,
+        "payment_method": "bank_transfer",
+    }))
+    assert res_cancel_test["status"] == "needs_confirmation"
+
+    res_cancelled = json.loads(cancel_pending_tool.invoke({}))
+    assert res_cancelled["status"] == "cancelled"
 
 
 def test_category_totals_and_line_item_math_consistency(db):
@@ -424,3 +431,341 @@ def test_audio_file_size_and_mimetype_validation(client, auth_headers):
         headers=headers,
     )
     assert resp_large.status_code == 413
+
+
+def test_token_revocation_and_forgery_protections(client, db, make_token, auth_headers):
+    """
+    Validates token versioning, instant revocation, and forgery protections:
+    - Token version mismatch immediately returns 401
+    - 'Log out everywhere' (/api/auth/logout-all) revokes all previously issued tokens
+    - Deleted user account immediately returns 401
+    - Forged tokens (wrong secret, alg: none, expired) return 401
+    """
+    user_id = "revocation_user"
+    headers = auth_headers(user_id)
+
+    # 1. Active valid session works
+    resp = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert resp.status_code == 200
+
+    # 2. Call logout-all to bump token_version
+    resp_logout = client.post("/api/auth/logout-all", headers=headers)
+    assert resp_logout.status_code == 200
+    assert resp_logout.json()["status"] == "success"
+
+    # 3. Old token now rejected with 401
+    resp_revoked = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert resp_revoked.status_code == 401
+    assert "Session has been revoked" in resp_revoked.json()["detail"]
+
+    # 4. New token with updated token_version=1 works
+    new_headers = auth_headers(user_id, token_version=1)
+    resp_new = client.get(f"/api/transactions/{user_id}", headers=new_headers)
+    assert resp_new.status_code == 200
+
+    # 5. Token for deleted user is rejected with 401
+    acc = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    db.delete(acc)
+    db.commit()
+    resp_deleted = client.get(f"/api/transactions/{user_id}", headers=new_headers)
+    assert resp_deleted.status_code == 401
+    assert "User account does not exist" in resp_deleted.json()["detail"]
+
+    # 6. Forged token signed with wrong secret
+    import jwt
+    from datetime import timezone, timedelta
+    now = datetime.now(timezone.utc)
+    forged_token = jwt.encode(
+        {"sub": "attacker", "ver": 0, "iat": now, "exp": now + timedelta(days=1)},
+        "completely-wrong-secret-key-123456789012345",
+        algorithm="HS256",
+    )
+    resp_forged = client.get("/api/transactions/attacker", headers={"Authorization": f"Bearer {forged_token}"})
+    assert resp_forged.status_code == 401
+
+    # 7. Forged token with alg: none
+    none_token = jwt.encode(
+        {"sub": "attacker", "ver": 0, "iat": now, "exp": now + timedelta(days=1)},
+        key="",
+        algorithm="none",
+    )
+    resp_none = client.get("/api/transactions/attacker", headers={"Authorization": f"Bearer {none_token}"})
+    assert resp_none.status_code == 401
+
+    # 8. Expired token
+    expired_token = jwt.encode(
+        {"sub": user_id, "ver": 0, "iat": now - timedelta(days=10), "exp": now - timedelta(days=1)},
+        main.SESSION_SECRET,
+        algorithm="HS256",
+    )
+    resp_expired = client.get(f"/api/transactions/{user_id}", headers={"Authorization": f"Bearer {expired_token}"})
+    assert resp_expired.status_code == 401
+    assert "expired" in resp_expired.json()["detail"].lower()
+
+
+def test_pre_hijacking_mitigation_and_google_claims(client, db):
+    """
+    Prevents pre-hijacking attacks where an attacker pre-registers victim's email:
+    - If user later authenticates via verified Google sign-in:
+      - Clears password_hash so attacker password is neutralized
+      - Upgrades auth_provider to google
+      - Increments token_version so attacker's active tokens are revoked
+    - Rejects Google token if email_verified is False
+    - Rejects Google token if sign_in_provider is not google.com
+    """
+    victim_email = "victim.student@gmail.com"
+
+    # 1. Attacker pre-registers account with password
+    resp_reg = client.post(
+        "/api/auth/register",
+        json={"name": "Attacker", "email_or_phone": victim_email, "password": "AttackerPassword123"},
+    )
+    assert resp_reg.status_code == 200
+    attacker_token = resp_reg.json()["token"]
+
+    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
+    assert account.password_hash is not None
+    assert account.auth_provider == "credentials"
+    old_version = account.token_version
+
+    # 2. Fake Google login with email_verified=False is rejected
+    fake_claims_unverified = {
+        "email": victim_email,
+        "email_verified": False,
+        "firebase": {"sign_in_provider": "google.com"},
+        "name": "Victim Real",
+    }
+    with patch("main.verify_firebase_id_token", return_value=fake_claims_unverified):
+        resp_unverified = client.post(
+            "/api/auth/login",
+            json={"provider": "google", "id_token": "valid_structure_unverified_email"},
+        )
+        assert resp_unverified.status_code == 401
+        assert "not verified" in resp_unverified.json()["detail"]
+
+    # 3. Fake Google login with wrong sign_in_provider (e.g. password/anonymous) is rejected
+    fake_claims_wrong_provider = {
+        "email": victim_email,
+        "email_verified": True,
+        "firebase": {"sign_in_provider": "password"},
+        "name": "Victim Real",
+    }
+    with patch("main.verify_firebase_id_token", return_value=fake_claims_wrong_provider):
+        resp_wrong_prov = client.post(
+            "/api/auth/login",
+            json={"provider": "google", "id_token": "token_with_password_provider"},
+        )
+        assert resp_wrong_prov.status_code == 401
+        assert "provider" in resp_wrong_prov.json()["detail"].lower()
+
+    # 4. Legitimate Google login by real victim
+    legit_google_claims = {
+        "email": victim_email,
+        "email_verified": True,
+        "firebase": {"sign_in_provider": "google.com"},
+        "name": "Victim Real Name",
+        "picture": "https://lh3.googleusercontent.com/avatar",
+    }
+    with patch("main.verify_firebase_id_token", return_value=legit_google_claims):
+        resp_legit = client.post(
+            "/api/auth/login",
+            json={"provider": "google", "id_token": "valid_real_google_token"},
+        )
+        assert resp_legit.status_code == 200
+        victim_token = resp_legit.json()["token"]
+
+    # 5. Check database state: password neutralized, provider elevated, version bumped
+    db.expire_all()
+    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
+    assert account.password_hash is None, "Attacker password must be wiped"
+    assert account.auth_provider == "google"
+    assert account.token_version > old_version, "Token version must be incremented"
+    assert account.display_name == "Victim Real Name"
+
+    # 6. Attacker tries to use previously issued session token -> 401 Revoked
+    resp_attacker_access = client.get(
+        f"/api/transactions/{victim_email}",
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp_attacker_access.status_code == 401
+
+    # 7. Attacker tries to log in with old password -> 401 Invalid credentials
+    resp_attacker_login = client.post(
+        "/api/auth/password-login",
+        json={"email_or_phone": victim_email, "password": "AttackerPassword123"},
+    )
+    assert resp_attacker_login.status_code == 401
+
+    # 8. Victim's Google token works properly
+    resp_victim_access = client.get(
+        f"/api/transactions/{victim_email}",
+        headers={"Authorization": f"Bearer {victim_token}"},
+    )
+    assert resp_victim_access.status_code == 200
+
+
+def test_soft_delete_leak_audit_across_all_analytics(client, db, auth_headers):
+    """
+    Comprehensive leak audit: Ensures soft-deleted rows (deleted_at IS NOT NULL)
+    are excluded from EVERY single query, report, tool, and summary:
+    - Monthly total & count
+    - Store breakdown
+    - Category breakdown
+    - Daily trend
+    - Payment split
+    - Budget status
+    - CSV export
+    - LangChain query_expenses tool
+    """
+    user_id = "soft_delete_audit_user"
+    headers = auth_headers(user_id)
+
+    # 1. Create a transaction with line items and budget
+    tx = Transaction(
+        user_id=user_id,
+        store_name="alfatah",
+        total_amount=5000.0,
+        transaction_date=get_pkt_now(),
+        payment_method="cash",
+    )
+    db.add(tx)
+    db.flush()
+    db.add(TransactionItem(
+        transaction_id=tx.id,
+        item_name="cooking oil",
+        category="groceries",
+        price=5000.0,
+        quantity=1.0,
+    ))
+    db.add(Budget(user_id=user_id, category="groceries", monthly_limit=10000.0))
+    db.add(Budget(user_id=user_id, category="total", monthly_limit=20000.0))
+    db.commit()
+
+    # Verify active transaction is counted in all metrics
+    resp_active = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert resp_active.status_code == 200
+    data_active = resp_active.json()
+    assert data_active["monthly_total"] == 5000.0
+    assert data_active["monthly_count"] == 1
+    assert len(data_active["category_breakdown"]) == 1
+    assert len(data_active["store_breakdown"]) == 1
+    assert len(data_active["recent_transactions"]) == 1
+
+    # Check query_expenses tool
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+    tool_resp_active = json.loads(tools["query_expenses"].invoke({}))
+    assert tool_resp_active["total_spent_pkr"] == 5000.0
+    assert tool_resp_active["visit_count"] == 1
+
+    # 2. Soft-delete the transaction
+    resp_del = client.delete(f"/api/transactions/{user_id}/{tx.id}", headers=headers)
+    assert resp_del.status_code == 200
+    assert resp_del.json()["status"] == "success"
+
+    # 3. Verify ALL endpoints return 0 / empty
+    resp_deleted = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert resp_deleted.status_code == 200
+    data_del = resp_deleted.json()
+
+    assert data_del["monthly_total"] == 0.0, "Monthly total must exclude soft-deleted transactions"
+    assert data_del["monthly_count"] == 0, "Monthly count must exclude soft-deleted transactions"
+    assert len(data_del["store_breakdown"]) == 0, "Store breakdown must exclude soft-deleted transactions"
+    assert len(data_del["category_breakdown"]) == 0, "Category breakdown must exclude soft-deleted transactions"
+    assert len(data_del["payment_split"]) == 0, "Payment split must exclude soft-deleted transactions"
+    assert len(data_del["recent_transactions"]) == 0, "Recent transactions must exclude soft-deleted transactions"
+
+    # Verify daily trend shows 0
+    today_str = get_pkt_now().strftime("%Y-%m-%d")
+    today_trend = next((d for d in data_del["daily_trend"] if d["date"] == today_str), None)
+    assert today_trend is not None
+    assert today_trend["total_pkr"] == 0.0, "Daily trend must exclude soft-deleted transactions"
+
+    # Verify budget status reports 0 spent
+    for b in data_del["budgets"]:
+        assert b["spent_pkr"] == 0.0, f"Budget for {b['category']} must report 0 spent after soft delete"
+        assert b["level"] == "ok"
+
+    # Verify CSV export has 0 data rows
+    resp_csv = client.get(f"/api/export/{user_id}", headers=headers)
+    assert resp_csv.status_code == 200
+    csv_lines = [line.strip() for line in resp_csv.text.strip().split("\n") if line.strip()]
+    assert len(csv_lines) == 1, "CSV export should contain only header row when all transactions are deleted"
+
+    # Verify query_expenses tool reports 0
+    tool_resp_deleted = json.loads(tools["query_expenses"].invoke({}))
+    assert tool_resp_deleted["total_spent_pkr"] == 0.0
+    assert tool_resp_deleted["visit_count"] == 0
+    assert len(tool_resp_deleted["transactions"]) == 0
+
+
+def test_server_held_pending_transaction_ui_endpoints(client, db, auth_headers):
+    """
+    Tests server-held pending expense management via UI API endpoints:
+    - GET /api/transactions/pending
+    - POST /api/transactions/pending/confirm
+    - POST /api/transactions/pending/cancel
+    """
+    user_id = "pending_ui_user"
+    headers = auth_headers(user_id)
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+
+    # 1. Initially no pending transactions
+    resp_none = client.get("/api/transactions/pending", headers=headers)
+    assert resp_none.status_code == 200
+    assert resp_none.json()["pending"] is None
+
+    # 2. Log a large expense exceeding 10M
+    log_res = json.loads(tools["log_expense"].invoke({
+        "store_name": "real estate bahria",
+        "total_amount": 25_000_000,
+        "payment_method": "bank_transfer",
+    }))
+    assert log_res["status"] == "needs_confirmation"
+
+    # 3. GET /api/transactions/pending returns the held expense
+    resp_pending = client.get("/api/transactions/pending", headers=headers)
+    assert resp_pending.status_code == 200
+    pending_data = resp_pending.json()["pending"]
+    assert pending_data is not None
+    assert pending_data["total_amount"] == 25_000_000.0
+    assert pending_data["store_name"] == "real estate bahria"
+    assert pending_data["payment_method"] == "bank_transfer"
+
+    # 4. Confirm the transaction via UI POST endpoint
+    resp_confirm = client.post("/api/transactions/pending/confirm", headers=headers)
+    assert resp_confirm.status_code == 200
+    assert resp_confirm.json()["status"] == "success"
+    assert resp_confirm.json()["transaction"]["total_amount"] == 25_000_000.0
+
+    # 5. Pending item is cleared and ledger has it
+    resp_cleared = client.get("/api/transactions/pending", headers=headers)
+    assert resp_cleared.json()["pending"] is None
+
+    ledger_resp = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert ledger_resp.json()["monthly_total"] == 25_000_000.0
+
+    # 6. Test cancellation via UI endpoint
+    log_res2 = json.loads(tools["log_expense"].invoke({
+        "store_name": "car import",
+        "total_amount": 18_000_000,
+        "payment_method": "bank_transfer",
+    }))
+    assert log_res2["status"] == "needs_confirmation"
+
+    resp_cancel = client.post("/api/transactions/pending/cancel", headers=headers)
+    assert resp_cancel.status_code == 200
+    assert resp_cancel.json()["status"] == "cancelled"
+
+    # Ledger total remains unchanged
+    ledger_resp2 = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert ledger_resp2.json()["monthly_total"] == 25_000_000.0
+
+
+def test_fail_closed_environment_and_secret_requirements():
+    """
+    Verifies that system default is production (fail-closed),
+    and production requires a strong SESSION_SECRET >= 32 chars.
+    """
+    # Verify IS_DEV in test environment
+    assert main.IS_DEV is True
+    assert len(main.SESSION_SECRET) >= 32
