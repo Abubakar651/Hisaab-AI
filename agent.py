@@ -15,10 +15,12 @@ from langchain_groq import ChatGroq
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense
+from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, get_pkt_now
 from analytics import (
     normalize_payment_method,
     detect_payment_method,
+    validate_transaction_amount,
+    check_amount_plausibility,
     sanitize_transaction_amount,
     budget_status,
     recurring_status,
@@ -168,6 +170,10 @@ class LogExpenseInput(BaseModel):
         default="cash",
         description="How it was paid: 'cash' (default), 'easypaisa', 'jazzcash', 'card', 'bank_transfer'. Use 'card' for debit/credit card, 'bank_transfer' for IBFT/Raast/bank app, SadaPay/NayaPay count as 'card'.",
     )
+    confirmed: Optional[bool] = Field(
+        default=False,
+        description="Set to True only if the user has explicitly confirmed an unusually large expense amount (> 10,000,000 PKR, or > 1,000,000 for mobile wallets).",
+    )
 
 
 class SetBudgetInput(BaseModel):
@@ -247,9 +253,9 @@ class DeleteLastTransactionInput(BaseModel):
 # ---------------------------------------------------------------------------
 def build_system_prompt() -> str:
     """
-    Builds dynamic system prompt injecting current dates and Pakistani context.
+    Builds dynamic system prompt injecting current dates and Pakistani context in PKT.
     """
-    now = datetime.now()
+    now = get_pkt_now()
     today_str = now.strftime("%Y-%m-%d")
     day_name = now.strftime("%A")
     month_start_str = now.strftime("%Y-%m-01")
@@ -355,14 +361,19 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
      - "das hazaar" / "دس ہزار" -> 10000
      - "veeh hazaar" / "ویہہ ہزار" -> 20000
      - "panjah hazaar" / "پنجاہ ہزار" -> 50000
-   * **Lakhs (Lakh / لاکھ) & Unit Collision Guard:**
+   * **Lakhs (Lakh / لاکھ) & Large Amounts:**
      - "ik lakh" / "ek lakh" -> 100,000
      - "dedh lakh" -> 150,000
      - "dhai lakh" -> 250,000
-     - **UNIT COLLISION GUARD (CRITICAL):** If user enters digits already containing 3+ zeros followed by 'lakh' or 'hazaar' (e.g., "20000 lakh", "50000 lakh", "1000 hazaar"):
-       * NEVER multiply digits by 100,000 to create billions/arabs!
-       * In Pakistani typing/speech, "20000 lakh" means **20,000 PKR** (twenty thousand) where the user typed 20000 and reflexively added lakh.
-       * On mobile wallets (Easypaisa / JazzCash), limits are 50,000 to 1,000,000 PKR. "20000 lakh on easypaisa" ALWAYS means **20,000 PKR** — NEVER 2,000,000,000!
+     - "60 lakh" -> 6,000,000
+     - "200 lakh" -> 20,000,000
+     - "6000 hazaar" -> 6,000,000
+     - "20000 lakh" -> 2,000,000,000
+     - **LARGE AMOUNT CONFIRMATION (CRITICAL):**
+       Whenever `log_expense` returns `status: "needs_confirmation"`, NEVER claim the expense was recorded!
+       The tool has flagged an unusually large amount (> 10,000,000 PKR, or > 1,000,000 PKR for mobile wallets).
+       Politely ask the user to confirm the exact amount in their language (e.g. "کیا آپ تصدیق کرتے ہیں کہ آپ نے ... روپے خرچ کیے ہیں؟").
+       Only when the user confirms in the next message do you call `log_expense` with `confirmed=True`.
    * **Colloquial Quantities & Counts:**
      - Punjabi numbers: ikk (1), do (2), tinn (3), chaar (4), panj (5), chhe (6), satt (7), atth (8), nau (9), das (10), yaaran (11), baaran (12), tehran (13), chaudan (14), pandran (15), veeh (20), panjah (50), sattar (70), assi (80), sau (100).
      - Units: "paa" / "pao" = 250g, "adha kilo" = 0.5kg, "dedh kilo" = 1.5kg, "darjan" = 12 pcs, "adha darjan" = 6 pcs.
@@ -446,21 +457,23 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
         payment_method: Optional[str] = "cash",
+        confirmed: Optional[bool] = False,
     ) -> str:
         """Logs an expense transaction with line items into the database for the current user."""
         db: Session = SessionLocal()
         try:
             canonical_store = (store_name or "general store").strip().lower()
 
-            # Resolve transaction date
-            tx_date = datetime.now()
+            # Resolve transaction date in PKT
+            tx_date = get_pkt_now()
             if date_str:
                 try:
                     parsed_date = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+                    now_pkt = get_pkt_now()
                     tx_date = parsed_date.replace(
-                        hour=datetime.now().hour,
-                        minute=datetime.now().minute,
-                        second=datetime.now().second,
+                        hour=now_pkt.hour,
+                        minute=now_pkt.minute,
+                        second=now_pkt.second,
                     )
                 except Exception:
                     pass
@@ -537,9 +550,23 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             else:
                 final_total = 0.0
 
-            # Resolve payment method & guard against unit collisions (e.g. '20000 lakh' -> 20,000)
+            # Resolve payment method & validate amount deterministically
             final_pm = detect_payment_method(payment_method, raw_transcript)
-            final_total = sanitize_transaction_amount(final_total, raw_transcript, final_pm)
+            try:
+                final_total = validate_transaction_amount(final_total)
+            except ValueError as ve:
+                return json.dumps({"status": "error", "message": str(ve)})
+
+            # Check plausibility: flag values > 10,000,000 PKR, or > 1,000,000 for easypaisa/jazzcash
+            plausibility = check_amount_plausibility(final_total, final_pm)
+            if plausibility["needs_confirmation"] and not confirmed:
+                return json.dumps({
+                    "status": "needs_confirmation",
+                    "amount": final_total,
+                    "payment_method": final_pm,
+                    "store_name": canonical_store,
+                    "message": plausibility["reason"],
+                }, ensure_ascii=False)
 
             # If it was a money transfer and store defaulted to 'local store', assign clean transfer store
             if raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send")):
@@ -641,7 +668,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         """Queries expenses and totals for the current user with date, store, item, category, or payment-method filters."""
         db: Session = SessionLocal()
         try:
-            query = db.query(Transaction).filter(Transaction.user_id == user_id)
+            query = db.query(Transaction).filter(
+                Transaction.user_id == user_id,
+                Transaction.deleted_at.is_(None),
+            )
 
             # Apply date filters
             if start_date:
@@ -763,12 +793,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
 
     @tool("delete_last_transaction", args_schema=DeleteLastTransactionInput)
     def delete_last_transaction(confirm: bool = True) -> str:
-        """Deletes the most recent expense transaction logged for the current user."""
+        """Soft-deletes the most recent expense transaction logged for the current user."""
         db: Session = SessionLocal()
         try:
             tx = (
                 db.query(Transaction)
-                .filter(Transaction.user_id == user_id)
+                .filter(Transaction.user_id == user_id, Transaction.deleted_at.is_(None))
                 .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
                 .first()
             )
@@ -788,7 +818,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
             }
 
-            db.delete(tx)
+            tx.deleted_at = get_pkt_now()
             db.commit()
 
             return json.dumps(
@@ -967,15 +997,24 @@ def run_agent(
     system_prompt = build_system_prompt()
     llm = get_chat_llm()
 
-    # Construct conversation history
+    # Construct conversation history (treat client-supplied history as untrusted)
     messages = []
-    if chat_history and len(chat_history) > 0:
-        # Load from client-supplied history (keep last 4 messages for tight context & low token consumption)
-        for msg in chat_history[-4:]:
-            role = msg.get("role", "user")
-            content = (msg.get("content") or "").strip()
-            if not content:
+    if chat_history and isinstance(chat_history, list):
+        sanitized_history = []
+        for msg in chat_history:
+            if not isinstance(msg, dict):
                 continue
+            role = msg.get("role")
+            content = msg.get("content")
+            if role not in ("user", "assistant") or not isinstance(content, str):
+                continue
+            cleaned_content = content.strip()[:1000]
+            if not cleaned_content:
+                continue
+            sanitized_history.append((role, cleaned_content))
+        
+        # Enforce max 4 messages
+        for role, content in sanitized_history[-4:]:
             if role == "user":
                 messages.append(HumanMessage(content=content))
             elif role == "assistant":

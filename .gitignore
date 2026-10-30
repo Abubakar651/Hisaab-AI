@@ -8,8 +8,10 @@ ENV/
 
 # Database
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 expenses.db
-expenses.db-journal
 
 # Python Bytecode & Cache
 __pycache__/
@@ -22,4 +24,3 @@ __pycache__/
 Thumbs.db
 .idea/
 .vscode/
-

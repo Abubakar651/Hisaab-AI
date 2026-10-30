@@ -1,125 +1,92 @@
 # HisaabAI — Multilingual Voice & Text Expense Tracker
 
-**HisaabAI** is an intelligent, multi-user web application designed for expense logging and querying in **Urdu, Punjabi, Roman Urdu, and English**. It combines speech recognition with natural language reasoning to extract Pakistani stores, line items, prices, and quantities directly from natural speech or text.
+**HisaabAI** is an intelligent, multi-user web application designed for financial expense logging and querying in **Urdu, Punjabi, Roman Urdu, and English**. It combines speech recognition with natural language reasoning to extract Pakistani stores, line items, prices, and quantities directly from natural speech or text, with deterministic arithmetic calculated completely by SQLite and Python.
 
 Powered by:
 - **FastAPI** backend & asynchronous server
 - **Groq Cloud API** (`whisper-large-v3` for Automatic Speech Recognition)
-- **LangChain & Groq LLM** (`llama-3.3-70b-versatile` / `qwen/qwen3.8-27b`)
-- **SQLAlchemy & SQLite** with strict multi-user tenant isolation
-- **Responsive Web UI** built with TailwindCSS, browser `MediaRecorder` API, and dynamic live ledger
+- **LangChain & Groq LLM** (`openai/gpt-oss-20b` / `qwen/qwen3.8-27b`)
+- **SQLAlchemy & SQLite** with WAL mode, foreign keys, and strict multi-user tenant isolation
+- **JWT Session Tokens** with PBKDF2-HMAC-SHA256 (600,000 iterations) and Firebase server-side verification
+- **Responsive Web UI** built with TailwindCSS, Web Audio `MediaRecorder` API, Chart.js, and PWA capabilities
 
 ---
 
-## Key Features
+## Security Architecture & Multi-Tenant IDOR Protection
 
-1. **Strict Multi-User Isolation:**
-   - Users switch accounts via the top navigation bar (`user_id`).
-   - Every database query and agent tool is bound to `user_id` via closures in Python. No user can see or alter another user's financial records.
-2. **Multilingual Voice & Text:**
-   - Direct microphone recording in your browser using the Web Audio `MediaRecorder` API.
-   - Code-switched Punjabi, Urdu, Roman Urdu, and English speech transcribed via `whisper-large-v3` with domain-prompt injection for Pakistani stores (`Imtiaz`, `Al-Fatah`, `Jalal Sons`, `Carrefour`, `Metro`, `CSD`).
-3. **Structured Expense Extraction:**
-   - Extracts store name, item names, categories, quantities, item prices, and date.
-   - Normalizes stores and items to canonical lowercase English in the database while communicating back in the user's dialect.
-4. **Natural Expense Querying:**
-   - Inquire about store totals, item spending, and date ranges (e.g. *"What did I spend in the last 3 days?"* or *"Mera is mahine Imtiaz te kinna kharcha hoya?"*).
-5. **Live Expense Ledger Dashboard:**
-   - Live KPI cards: Monthly Total (PKR), Total Visits, Top Store.
-   - Store-wise breakdown pills.
-   - Expandable recent transaction cards with line items and one-click delete.
+1. **Session JWT & Bearer Auth:**
+   - Every authenticated user receives a signed HS256 JWT session token with a 7-day expiry.
+   - All data endpoints (`/api/chat`, `/api/transactions/*`, `/api/budgets*`, `/api/recurring*`, `/api/export/*`) require valid `Authorization: Bearer <token>` or session cookies.
+   - Cross-user data access is rejected with `HTTP 403 Forbidden`.
+2. **Server-Side Firebase Token Verification:**
+   - Google and Phone authentication verifies Firebase ID tokens cryptographically using Google OAuth2 certificates.
+   - Identity claims (email, phone number) are extracted exclusively from verified server-side claims, preventing identity forging.
+3. **Password Security & Rate Limiting:**
+   - Upgraded to 600,000 iterations of PBKDF2-HMAC-SHA256 with 16-byte random salts.
+   - Backward-compatible verification for existing 100,000 iteration hashes with transparent auto-rehashing on login.
+   - Failed login attempts are rate limited (5 attempts per minute per IP + identifier) returning `HTTP 429 Too Many Requests`.
+   - Uniform error messages prevent username enumeration.
+4. **Deterministic Math & Sanity Bounds:**
+   - Zero LLM mental math: all sums, category breakdowns, and budgets are executed via SQL `SUM()`.
+   - `price` in `transaction_items` is formally designated as the **LINE TOTAL**.
+   - Large or implausible expenses (> 10,000,000 PKR, or > 1,000,000 PKR on mobile wallets) trigger structured confirmation before persisting to the ledger.
+   - Mitigates CSV Formula Injection (CWE-1236) by escaping formula prefixes (`=`, `+`, `-`, `@`).
 
 ---
 
-## Project Structure
+## Required Environment Variables
 
-```
-Hisaab_Ai/
-├── .env                  # Your Groq API key and environment config
-├── .env.example          # Environment template
-├── .gitignore            # Git exclusion rules
-├── database.py           # SQLAlchemy models (transactions, transaction_items) & engine
-├── agent.py              # Groq Whisper ASR, LangChain agent, and user-scoped tools
-├── main.py               # FastAPI web server and REST endpoints
-├── requirements.txt      # Project dependencies
-├── templates/
-│   └── index.html        # Single-page responsive Web UI with dark mode
-└── static/               # Static assets
-```
+Configure these in your `.env` file:
+
+| Variable | Description | Required / Default |
+|---|---|---|
+| `GROQ_API_KEY` | API key from [console.groq.com](https://console.groq.com) | **Required** |
+| `SESSION_SECRET` | Secret key used to sign HS256 session JWTs | **Required in production** (dev fallback provided) |
+| `APP_ENV` | Environment mode (`development`, `dev`, `production`) | Default: `development` |
+| `DATABASE_URL` | SQLAlchemy database URL | Default: `sqlite:///./expenses.db` |
+| `FIREBASE_PROJECT_ID` | Firebase project ID for server-side token verification | Required for Firebase token verification |
+| `FIREBASE_API_KEY` | Firebase Web API key for client SDK initialization | Optional (for Firebase UI) |
+| `FIREBASE_AUTH_DOMAIN` | Firebase Auth domain | Optional |
+| `FIREBASE_STORAGE_BUCKET` | Firebase storage bucket | Optional |
+| `FIREBASE_MESSAGING_SENDER_ID` | Firebase sender ID | Optional |
+| `FIREBASE_APP_ID` | Firebase Application ID | Optional |
+| `APP_HOST` | FastAPI bind address | Default: `127.0.0.1` |
+| `APP_PORT` | FastAPI port | Default: `8000` |
 
 ---
 
 ## Installation & Setup
 
-### 1. Prerequisites
-- Python 3.10+
-- Groq Cloud API key ([console.groq.com](https://console.groq.com))
-
-### 2. Create Virtual Environment & Install Dependencies
+### 1. Create Virtual Environment & Install Dependencies
 
 ```bash
-# Clone the repository
 git clone https://github.com/Abubakar651/Hisaab-AI.git
 cd Hisaab-AI
 
-# Create virtual environment
 python3 -m venv .venv
-
-# Activate virtual environment
 source .venv/bin/activate  # On Linux/macOS
-# or .venv\Scripts\activate on Windows
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment Variables
+### 2. Configure Environment
 
-Create or edit `.env`:
+Copy `.env.example` to `.env` and set your credentials:
 
-```env
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_LLM_MODEL=llama-3.3-70b-versatile
-DATABASE_URL=sqlite:///./expenses.db
-APP_HOST=0.0.0.0
-APP_PORT=8000
+```bash
+cp .env.example .env
+```
+
+### 3. Run Automated Tests
+
+```bash
+pytest -v tests/
 ```
 
 ### 4. Start the Application
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python3 main.py
 ```
 
-Open your browser at **`http://localhost:8000`**.
-
----
-
-## Example Prompts & Voice Notes
-
-### Expense Logging (Write Path):
-- **Punjabi (Roman):** *"Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi"*
-- **Urdu Script (اردو):** *"آج میں نے الفتح سے 3200 روپے کا راشن خریدا"*
-- **Roman Urdu:** *"Aaj maine Jalal Sons se 1200 ka doodh aur anday liye"*
-- **English:** *"Spent 2500 PKR at Carrefour on chicken and rice today"*
-
-### Expense Querying (Read Path):
-- **Punjabi:** *"Mera is mahine Imtiaz te kinna kharcha hoya?"*
-- **English:** *"What did I spend in the last 3 days?"*
-- **Item Query:** *"How much have I spent on milk?"*
-- **Category Query:** *"Show me my grocery expenses for this month."*
-
-### Undo / Delete:
-- *"Delete my last entry"*
-- *"Ghalat likha gaya, pichla record mita do"*
-
----
-
-## API Documentation
-
-- `GET /` — Serves the interactive Web UI.
-- `POST /api/chat` — Accepts `multipart/form-data` with `user_id`, optional text `message`, and optional `audio` recording.
-- `GET /api/transactions/{user_id}` — Returns monthly total, store breakdown, and recent transactions.
-- `DELETE /api/transactions/{user_id}/{transaction_id}` — Deletes a specific transaction for that user.
-- Interactive Swagger docs are available at **`http://localhost:8000/docs`**.
-
+Open your browser at **`http://127.0.0.1:8000`**.

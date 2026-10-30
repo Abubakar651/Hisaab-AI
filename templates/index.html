@@ -392,21 +392,11 @@
       <!-- Tab Content: Guest / ID Switcher -->
       <div id="auth-panel-guest" class="hidden space-y-3.5">
         <p class="text-xs text-slate-300">
-          Switch to a local profile without logging in (e.g. for testing or offline ledger use).
+          Create a private guest session without signing in. Guests are given an isolated, unguessable ledger ID.
         </p>
-        <div class="flex items-center bg-surface-900 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-emerald-500">
-          <input type="text" id="guest-id-input" placeholder="e.g. bakar, ali, home"
-            class="bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none flex-1 font-mono" />
-        </div>
-        <div class="flex items-center gap-1.5 text-xs text-slate-400">
-          <span>Quick:</span>
-          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="bakar">bakar</button>
-          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="ali">ali</button>
-          <button class="modal-guest-chip px-2 py-1 rounded-lg bg-surface-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs" data-user="home">home</button>
-        </div>
         <button id="confirm-guest-btn"
-          class="w-full py-2.5 rounded-xl bg-surface-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold text-xs transition-colors">
-          Use This ID
+          class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-lg shadow-emerald-900/30">
+          Continue as Guest
         </button>
       </div>
 
@@ -805,7 +795,8 @@
 
     // State management
     const state = {
-      userId: localStorage.getItem('hisaab_user_id') || 'bakar',
+      userId: localStorage.getItem('hisaab_user_id') || 'guest',
+      token: localStorage.getItem('hisaab_session_token') || '',
       isRecording: false,
       mediaRecorder: null,
       audioChunks: [],
@@ -814,6 +805,39 @@
       activeTab: 'chat', // 'chat' or 'dashboard' for mobile
       chatHistory: [],   // Multi-turn conversation memory
     };
+
+    // Authentication & Fetch Interceptor
+    function getAuthToken() {
+      return localStorage.getItem('hisaab_session_token') || '';
+    }
+
+    function setAuthToken(token) {
+      if (token) {
+        localStorage.setItem('hisaab_session_token', token);
+        state.token = token;
+      } else {
+        localStorage.removeItem('hisaab_session_token');
+        state.token = '';
+      }
+    }
+
+    async function authFetch(url, options = {}) {
+      const token = getAuthToken();
+      const opts = { ...options };
+      opts.headers = { ...(opts.headers || {}) };
+      if (token) {
+        opts.headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch(url, opts);
+      if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/password-login') && !url.includes('/api/auth/register')) {
+        console.warn('Authentication token expired or missing, prompting login modal...');
+        setAuthToken('');
+        const authModal = document.getElementById('auth-modal');
+        if (authModal) authModal.classList.remove('hidden');
+        showToast('Session expired or required. Please sign in.', 'warning');
+      }
+      return res;
+    }
 
     // DOM Elements
     const elements = {
@@ -929,7 +953,7 @@
         state.chatHistory = [];
         const fd = new FormData();
         fd.append('user_id', state.userId);
-        fetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
+        authFetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
         showToast('Chat history cleared from view', 'info');
       });
 
@@ -956,6 +980,30 @@
         fetchDashboard();
         showToast('Ledger refreshed', 'info');
       });
+
+      // Export CSV with Authorization
+      const exportBtn = document.getElementById('export-csv-btn');
+      if (exportBtn) {
+        exportBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try {
+            const res = await authFetch(`/api/export/${encodeURIComponent(state.userId)}`);
+            if (!res.ok) throw new Error('Export failed');
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `hisaabai_${state.userId}_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            showToast('CSV export downloaded', 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      }
 
       // Mobile Tabs
       elements.tabChat.addEventListener('click', () => setMobileTab('chat'));
@@ -1015,23 +1063,41 @@
 
     // Initialize Authentication State & Firebase
     async function initAuth() {
-      let cached = null;
-      try {
-        cached = JSON.parse(localStorage.getItem('hisaab_user_account'));
-      } catch (e) { }
-
-      const uid = cached && cached.user_id ? cached.user_id : (localStorage.getItem('hisaab_user_id') || 'bakar');
-
-      try {
-        const res = await fetch(`/api/auth/profile/${encodeURIComponent(uid)}`);
-        if (res.ok) {
-          const data = await res.json();
-          updateAccountUI(data.user);
-        } else {
-          updateAccountUI({ user_id: uid, auth_provider: 'guest', display_name: uid });
-        }
-      } catch (e) {
-        updateAccountUI({ user_id: uid, auth_provider: 'guest', display_name: uid });
+      let token = getAuthToken();
+      if (!token) {
+        // Auto-provision secure guest session on first visit
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'guest' }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setAuthToken(data.token);
+            updateAccountUI(data.user);
+          }
+        } catch (e) { }
+      } else {
+        const uid = state.userId || 'guest';
+        try {
+          const res = await authFetch(`/api/auth/profile/${encodeURIComponent(uid)}`);
+          if (res.ok) {
+            const data = await res.json();
+            updateAccountUI(data.user);
+          } else {
+            const gRes = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: 'guest' }),
+            });
+            if (gRes.ok) {
+              const gdata = await gRes.json();
+              setAuthToken(gdata.token);
+              updateAccountUI(gdata.user);
+            }
+          }
+        } catch (e) { }
       }
 
       // Check Firebase SDK configuration
@@ -1175,6 +1241,7 @@
               });
               const data = await res.json();
               if (!res.ok) throw new Error(data.detail || 'Registration failed');
+              if (data.token) setAuthToken(data.token);
               updateAccountUI(data.user);
               if (authModal) authModal.classList.add('hidden');
               showToast(`Account created! Welcome, ${data.user.display_name}`, 'success');
@@ -1191,6 +1258,7 @@
               });
               const data = await res.json();
               if (!res.ok) throw new Error(data.detail || 'Login failed');
+              if (data.token) setAuthToken(data.token);
               updateAccountUI(data.user);
               if (authModal) authModal.classList.add('hidden');
               showToast(`Welcome back, ${data.user.display_name}`, 'success');
@@ -1224,6 +1292,8 @@
                 }),
               });
               const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Google login failed');
+              if (data.token) setAuthToken(data.token);
               updateAccountUI(data.user);
               if (authModal) authModal.classList.add('hidden');
               showToast(`Signed in as ${data.user.display_name}`, 'success');
@@ -1232,23 +1302,7 @@
               showToast(`Google Sign-In: ${err.message}`, 'error');
             }
           } else {
-            const email = prompt('Enter your Google email address to link and test account sync (or set FIREBASE_API_KEY in .env):');
-            if (email && email.includes('@')) {
-              const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  provider: 'google',
-                  email: email.trim().toLowerCase(),
-                  display_name: email.split('@')[0].toUpperCase(),
-                }),
-              });
-              const data = await res.json();
-              updateAccountUI(data.user);
-              if (authModal) authModal.classList.add('hidden');
-              showToast(`Signed in with Google: ${data.user.display_name}`, 'success');
-              fetchDashboard();
-            }
+            showToast('Firebase is not configured for Google Sign-In. Use Email/Password.', 'warning');
           }
         });
       }
@@ -1283,8 +1337,7 @@
               if (otpStep) otpStep.classList.remove('hidden');
               showToast(`Verification code sent to ${formatted}`, 'success');
             } catch (err) {
-              showToast(`SMS gateway notice: ${err.message}. Logging in with phone.`, 'warning');
-              completePhoneLogin(formatted);
+              showToast(`SMS gateway error: ${err.message}`, 'error');
             }
           } else {
             completePhoneLogin(formatted);
@@ -1302,7 +1355,8 @@
           if (window.phoneConfirmation) {
             try {
               const res = await window.phoneConfirmation.confirm(code);
-              completePhoneLogin(res.user.phoneNumber || ('+92' + phoneInput.value.replace(/\D/g, '')));
+              const idToken = await res.user.getIdToken();
+              completePhoneLogin(res.user.phoneNumber, idToken);
             } catch (err) {
               showToast('Invalid verification code: ' + err.message, 'error');
             }
@@ -1312,49 +1366,54 @@
         });
       }
 
-      async function completePhoneLogin(phoneNum) {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: 'phone',
-            phone_number: phoneNum,
-            display_name: phoneNum,
-          }),
-        });
-        const data = await res.json();
-        updateAccountUI(data.user);
-        if (authModal) authModal.classList.add('hidden');
-        if (phoneStep) phoneStep.classList.remove('hidden');
-        if (otpStep) otpStep.classList.add('hidden');
-        showToast(`Signed in with phone ${data.user.phone_number}! WhatsApp ledger linked.`, 'success');
-        fetchDashboard();
-      }
-
-      // Guest / ID Switcher
-      const confirmGuestBtn = document.getElementById('confirm-guest-btn');
-      const guestInput = document.getElementById('guest-id-input');
-      if (confirmGuestBtn && guestInput) {
-        confirmGuestBtn.addEventListener('click', async () => {
-          const val = (guestInput.value || 'bakar').trim().toLowerCase();
+      async function completePhoneLogin(phoneNum, idToken = null) {
+        try {
           const res = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: 'guest', user_id: val }),
+            body: JSON.stringify({
+              provider: 'phone',
+              phone_number: phoneNum,
+              display_name: phoneNum,
+              id_token: idToken,
+            }),
           });
           const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Phone login failed');
+          if (data.token) setAuthToken(data.token);
           updateAccountUI(data.user);
           if (authModal) authModal.classList.add('hidden');
-          showToast(`Switched to user ID: ${data.user.user_id}`, 'success');
+          if (phoneStep) phoneStep.classList.remove('hidden');
+          if (otpStep) otpStep.classList.add('hidden');
+          showToast(`Signed in with phone ${data.user.phone_number}!`, 'success');
           fetchDashboard();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+
+      // Guest Session Provisioning
+      const confirmGuestBtn = document.getElementById('confirm-guest-btn');
+      if (confirmGuestBtn) {
+        confirmGuestBtn.addEventListener('click', async () => {
+          try {
+            const res = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: 'guest' }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Guest session error');
+            if (data.token) setAuthToken(data.token);
+            updateAccountUI(data.user);
+            if (authModal) authModal.classList.add('hidden');
+            showToast(`Started private guest session (${data.user.user_id})`, 'success');
+            fetchDashboard();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
         });
       }
-      document.querySelectorAll('.modal-guest-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          if (guestInput) guestInput.value = chip.dataset.user;
-          if (confirmGuestBtn) confirmGuestBtn.click();
-        });
-      });
 
       // Sign out / switch to guest
       if (signoutBtn) {
@@ -1363,8 +1422,20 @@
           if (window.firebaseAuth) {
             try { await firebase.auth().signOut(); } catch (e) { }
           }
-          updateAccountUI({ user_id: 'bakar', auth_provider: 'guest', display_name: 'bakar' });
-          showToast('Switched to guest profile (bakar)', 'info');
+          setAuthToken('');
+          try {
+            const res = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: 'guest' }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.token) setAuthToken(data.token);
+              updateAccountUI(data.user);
+            }
+          } catch (e) { }
+          showToast('Signed out. Active in private guest mode.', 'info');
           fetchDashboard();
         });
       }
@@ -1419,7 +1490,7 @@
       }
 
       try {
-        const response = await fetch('/api/chat', {
+        const response = await authFetch('/api/chat', {
           method: 'POST',
           body: formData,
         });
@@ -1678,7 +1749,7 @@
     // =========================================================================
     async function fetchDashboard() {
       try {
-        const response = await fetch(`/api/transactions/${encodeURIComponent(state.userId)}`);
+        const response = await authFetch(`/api/transactions/${encodeURIComponent(state.userId)}`);
         if (!response.ok) throw new Error('Failed to load user ledger');
 
         const data = await response.json();
@@ -1804,7 +1875,7 @@
 
     async function deleteTransaction(transactionId) {
       try {
-        const response = await fetch(`/api/transactions/${encodeURIComponent(state.userId)}/${transactionId}`, {
+        const response = await authFetch(`/api/transactions/${encodeURIComponent(state.userId)}/${transactionId}`, {
           method: 'DELETE',
         });
 
@@ -1863,7 +1934,7 @@
       });
       box.querySelectorAll('.delete-budget-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-          await fetch(`/api/budgets/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
+          await authFetch(`/api/budgets/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
           fetchDashboard();
         });
       });
@@ -1984,13 +2055,13 @@
         box.appendChild(row);
       });
       box.querySelectorAll('.pay-rec-btn').forEach(btn => btn.addEventListener('click', async () => {
-        const res = await fetch(`/api/recurring/${encodeURIComponent(state.userId)}/${btn.dataset.id}/pay`, { method: 'POST' });
+        const res = await authFetch(`/api/recurring/${encodeURIComponent(state.userId)}/${btn.dataset.id}/pay`, { method: 'POST' });
         const out = await res.json().catch(() => ({}));
         showToast(out.message || 'Done', res.ok ? 'success' : 'error');
         fetchDashboard();
       }));
       box.querySelectorAll('.del-rec-btn').forEach(btn => btn.addEventListener('click', async () => {
-        await fetch(`/api/recurring/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
+        await authFetch(`/api/recurring/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
         fetchDashboard();
       }));
       lucide.createIcons();
@@ -2003,7 +2074,7 @@
         fd.append('user_id', state.userId);
         fd.append('category', document.getElementById('budget-category').value);
         fd.append('monthly_limit', document.getElementById('budget-limit').value);
-        const res = await fetch('/api/budgets', { method: 'POST', body: fd });
+        const res = await authFetch('/api/budgets', { method: 'POST', body: fd });
         if (res.ok) { document.getElementById('budget-limit').value = ''; showToast('Budget saved', 'success'); }
         else showToast((await res.json().catch(() => ({}))).detail || 'Could not save budget', 'error');
         fetchDashboard();
@@ -2015,7 +2086,7 @@
         fd.append('title', document.getElementById('rec-title').value);
         fd.append('amount', document.getElementById('rec-amount').value);
         fd.append('due_day', document.getElementById('rec-day').value || '1');
-        const res = await fetch('/api/recurring', { method: 'POST', body: fd });
+        const res = await authFetch('/api/recurring', { method: 'POST', body: fd });
         if (res.ok) {
           document.getElementById('rec-title').value = '';
           document.getElementById('rec-amount').value = '';

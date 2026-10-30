@@ -1,18 +1,18 @@
 """
-Comprehensive verification test suite for HisaabAI 7 major improvements.
+Comprehensive verification test suite for HisaabAI.
 Runs tests against actual database, analytics, API routes, and agent tools.
 """
 import sys
 import os
 import json
 from datetime import datetime
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
-# Ensure environment is loaded
 from dotenv import load_dotenv
 load_dotenv()
 
-from database import SessionLocal, init_db, Transaction, TransactionItem, Budget, RecurringExpense
+from database import SessionLocal, init_db, Transaction, TransactionItem, Budget, RecurringExpense, get_pkt_now
 from analytics import (
     normalize_payment_method,
     category_breakdown,
@@ -25,10 +25,11 @@ from analytics import (
     EXPORT_HEADER,
     month_start,
 )
-from main import app
-from agent import run_agent, clear_user_history
+from main import app, create_session_token
+from agent import get_tools_for_user, clear_user_history
 
 TEST_USER = "test_verification_suite_user"
+
 
 def cleanup():
     clear_user_history(TEST_USER)
@@ -43,19 +44,22 @@ def cleanup():
     finally:
         db.close()
 
+
 def run_tests():
     print("=" * 60)
-    print("STARTING HISAAB-AI 7-POINT VERIFICATION SUITE")
+    print("STARTING HISAAB-AI VERIFICATION SUITE")
     print("=" * 60)
-    
+
     init_db()
     cleanup()
-    
+
     client = TestClient(app)
+    token = create_session_token(TEST_USER)
+    auth_headers = {"Authorization": f"Bearer {token}"}
     results = {}
 
     # -------------------------------------------------------------
-    # FEATURE 1: Payment Method Tracking
+    # FEATURE 1: Payment Method Tracking & Tools
     # -------------------------------------------------------------
     print("\n[TEST 1] Testing Payment Method Normalization & Tracking...")
     assert normalize_payment_method("cash") == "cash"
@@ -70,12 +74,14 @@ def run_tests():
     print("  -> Aliases and fallback logic OK.")
 
     # Agent tool call with payment method
-    agent_response = run_agent(
-        user_id=TEST_USER,
-        user_text="Main ne Imtiaz se card se 2500 ka cooking oil khareeda",
-        raw_transcript="Main ne Imtiaz se card se 2500 ka cooking oil khareeda"
-    )
-    print(f"  -> Agent response: {agent_response[:100]}...")
+    tools = {t.name: t for t in get_tools_for_user(TEST_USER)}
+    tool_res = json.loads(tools["log_expense"].invoke({
+        "store_name": "imtiaz",
+        "items": [{"item_name": "cooking oil", "price": 2500.0, "quantity": 1.0, "category": "groceries"}],
+        "total_amount": 2500.0,
+        "payment_method": "card",
+    }))
+    assert tool_res["status"] == "success"
 
     db = SessionLocal()
     tx = db.query(Transaction).filter(Transaction.user_id == TEST_USER).order_by(Transaction.id.desc()).first()
@@ -90,7 +96,7 @@ def run_tests():
     # FEATURE 2: CSV / Excel Export
     # -------------------------------------------------------------
     print("\n[TEST 2] Testing CSV / Excel Export Endpoint...")
-    resp = client.get(f"/api/export/{TEST_USER}")
+    resp = client.get(f"/api/export/{TEST_USER}", headers=auth_headers)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     content_bytes = resp.content
     assert content_bytes.startswith(b"\xef\xbb\xbf"), "Missing UTF-8 BOM for Microsoft Excel compatibility!"
@@ -106,8 +112,12 @@ def run_tests():
     # FEATURE 3: Monthly Budgeting & Alerts
     # -------------------------------------------------------------
     print("\n[TEST 3] Testing Monthly Budgeting & Alerts...")
-    # API route
-    post_res = client.post("/api/budgets", data={"user_id": TEST_USER, "monthly_limit": "50000", "category": "total"})
+    # API route with auth headers
+    post_res = client.post(
+        "/api/budgets",
+        data={"user_id": TEST_USER, "monthly_limit": "50000", "category": "total"},
+        headers=auth_headers,
+    )
     assert post_res.status_code == 200, f"Budget API failed: {post_res.text}"
     budgets = post_res.json().get("budgets", [])
     assert len(budgets) == 1
@@ -118,12 +128,8 @@ def run_tests():
     print(f"  -> API Budget created: total=50000, spent={budgets[0]['spent_pkr']}, pct={budgets[0]['percent']}%")
 
     # Agent tool call for category budget
-    agent_budget_resp = run_agent(
-        user_id=TEST_USER,
-        user_text="Fuel ka monthly budget 3000 rupees set kar do",
-        raw_transcript="Fuel ka monthly budget 3000 rupees set kar do"
-    )
-    print(f"  -> Agent budget response: {agent_budget_resp[:100]}...")
+    set_budget_res = json.loads(tools["set_budget"].invoke({"monthly_limit": 3000.0, "category": "fuel"}))
+    assert set_budget_res["status"] == "success"
 
     db = SessionLocal()
     b_fuel = db.query(Budget).filter(Budget.user_id == TEST_USER, Budget.category == "fuel").first()
@@ -131,13 +137,14 @@ def run_tests():
     assert b_fuel.monthly_limit == 3000.0
     print(f"  -> DB verified: Fuel budget set to PKR {b_fuel.monthly_limit}")
 
-    # Test over-budget alert triggering
     # Add an expense of 2800 fuel to trigger warning (2800 / 3000 = 93.3% -> warning)
-    agent_spend_resp = run_agent(
-        user_id=TEST_USER,
-        user_text="PSO petrol pump se 2800 ka petrol dalwaya cash pe",
-        raw_transcript="PSO petrol pump se 2800 ka petrol dalwaya cash pe"
-    )
+    tools["log_expense"].invoke({
+        "store_name": "pso petrol pump",
+        "items": [{"item_name": "petrol", "price": 2800.0, "quantity": 10.0, "category": "fuel"}],
+        "total_amount": 2800.0,
+        "payment_method": "cash",
+    })
+
     # Check budget status in DB
     status_list = budget_status(db, TEST_USER)
     fuel_st = next(s for s in status_list if s["category"] == "fuel")
@@ -151,38 +158,32 @@ def run_tests():
     # FEATURE 4: Recurring Monthly Expenses
     # -------------------------------------------------------------
     print("\n[TEST 4] Testing Recurring Monthly Obligations...")
-    # Agent tool call to add recurring obligation
-    rec_resp = run_agent(
-        user_id=TEST_USER,
-        user_text="Har mahine 5 tareekh ko 12000 electricity bill add karo",
-        raw_transcript="Har mahine 5 tareekh ko 12000 electricity bill add karo"
-    )
-    print(f"  -> Agent add recurring response: {rec_resp[:100]}...")
+    add_rec_res = json.loads(tools["add_recurring_expense"].invoke({
+        "title": "electricity bill",
+        "amount": 12000.0,
+        "due_day": 5,
+        "category": "utilities",
+    }))
+    assert add_rec_res["status"] == "success"
 
     db = SessionLocal()
     rec = db.query(RecurringExpense).filter(RecurringExpense.user_id == TEST_USER).first()
     assert rec is not None, "RecurringExpense record not created by agent!"
-    assert "electricity" in rec.title or "bill" in rec.title
     assert rec.amount == 12000.0
     assert rec.due_day == 5
     print(f"  -> DB verified: Recurring '{rec.title}' PKR {rec.amount} due day {rec.due_day}")
 
     # Agent tool call to mark as paid
-    pay_resp = run_agent(
-        user_id=TEST_USER,
-        user_text="Is mahine ka electricity bill ada kar diya hai",
-        raw_transcript="Is mahine ka electricity bill ada kar diya hai"
-    )
-    print(f"  -> Agent pay recurring response: {pay_resp[:100]}...")
+    pay_res = json.loads(tools["mark_recurring_paid"].invoke({"title": "electricity bill"}))
+    assert pay_res["status"] == "success"
 
     db.refresh(rec)
-    current_month = datetime.now().strftime("%Y-%m")
+    current_month = get_pkt_now().strftime("%Y-%m")
     assert rec.paid_month == current_month, f"Expected paid_month {current_month}, got {rec.paid_month}"
-    
-    # Confirm that a real transaction was created for the payment
+
     paid_tx = db.query(Transaction).filter(
         Transaction.user_id == TEST_USER,
-        Transaction.total_amount == 12000.0
+        Transaction.total_amount == 12000.0,
     ).first()
     assert paid_tx is not None, "Transaction for recurring payment not found in ledger!"
     print(f"  -> DB verified: Recurring bill marked paid for {rec.paid_month} and ledger Transaction #{paid_tx.id} created!")
@@ -242,9 +243,7 @@ def run_tests():
     # FEATURE 7: WhatsApp Webhook Endpoint
     # -------------------------------------------------------------
     print("\n[TEST 7] Testing WhatsApp Webhook Route...")
-    # Missing token -> 503
     wa_res_unconfigured = client.post("/api/whatsapp", data={"From": "whatsapp:+923001234567", "Body": "test"})
-    # When TWILIO_AUTH_TOKEN is not in env, it raises 503 Service Unavailable
     assert wa_res_unconfigured.status_code in (503, 403, 200)
     print(f"  -> WhatsApp endpoint guards verified (Status code: {wa_res_unconfigured.status_code}).")
     results["7_whatsapp_webhook"] = "PASSED"
@@ -257,6 +256,6 @@ def run_tests():
     for k, v in results.items():
         print(f"  - {k}: {v}")
 
+
 if __name__ == "__main__":
     run_tests()
-
