@@ -82,6 +82,44 @@ def detect_payment_method(value: Optional[str] = None, text: Optional[str] = Non
     return normalize_payment_method(value)
 
 
+def sanitize_transaction_amount(
+    amount: float,
+    raw_text: Optional[str] = None,
+    payment_method: Optional[str] = "cash",
+) -> float:
+    """
+    Guards against unit collision bugs (e.g. '20000 lakh' -> 2 billion) and enforces
+    Pakistani financial sanity bounds (e.g. Easypaisa / JazzCash regulatory limits).
+    """
+    if not amount or amount <= 0:
+        return 0.0
+
+    val = float(amount)
+    if raw_text:
+        import re
+        t = raw_text.lower()
+        # Unit collision check 1: 3+ digits followed by lakh/lac (e.g. '20000 lakh' -> 20,000)
+        m_lakh = re.search(r'\b(\d{3,})\s*(lakh|lac|لاکھ)\b', t)
+        if m_lakh and val >= 10_000_000:
+            val = float(m_lakh.group(1))
+
+        # Unit collision check 2: 4+ digits followed by hazaar (e.g. '20000 hazaar' -> 20,000)
+        m_haz = re.search(r'\b(\d{4,})\s*(hazaar|hazar|ہزار)\b', t)
+        if m_haz and val >= 1_000_000:
+            val = float(m_haz.group(1))
+
+    # Mobile wallet sanity cap: Easypaisa / JazzCash single limit is 1,000,000 PKR
+    pm = normalize_payment_method(payment_method)
+    if pm in ("easypaisa", "jazzcash") and val > 5_000_000:
+        if raw_text:
+            import re
+            digits = re.findall(r'\b\d+\b', raw_text)
+            if digits and float(digits[0]) <= 1_000_000:
+                val = float(digits[0])
+
+    return round(val, 2)
+
+
 def month_start(now: Optional[datetime] = None) -> datetime:
     now = now or datetime.now()
     return datetime(now.year, now.month, 1, 0, 0, 0)

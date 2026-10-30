@@ -19,6 +19,7 @@ from database import SessionLocal, Transaction, TransactionItem, Budget, Recurri
 from analytics import (
     normalize_payment_method,
     detect_payment_method,
+    sanitize_transaction_amount,
     budget_status,
     recurring_status,
     month_start,
@@ -354,10 +355,14 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
      - "das hazaar" / "دس ہزار" -> 10000
      - "veeh hazaar" / "ویہہ ہزار" -> 20000
      - "panjah hazaar" / "پنجاہ ہزار" -> 50000
-   * **Lakhs (Lakh / لاکھ):**
+   * **Lakhs (Lakh / لاکھ) & Unit Collision Guard:**
      - "ik lakh" / "ek lakh" -> 100,000
      - "dedh lakh" -> 150,000
      - "dhai lakh" -> 250,000
+     - **UNIT COLLISION GUARD (CRITICAL):** If user enters digits already containing 3+ zeros followed by 'lakh' or 'hazaar' (e.g., "20000 lakh", "50000 lakh", "1000 hazaar"):
+       * NEVER multiply digits by 100,000 to create billions/arabs!
+       * In Pakistani typing/speech, "20000 lakh" means **20,000 PKR** (twenty thousand) where the user typed 20000 and reflexively added lakh.
+       * On mobile wallets (Easypaisa / JazzCash), limits are 50,000 to 1,000,000 PKR. "20000 lakh on easypaisa" ALWAYS means **20,000 PKR** — NEVER 2,000,000,000!
    * **Colloquial Quantities & Counts:**
      - Punjabi numbers: ikk (1), do (2), tinn (3), chaar (4), panj (5), chhe (6), satt (7), atth (8), nau (9), das (10), yaaran (11), baaran (12), tehran (13), chaudan (14), pandran (15), veeh (20), panjah (50), sattar (70), assi (80), sau (100).
      - Units: "paa" / "pao" = 250g, "adha kilo" = 0.5kg, "dedh kilo" = 1.5kg, "darjan" = 12 pcs, "adha darjan" = 6 pcs.
@@ -381,7 +386,9 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
    * **Healthcare & Pharmacy (Category: "healthcare"):**
      dawai (medicine), panadol, syrup, doctor fee, lab test. Stores: "shaheen chemist", "servaid", "fazal din", "pharmacy", "clinic".
    * **Personal & Services (Category: "personal" or "household"):**
-     darzi silai (tailor), haircut / salon, kapray (clothes), bijli wala / plumber. Stores: "tailor", "salon", "local service".
+     dawai (medicine), panadol, syrup, doctor fee, lab test. Stores: "shaheen chemist", "servaid", "fazal din", "pharmacy", "clinic".
+   * **P2P Money Transfers & Remittances (Category: "transfer"):**
+     "hamza ko paise transfer kiye", "ammi ko 15000 bheje", "ali ko send kiye". Store: "easypaisa transfer", "jazzcash transfer", or "money transfer" (NOT "local store"). Item: "transfer to [name]" or "money transfer". Category: "transfer". Payment method: easypaisa, jazzcash, or bank_transfer.
 
 4. **PUNJABI & URDU DIALECT & GRAMMAR NUANCES:**
    * Understand Pakistani Punjabi verbs & prepositions:
@@ -530,6 +537,15 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             else:
                 final_total = 0.0
 
+            # Resolve payment method & guard against unit collisions (e.g. '20000 lakh' -> 20,000)
+            final_pm = detect_payment_method(payment_method, raw_transcript)
+            final_total = sanitize_transaction_amount(final_total, raw_transcript, final_pm)
+
+            # If it was a money transfer and store defaulted to 'local store', assign clean transfer store
+            if raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send")):
+                if canonical_store in ("local store", "general store", "general purchase"):
+                    canonical_store = f"{final_pm} transfer" if final_pm != "cash" else "money transfer"
+
             # Create Transaction record
             tx = Transaction(
                 user_id=user_id,
@@ -537,7 +553,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 total_amount=round(final_total, 2),
                 transaction_date=tx_date,
                 raw_transcript=raw_transcript or None,
-                payment_method=detect_payment_method(payment_method, raw_transcript),
+                payment_method=final_pm,
             )
             db.add(tx)
             db.flush()  # Populates tx.id
@@ -545,6 +561,9 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             # Create TransactionItem records
             logged_items = []
             if parsed_items:
+                # If single item and price was distorted by unit collision, sync with final_total
+                if len(parsed_items) == 1 and abs(parsed_items[0]["price"] - final_total) > 1.0:
+                    parsed_items[0]["price"] = final_total
                 for it in parsed_items:
                     t_item = TransactionItem(
                         transaction_id=tx.id,
