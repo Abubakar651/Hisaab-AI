@@ -6,6 +6,14 @@
   <title>HisaabAI — Voice & Text Expense Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
   
+  <!-- Google Fonts: Noto Nastaliq Urdu (Official Nastaleeq Font from Google) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Jameel Noori Nastaleeq Web Font CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/jameel-noori@1.1.2/jameel-noori.min.css" rel="stylesheet">
+
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -13,6 +21,9 @@
       darkMode: 'class',
       theme: {
         extend: {
+          fontFamily: {
+            nastaleeq: ["'Jameel Noori Nastaleeq'", "'Noori Nastaleeq'", "'Noto Nastaliq Urdu'", "'Urdu Typesetting'", "serif"],
+          },
           colors: {
             brand: {
               50: '#ecfdf5',
@@ -41,6 +52,25 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <style>
+    /* Jameel Noori Nastaleeq local & CDN fallback */
+    @font-face {
+      font-family: 'Jameel Noori Nastaleeq';
+      src: local('Jameel Noori Nastaleeq'),
+           local('Noori Nastaleeq'),
+           url('https://cdn.jsdelivr.net/gh/tariq-abdullah/urdu-web-font-CDN/JameelNooriNastaleeq.woff') format('woff');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* Nastaleeq Urdu/Punjabi typography class */
+    .font-nastaleeq,
+    .urdu-text,
+    [dir="rtl"] {
+      font-family: 'Jameel Noori Nastaleeq', 'Noori Nastaleeq', 'Noto Nastaliq Urdu', 'Urdu Typesetting', serif;
+      line-height: 2.1 !important;
+    }
+
     /* Custom scrollbar */
     ::-webkit-scrollbar {
       width: 6px;
@@ -213,7 +243,7 @@
         <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi">
           🛒 Punjabi: Imtiaz 1500 oil, 450 bread
         </button>
-        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
+        <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] font-nastaleeq transition-colors" data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
           🇵🇰 اردو: الفتح گروسری 3200
         </button>
         <button class="prompt-chip shrink-0 px-2.5 py-1 rounded-full bg-surface-800 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-emerald-300 text-[11px] transition-colors" data-prompt="Mera is mahine Imtiaz te kinna kharcha hoya?">
@@ -240,8 +270,8 @@
               <span>Assalam-o-Alaikum! Welcome to HisaabAI.</span>
             </p>
             <p>You can record your daily expenses by <strong>typing</strong> or tapping the <strong>microphone</strong> button below in:</p>
-            <ul class="list-disc pl-4 mt-2 space-y-1 text-slate-300 text-xs">
-              <li><strong>Urdu (اردو یا رومن اردو):</strong> "آج میں نے الفتح سے 2500 کا سامان لیا"</li>
+            <ul class="list-disc pl-4 mt-2 space-y-1.5 text-slate-300 text-xs">
+              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span class="font-nastaleeq text-sm text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان لیا"</span></li>
               <li><strong>Punjabi (پنجابی):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
               <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
               <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
@@ -445,15 +475,28 @@
       retryMicBtn: document.getElementById('retry-mic-btn'),
     };
 
+    // Helper to detect Arabic / Urdu / Shahmukhi script
+    function isUrduScript(str) {
+      return /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(str || '');
+    }
+
     // Initialize UI
     function initApp() {
       elements.userIdInput.value = state.userId;
       elements.activeUserDisplay.textContent = state.userId;
       
-      // Auto-resize textarea
+      // Auto-resize textarea and auto-detect Nastaleeq script
       elements.messageInput.addEventListener('input', function() {
         this.style.height = 'auto';
         this.style.height = (this.scrollHeight) + 'px';
+
+        if (isUrduScript(this.value)) {
+          this.classList.add('font-nastaleeq', 'text-right', 'text-sm');
+          this.setAttribute('dir', 'rtl');
+        } else {
+          this.classList.remove('font-nastaleeq', 'text-right');
+          this.setAttribute('dir', 'ltr');
+        }
       });
 
       // Enter key sends message (Shift+Enter for new line)
@@ -749,18 +792,22 @@
       const wrapper = document.createElement('div');
       wrapper.className = 'flex justify-end gap-2.5 max-w-xl ml-auto';
 
-      let innerContent = `<p class="whitespace-pre-wrap">${escapeHtml(text)}</p>`;
+      const isUrdu = isUrduScript(text);
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-sm sm:text-base leading-loose text-right' : 'text-xs sm:text-sm';
+      const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
+
+      let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
       if (voiceSubtext) {
         innerContent = `
           <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 mb-1">
             <i data-lucide="mic" class="w-3.5 h-3.5"></i> ${escapeHtml(voiceSubtext)}
           </div>
-          <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
+          <p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>
         `;
       }
 
       wrapper.innerHTML = `
-        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 text-xs sm:text-sm shadow-md">
+        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 shadow-md">
           ${innerContent}
         </div>
       `;
@@ -774,13 +821,16 @@
       const wrapper = document.createElement('div');
       wrapper.className = 'flex gap-3 max-w-xl';
 
+      const isUrdu = isUrduScript(markdownContent);
+      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-sm sm:text-base leading-loose' : 'text-xs sm:text-sm leading-relaxed';
+      const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
       const parsedHtml = marked.parse(markdownContent || '');
 
       wrapper.innerHTML = `
         <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-1">
           <i data-lucide="bot" class="w-4 h-4"></i>
         </div>
-        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-xs sm:text-sm text-slate-100 shadow-sm leading-relaxed prose prose-invert prose-xs max-w-none">
+        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 text-slate-100 shadow-sm ${nastaleeqClass} prose prose-invert prose-xs max-w-none" ${dirAttr}>
           ${parsedHtml}
         </div>
       `;
