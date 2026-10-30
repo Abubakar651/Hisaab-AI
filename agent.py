@@ -88,14 +88,16 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
         return ""
 
     domain_prompt = (
+        "پاکستان میں روزمرہ کے اخراجات، گروسری، خریداری، راشن اور بل کا وائس نوٹ۔ "
         "Voice note about daily expenses, shopping, groceries, and bills in Pakistan. "
         "Mentions stores like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro, CSD, Chase Up, "
         "Save Mart, Bin Hashim, Shaheen Chemist, Servaid, Fazal Din. Spoken in Urdu, Punjabi, "
-        "Roman Urdu, or English. Common words: ton, lita, layi, le aya, khareedya, ditte, mangwaya, "
+        "or English. Common words: ton, lita, layi, le aya, khareedya, ditte, mangwaya, "
         "hoya, kinna, kharcha, hisaab, rashan, sabzi, doodh, dahi, anday, double roti, cooking oil, "
         "ghee, aloo, pyaz, tamatar, gosht, chicken, qeema, chawal, aata, cheeni, chai patti, daal, "
         "petrol, diesel, easyload, bill. Spoken amounts: sau, hazaar, dedh hazaar, dhai hazaar, "
-        "sadhe teen hazaar, pandra sau, baara sau, ath sau, pachaas, satthar, lakh, rupees, PKR."
+        "sadhe teen hazaar, pandra sau, baara sau, ath sau, pachaas, satthar, lakh, rupees, PKR. "
+        "Always transcribe Urdu and Punjabi in Urdu script, never in Gurmukhi."
     )
 
     try:
@@ -244,12 +246,16 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
 
 ### CRITICAL RULES:
 
-1. **MULTILINGUAL SCRIPT & LANGUAGE MIRRORING:**
-   - Detect the language, dialect, and script used by the user in their request and reply in the **EXACT SAME LANGUAGE AND SCRIPT STYLE**:
-     * **Urdu Script (اردو):** If the user types or speaks in Urdu script (e.g. "آج میں نے امتیاز سے 1500 کا سامان خریدا"), reply in respectful, natural Urdu script.
-     * **Roman Urdu / Roman Punjabi:** If the user writes or speaks Roman Urdu or Roman Punjabi (e.g., "Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi", "Mera is mahine Imtiaz te kinna kharcha hoya?"), reply in fluent, natural Roman Urdu/Roman Punjabi.
-     * **English:** If the user speaks/writes in English, reply in clear, professional English.
-     * **Punjabi (Shahmukhi / Gurmukhi):** If written in Punjabi script, reply in natural Punjabi.
+1. **LANGUAGE ENFORCEMENT & STRICT PROHIBITION OF GURMUKHI:**
+   - **Urdu or Punjabi Inputs (Voice or Text):**
+     * Whenever a user sends a message or voice note in Urdu or Punjabi (spoken, Urdu script, or Roman Urdu/Punjabi), ALWAYS respond in **polite, natural Urdu script (اردو)**.
+     * **ABSOLUTE BAN ON GURMUKHI SCRIPT:** NEVER output Gurmukhi script (e.g., ਮੈਂ ਤੁਹਾਡਾ ਖਰਚਾ ਦਰਜ ਕਰ ਰਿਹਾ ਹਾਂ...). Gurmukhi is not used or understood in Pakistan. Even if the voice transcription produced Gurmukhi characters, YOU MUST ALWAYS RESPOND IN STANDARD URDU SCRIPT (اردو رسم الخط).
+     * Example Urdu reply:
+       "جی بالکل! آپ کا خرچہ درج کر لیا گیا ہے: الفتح سے 3,400 روپے کا سامان (انڈے، بریڈ، پانی اور کیچپ)۔"
+   - **English Inputs (Voice or Text):**
+     * Whenever the user inputs in English, ALWAYS respond in clear, professional English.
+     * Example English reply:
+       "Recorded your expense: PKR 3,400 at Al-Fatah for eggs, bread, water, and ketchup."
 
 2. **SPOKEN PAKISTANI NUMBERS RESOLUTION (URDU & PUNJABI):**
    Users frequently state amounts colloquially in Urdu and Punjabi. You MUST accurately resolve these spoken numbers to exact numeric values:
@@ -313,10 +319,9 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
      - "peeti" / "khada" = drank / ate ("chai peeti", "khana khada")
      - "hoya" / "banya" = totaled / amounted to ("kinna bill hoya?")
      - "kharcha" / "hisaab" = expense / ledger
-   * Always mirror the user's dialect naturally:
-     - When user speaks Punjabi, respond in fluent, friendly Punjabi (e.g. "Main darj kar ditta ae: Imtiaz ton Rs. 1,500 da rashan khate ch darj ho gaya ae.").
-     - When user speaks Urdu script, respond in authentic Urdu script (e.g. "جی بالکل، آپ کا خرچہ درج کر لیا گیا ہے: امتیاز سے 1,500 روپے کا راشن۔").
-     - When user speaks Roman Urdu, respond in polite Roman Urdu (e.g. "Ji bilkul, aap ka kharcha darj kar liya gaya hai: Imtiaz se 1,500 rupay ka rashan.").
+   * **Language Output Rules:**
+     - For ANY Urdu or Punjabi input (voice or text, whether in Urdu script, Roman Urdu/Punjabi, or Punjabi phrasing): ALWAYS respond in natural, polite **Urdu script (اردو)**. NEVER use Gurmukhi!
+     - For ANY English input (voice or text): ALWAYS respond in clear, professional **English**.
 
 5. **CANONICAL ENGLISH FOR DATABASE TOOLS:**
    - Even though you converse in the user's language, ALWAYS convert store names and item names to **clean, canonical lowercase English** before passing them into tools:
