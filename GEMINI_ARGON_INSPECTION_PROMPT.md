@@ -2,7 +2,7 @@
 
 > **Instructions for the User:**  
 > Copy and paste the entire prompt below into **Google Gemini (Gemini Advanced / Gemini 1.5 Pro / Gemini 2.0 / Gemini Argon)**.  
-> It gives Gemini complete visibility over the HisaabAI codebase, architecture, sign-in mechanisms (Google, Phone Number, Email/Password, WhatsApp), database schema, AI voice pipeline, and testing tools.
+> It gives Gemini complete visibility over the HisaabAI codebase, architecture, sign-in mechanisms (Google, Phone Number, Email/Password, Guest profiles), database schema, AI voice pipeline, and testing tools.
 
 ---
 
@@ -28,7 +28,6 @@ Here is the complete architectural blueprint and implementation specification of
   - Vanilla JS, Tailwind CSS, Lucide icons, Chart.js for data visualization.
   - **PWA (Progressive Web App):** Installable on Android & iOS (`/manifest.webmanifest`, `/sw.js`, 192px/512px icons).
 * **External Integrations:**
-  - Twilio WhatsApp Webhook (`/api/whatsapp`) processing text and voice notes with multi-tenant isolation.
   - Firebase Auth SDK (Google Sign-In, Phone Number SMS OTP, Email/Password).
 
 ---
@@ -42,7 +41,7 @@ HisaabAI features a unified, multi-provider authentication system centered on th
 |---|---|---|
 | `id` | INTEGER PRIMARY KEY | Auto-incrementing identifier |
 | `user_id` | VARCHAR(100) UNIQUE INDEX | Universal user key (e.g. `+923001234567`, `user@gmail.com`, `bakar`) |
-| `auth_provider` | VARCHAR(30) | `google`, `phone`, `credentials`, `whatsapp`, or `guest` |
+| `auth_provider` | VARCHAR(30) | `google`, `phone`, `credentials`, or `guest` |
 | `display_name` | VARCHAR(150) | User's full name or phone number |
 | `email` | VARCHAR(150) INDEX | Google or registered email address |
 | `phone_number` | VARCHAR(50) INDEX | Standardized E.164 phone (`+923001234567`) |
@@ -60,8 +59,8 @@ HisaabAI features a unified, multi-provider authentication system centered on th
 
 2. **📱 Pakistani Phone Number Sign-In (`+92 300 1234567`):**
    - Automatically normalizes Pakistani inputs (`0300...` or `300...` $\rightarrow$ `+92300...`).
-   - Uses Firebase Phone Auth with invisible reCAPTCHA and 6-digit SMS OTP.
-   - **Cross-Channel WhatsApp Sync:** Because the WhatsApp bot scopes users as `wa:+923...`, signing in with your phone number on the web app automatically links and surfaces all transactions recorded through WhatsApp!
+   - Uses Firebase Phone Auth with invisible reCAPTCHA and 6-digit SMS OTP verification.
+   - Fallback instant verification for local offline development.
 
 3. **🔑 Email & Password Account Creation (Sign Up & Login):**
    - Direct account registration without third-party dependencies.
@@ -131,7 +130,6 @@ HisaabAI features a unified, multi-provider authentication system centered on th
 | `/api/auth/register` | `POST` | Create account with Name, Email/Phone, and Password |
 | `/api/auth/password-login` | `POST` | Authenticate with Password |
 | `/api/auth/profile/{user_id}` | `GET` | Get user account metadata |
-| `/api/whatsapp` | `POST` | Twilio WhatsApp text and voice note webhook |
 | `/manifest.webmanifest` | `GET` | Progressive Web App manifest |
 | `/sw.js` | `GET` | Service worker for offline shell caching |
 
@@ -146,8 +144,8 @@ Please perform a comprehensive review of this application across the following d
    - Confirm multi-tenant data isolation (`user_id` filtering across transactions, budgets, and recurring bills).
    - Evaluate the security of password hashing (PBKDF2-HMAC-SHA256, 100,000 rounds).
 
-2. **WhatsApp Bot & Web Dashboard Convergence:**
-   - Verify how a user logging in with `+92300...` on the web accesses transactions logged via `wa:+92300...` on WhatsApp.
+2. **Multi-Tenant Data Privacy & Session Isolation:**
+   - Verify that all database queries, agent tools, export files, and budgets are strictly bounded by `user_id`.
 
 3. **Financial Mathematics & AI Isolation:**
    - Confirm that the LLM is strictly prohibited from doing mental math, and verify that all calculations remain 100% deterministic via SQL/Python.
@@ -160,3 +158,4 @@ Please perform a comprehensive review of this application across the following d
 
 Provide a structured, executive audit report summarizing the strengths, architecture score, and actionable enhancements.
 ```
+
