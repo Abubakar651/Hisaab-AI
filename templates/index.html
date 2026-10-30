@@ -66,6 +66,20 @@
       font-display: swap;
     }
 
+    /* Auto-apply Noori Nastaleeq to ANY Urdu/Arabic Unicode characters globally */
+    @font-face {
+      font-family: 'AutoNastaleeq';
+      src: local('Jameel Noori Nastaleeq'),
+        local('Noori Nastaleeq'),
+        url('https://cdn.jsdelivr.net/gh/tariq-abdullah/urdu-web-font-CDN/JameelNooriNastaleeq.woff') format('woff');
+      unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
+      font-display: swap;
+    }
+
+    body {
+      font-family: 'AutoNastaleeq', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    }
+
     /* Nastaleeq Urdu/Punjabi typography class */
     .font-nastaleeq,
     .urdu-text,
@@ -375,10 +389,10 @@
               <strong>microphone</strong> button below in:
             </p>
             <ul class="list-disc pl-5 mt-3 space-y-2 text-slate-300 text-sm sm:text-[15px]">
-              <li><strong>Urdu (اردو یا رومن اردو):</strong> <span
+              <li><strong>Urdu (<span class="font-nastaleeq text-base sm:text-lg font-normal text-emerald-300">اردو یا رومن اردو</span>):</strong> <span
                   class="font-nastaleeq text-base sm:text-lg text-emerald-300">"آج میں نے الفتح سے 2500 کا سامان
                   لیا"</span></li>
-              <li><strong>Punjabi (پنجابی):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
+              <li><strong>Punjabi (<span class="font-nastaleeq text-base sm:text-lg font-normal text-emerald-300">پنجابی</span>):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
               <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
               <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
             </ul>
