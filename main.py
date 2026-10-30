@@ -1,4 +1,5 @@
 import os
+import sys
 import io
 import re
 import csv
@@ -65,7 +66,14 @@ logger = logging.getLogger("hisaab_ai")
 # ---------------------------------------------------------------------------
 # Environment & Session Security Verification (Fail-Closed Default)
 # ---------------------------------------------------------------------------
-APP_ENV = os.getenv("APP_ENV", "production").strip().lower()
+APP_ENV = os.getenv("APP_ENV", "").strip().lower()
+if not APP_ENV:
+    # Fail-closed default: if unspecified, detect local dev flags (--reload or test harness)
+    if any(arg in sys.argv for arg in ("--reload", "--reload-dir", "--reload-include")) or "pytest" in sys.modules or (sys.argv and "pytest" in sys.argv[0]):
+        APP_ENV = "development"
+    else:
+        APP_ENV = "production"
+
 IS_DEV = APP_ENV in ("dev", "development", "test")
 SESSION_SECRET = os.getenv("SESSION_SECRET")
 
