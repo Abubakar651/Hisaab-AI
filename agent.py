@@ -129,11 +129,11 @@ class ExpenseItemSchema(BaseModel):
         description="Category: groceries, dairy, fuel, electronics, dining, utilities, healthcare, clothing, other",
     )
     price: float = Field(
-        description="Total or unit price for this item in PKR (rupees)"
+        description="Total cost in PKR (rupees) for this entire line item (e.g. 300 for 2 kg sugar, 400 for 12 eggs). NOT unit price."
     )
     quantity: float = Field(
         default=1.0,
-        description="Quantity or count/liters/kg of this item",
+        description="Quantity or count/liters/kg of this item (e.g. 2 for 2 kg)",
     )
 
 
@@ -248,6 +248,14 @@ You are equipped with real SQLite database tools: `log_expense`, `query_expenses
   * **NEVER copy items from previous transactions or earlier chat messages into the new transaction!**
   * If the user already recorded eggs and bread in Turn 1, and now says "1500 da rashan" in Turn 2, log ONLY the new 1500 grocery expense! NEVER attach eggs and bread to Turn 2.
   * Only combine information across messages if the user is directly answering an incomplete clarification question from the assistant.
+- **MULTI-STORE PURCHASES IN ONE MESSAGE:**
+  * If the user mentions buying items from multiple distinct stores in a single message (e.g. "Imtiaz se 1500 ka oil liya aur Metro se 3000 ka rashan"):
+  * YOU MUST EMIT MULTIPLE `log_expense` TOOL CALLS — one for each store!
+- **ABSOLUTE ZERO MENTAL ARITHMETIC MANDATE (DATABASE DOES ALL MATH):**
+  * YOU MUST NEVER DO MENTAL ARITHMETIC OR GUESS SUMS IN YOUR HEAD.
+  * All calculations, summations, line item additions, and totals are computed deterministically by SQLite and Python.
+  * For queries: ALWAYS call `query_expenses`. The database executes SQL `SUM()` and returns the 100% mathematically exact numbers.
+  * ALWAYS report the exact numbers returned by the tool to the user — NEVER recalculate or alter them!
 
 ### CRITICAL RULES:
 
@@ -434,9 +442,9 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                             "category": str(item.category or "groceries").strip().lower()
                         })
 
-            # Compute or validate total amount
+            # Compute exact sum of parsed line items deterministically (100% precision)
             computed_sum = sum(
-                float(it["price"]) * (float(it["quantity"]) if float(it["quantity"]) > 0 else 1.0)
+                float(it["price"])
                 for it in parsed_items
             )
 
@@ -593,14 +601,21 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             for tx in transactions:
                 store_totals[tx.store_name] = store_totals.get(tx.store_name, 0.0) + tx.total_amount
 
-            # If querying for a specific item, compute the specific item spending
+            # Compute deterministic category totals
+            category_totals: Dict[str, float] = {}
+            for tx in transactions:
+                for it in tx.items:
+                    cat = it.category or "other"
+                    category_totals[cat] = category_totals.get(cat, 0.0) + it.price
+
+            # If querying for a specific item, compute deterministic item-specific spending
             item_specific_total = 0.0
             if item_name:
                 cleaned_item = item_name.strip().lower()
                 for tx in transactions:
                     for it in tx.items:
                         if cleaned_item in it.item_name.lower():
-                            item_specific_total += it.price * it.quantity
+                            item_specific_total += it.price
 
             tx_list = []
             for tx in transactions[:15]:  # Return up to 15 recent matching transactions
@@ -628,6 +643,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "visit_count": len(transactions),
                 "total_spent_pkr": round(total_spent, 2),
                 "spending_by_store": {k: round(v, 2) for k, v in store_totals.items()},
+                "spending_by_category": {k: round(v, 2) for k, v in category_totals.items()},
                 "transactions": tx_list,
             }
 
@@ -723,8 +739,8 @@ def run_agent(
     # Construct conversation history
     messages = []
     if chat_history and len(chat_history) > 0:
-        # Load from client-supplied history (most accurate for active UI tab)
-        for msg in chat_history[-12:]:
+        # Load from client-supplied history (keep last 4 messages for tight context & low token consumption)
+        for msg in chat_history[-4:]:
             role = msg.get("role", "user")
             content = (msg.get("content") or "").strip()
             if not content:
@@ -735,8 +751,8 @@ def run_agent(
                 from langchain_core.messages import AIMessage
                 messages.append(AIMessage(content=content))
     elif clean_user_id in _IN_MEMORY_SESSIONS:
-        # Fallback to server in-memory history
-        messages.extend(_IN_MEMORY_SESSIONS[clean_user_id][-10:])
+        # Fallback to server in-memory history (last 4 turns)
+        messages.extend(_IN_MEMORY_SESSIONS[clean_user_id][-4:])
 
     # Append current turn
     messages.append(HumanMessage(content=user_text))

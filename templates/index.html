@@ -759,9 +759,9 @@
       formData.append('user_id', state.userId);
       if (message) formData.append('message', message);
       if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
-      // Pass recent conversation history for multi-turn context memory
+      // Pass recent conversation history for multi-turn context memory (last 4 messages to optimize token bandwidth)
       if (state.chatHistory && state.chatHistory.length > 0) {
-        formData.append('history', JSON.stringify(state.chatHistory.slice(-10)));
+        formData.append('history', JSON.stringify(state.chatHistory.slice(-4)));
       }
 
       try {
@@ -1083,7 +1083,7 @@
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-900 border border-slate-800 text-[11px] text-slate-300">
               <span class="text-slate-200 font-medium">${escapeHtml(it.item_name)}</span>
               ${it.quantity > 1 ? `<span class="text-slate-400">×${it.quantity}</span>` : ''}
-              <span class="text-emerald-400 font-mono">Rs ${formatMoney(it.price * it.quantity)}</span>
+              <span class="text-emerald-400 font-mono">Rs ${formatMoney(it.price)}</span>
             </span>
           `).join('');
           itemsHtml = `<div class="flex flex-wrap gap-1 mt-2">${itemsBadges}</div>`;
