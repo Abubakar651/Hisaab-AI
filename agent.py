@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import logging
 from datetime import datetime, timedelta
@@ -39,44 +40,57 @@ from analytics import (
 load_dotenv()
 logger = logging.getLogger("hisaab_ai.agent")
 
+def get_groq_client():
+    return Groq(api_key=os.getenv("GROQ_API_KEY", "").strip())
+
 # Initialize Groq client for Whisper ASR
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+groq_client = get_groq_client()
 
 # Default model preference with fallback list matching active Groq account models
 PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-20b")
 MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
 
 _VALIDATED_MODEL = None
+_BEDROCK_THROTTLED_UNTIL = 0.0
 
 
 def get_chat_llm():
     """
     Initializes Chat LLM.
-    Priority 1: AWS Bedrock (if AWS credentials and/or BEDROCK_MODEL_ID are set).
+    Priority 1: AWS Bedrock (if configured, not throttled, and LLM_PROVIDER != 'groq').
     Priority 2: Groq Chat LLM with pre-validated model fallback.
     """
-    aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
-    aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
-    bedrock_model = os.getenv("BEDROCK_MODEL_ID", "").strip()
+    global _BEDROCK_THROTTLED_UNTIL
+    provider = os.getenv("LLM_PROVIDER", "").strip().lower()
 
-    if (aws_key and aws_secret) or bedrock_model:
-        if ChatBedrockConverse is not None:
-            try:
-                model_id = bedrock_model or "us.meta.llama3-3-70b-instruct-v1:0"
-                region = os.getenv("AWS_REGION", "us-east-1").strip() or "us-east-1"
-                kwargs = {
-                    "model": model_id,
-                    "region_name": region,
-                    "temperature": 0,
-                    "max_tokens": 1000,
-                }
-                if aws_key and aws_secret:
-                    kwargs["aws_access_key_id"] = aws_key
-                    kwargs["aws_secret_access_key"] = aws_secret
+    if provider != "groq":
+        aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+        bedrock_model = os.getenv("BEDROCK_MODEL_ID", "").strip()
 
-                return ChatBedrockConverse(**kwargs)
-            except Exception as e:
-                logger.warning(f"Failed to initialize AWS Bedrock LLM ({bedrock_model}): {e}. Falling back to Groq.")
+        now = time.time()
+        if ((aws_key and aws_secret) or bedrock_model) and now >= _BEDROCK_THROTTLED_UNTIL:
+            if ChatBedrockConverse is not None:
+                try:
+                    from botocore.config import Config
+                    # Fast failover config to avoid 15s retry hang when AWS throttles
+                    cfg = Config(retries={"max_attempts": 1, "mode": "standard"})
+                    model_id = bedrock_model or "us.meta.llama3-3-70b-instruct-v1:0"
+                    region = os.getenv("AWS_REGION", "us-east-1").strip() or "us-east-1"
+                    kwargs = {
+                        "model": model_id,
+                        "region_name": region,
+                        "temperature": 0,
+                        "max_tokens": 1000,
+                        "config": cfg,
+                    }
+                    if aws_key and aws_secret:
+                        kwargs["aws_access_key_id"] = aws_key
+                        kwargs["aws_secret_access_key"] = aws_secret
+
+                    return ChatBedrockConverse(**kwargs)
+                except Exception as e:
+                    logger.warning(f"Failed to initialize AWS Bedrock LLM ({bedrock_model}): {e}. Falling back to Groq.")
 
     global _VALIDATED_MODEL
     if _VALIDATED_MODEL:
@@ -178,7 +192,8 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
     )
 
     try:
-        transcription = groq_client.audio.transcriptions.create(
+        client = get_groq_client()
+        transcription = client.audio.transcriptions.create(
             file=(filename, file_bytes),
             model="whisper-large-v3",
             prompt=domain_prompt,
@@ -1011,11 +1026,19 @@ def run_agent(
 
         return reply_text
     except Exception as e:
+        global _BEDROCK_THROTTLED_UNTIL
         logger.error(f"Agent execution error: {e}")
+        # Trip Bedrock circuit breaker on throttling/validation error so subsequent turns don't hang
+        err_str = str(e)
+        if "ThrottlingException" in err_str or "ValidationException" in err_str or "Too many tokens" in err_str:
+            _BEDROCK_THROTTLED_UNTIL = time.time() + 300.0
+            logger.warning("AWS Bedrock throttled. Fast fallback to Groq active for 5 minutes.")
+
         # Graceful fallback attempt
         try:
+            fallback_model = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-20b")
             llm_fallback = ChatGroq(
-                model="qwen/qwen3.8-27b",
+                model=fallback_model,
                 temperature=0,
                 max_tokens=600,
                 groq_api_key=os.getenv("GROQ_API_KEY"),

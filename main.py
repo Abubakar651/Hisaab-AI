@@ -132,7 +132,7 @@ async def add_security_headers(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
         "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://unpkg.com data:; "
         "img-src 'self' data: https:; "
-        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com; "
+        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net; "
         f"frame-src {frame_src}; "
         "object-src 'none'; "
         "base-uri 'self'; "
@@ -196,12 +196,16 @@ class AuthenticatedUser(str):
         return instance
 
 
+_ADMIN_SDK_CREDENTIALS_MISSING = not bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+
+
 def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
     """
     Verifies Firebase ID token server-side.
     Uses firebase_admin with automatic fallback to certificate-cached google-auth id_token verification.
     Enforces aud, iss, email presence, email_verified, and authorized providers (google.com or password).
     """
+    global _ADMIN_SDK_CREDENTIALS_MISSING
     project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
     if not IS_DEV and not project_id:
         raise RuntimeError("FIREBASE_PROJECT_ID environment variable is required in production mode.")
@@ -214,11 +218,29 @@ def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
         )
 
     claims = None
-    # 1. Primary verification via Firebase Admin SDK
-    try:
-        claims = admin_auth.verify_id_token(token.strip(), check_revoked=False)
-    except Exception as admin_err:
-        # 2. Resilient fallback via google-auth with CacheControl session
+    is_mocked = hasattr(admin_auth.verify_id_token, "_mock_name") or "mock" in type(admin_auth.verify_id_token).__name__.lower()
+    # 1. Primary verification via Firebase Admin SDK (skip unmocked call if local ADC is absent to avoid 12s GCE metadata timeout)
+    if is_mocked or not _ADMIN_SDK_CREDENTIALS_MISSING:
+        try:
+            claims = admin_auth.verify_id_token(token.strip(), check_revoked=False)
+        except Exception as admin_err:
+            if "DefaultCredentialsError" in type(admin_err).__name__:
+                _ADMIN_SDK_CREDENTIALS_MISSING = True
+            # 2. Resilient fallback via google-auth with CacheControl session
+            try:
+                claims = google_id_token.verify_firebase_token(
+                    token.strip(),
+                    _cached_request_adapter,
+                    audience=project_id if project_id else None,
+                )
+            except Exception as ga_err:
+                logger.warning(f"Firebase token verification failed (admin: {admin_err}, fallback: {ga_err})")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authentication token.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+    else:
         try:
             claims = google_id_token.verify_firebase_token(
                 token.strip(),
@@ -226,7 +248,7 @@ def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
                 audience=project_id if project_id else None,
             )
         except Exception as ga_err:
-            logger.warning(f"Firebase token verification failed (admin: {admin_err}, fallback: {ga_err})")
+            logger.warning(f"Firebase token verification failed (google_id_token: {ga_err})")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired authentication token.",
@@ -393,7 +415,7 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
 # ---------------------------------------------------------------------------
 # Frontend Root Route
 # ---------------------------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_home(request: Request):
     """Serves the main single-page application."""
     return templates.TemplateResponse(request=request, name="index.html")

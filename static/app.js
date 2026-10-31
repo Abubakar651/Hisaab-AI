@@ -117,8 +117,9 @@ tailwind.config = {
     // Initialize UI
     function initApp() {
       initElements();
-      elements.userIdInput.value = state.userId;
-      elements.activeUserDisplay.textContent = state.userId;
+      if (elements.activeUserDisplay) {
+        elements.activeUserDisplay.textContent = state.userId || 'Guest';
+      }
 
       // Auto-resize textarea and auto-detect Nastaleeq script
       elements.messageInput.addEventListener('input', function () {
@@ -1268,6 +1269,8 @@ tailwind.config = {
     }
 
     function showToast(message, type = 'info') {
+      const container = elements.toastContainer || document.getElementById('toast-container');
+      if (!container) return;
       const toast = document.createElement('div');
       const bgColors = {
         success: 'bg-emerald-900/90 border-emerald-500/50 text-emerald-200',
@@ -1286,8 +1289,8 @@ tailwind.config = {
         <span>${escapeHtml(message)}</span>
       `;
 
-      elements.toastContainer.appendChild(toast);
-      lucide.createIcons();
+      container.appendChild(toast);
+      if (window.lucide) lucide.createIcons();
 
       // Animate in
       requestAnimationFrame(() => {
@@ -1302,6 +1305,8 @@ tailwind.config = {
         }, 200);
       }, 3500);
     }
+
+    window.showToast = showToast;
 
     // Initialize application when DOM is ready
     document.addEventListener('DOMContentLoaded', initApp);

@@ -38,8 +38,28 @@
         return 'Sign-in popup was blocked by your browser. Please allow popups.';
       case 'auth/unauthorized-domain':
         return 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
+      case 'auth/operation-not-allowed':
+        return 'Email/Password sign-in is disabled in Firebase Console. Enable it under Authentication > Sign-in method > Email/Password.';
       default:
         return err.message || 'Authentication failed. Please try again.';
+    }
+  }
+
+  function setAuthMessage(message, type = 'error') {
+    const box = document.getElementById('auth-error-box');
+    if (box) {
+      if (!message) {
+        box.classList.add('hidden');
+        box.textContent = '';
+      } else {
+        box.textContent = message;
+        box.className = type === 'info' || type === 'success'
+          ? 'p-2.5 rounded-lg border border-brass/40 bg-brass/10 text-tx text-xs mb-3 leading-relaxed'
+          : 'p-2.5 rounded-lg border border-bad/40 bg-bad/15 text-bad text-xs mb-3 leading-relaxed';
+      }
+    }
+    if (message && window.showToast) {
+      window.showToast(message, type === 'info' ? 'info' : type === 'success' ? 'success' : 'error');
     }
   }
 
@@ -94,6 +114,7 @@
   // Switch between Sign In and Create Account tabs
   function setAuthMode(mode) {
     authMode = mode;
+    setAuthMessage('');
     const tabSignin = document.getElementById('auth-tab-signin');
     const tabSignup = document.getElementById('auth-tab-signup');
     const submitBtn = document.getElementById('auth-submit-btn');
@@ -277,10 +298,11 @@
   // Email & Password Sign-In / Sign-Up
   async function handleEmailAuthSubmit(e) {
     if (e && e.preventDefault) e.preventDefault();
+    setAuthMessage('');
 
     if (!isConfigured) {
       showUnconfiguredUI();
-      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      setAuthMessage('Sign-in is not configured', 'error');
       return;
     }
     if (!firebaseAuth) {
@@ -288,7 +310,7 @@
     }
     if (!firebaseAuth || !isConfigured) {
       showUnconfiguredUI();
-      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      setAuthMessage('Sign-in is not configured', 'error');
       return;
     }
 
@@ -300,11 +322,11 @@
     const password = passwordInput ? passwordInput.value : '';
 
     if (!email) {
-      if (window.showToast) window.showToast('Please enter your email address.', 'error');
+      setAuthMessage('Please enter your email address.', 'error');
       return;
     }
     if (password.length < 8) {
-      if (window.showToast) window.showToast('Password must be at least 8 characters long.', 'error');
+      setAuthMessage('Password must be at least 8 characters long.', 'error');
       return;
     }
 
@@ -329,7 +351,7 @@
       }
     } catch (err) {
       console.error('Email authentication error:', err);
-      if (window.showToast) window.showToast(mapAuthError(err), 'error');
+      setAuthMessage(mapAuthError(err), 'error');
     } finally {
       if (submitBtn) submitBtn.disabled = false;
     }
@@ -337,15 +359,16 @@
 
   // Forgot Password
   async function handleForgotPassword() {
+    setAuthMessage('');
     if (!isConfigured || !firebaseAuth) {
-      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      setAuthMessage('Sign-in is not configured', 'error');
       return;
     }
     const emailInput = document.getElementById('auth-email');
     const email = (emailInput ? emailInput.value : '').trim();
 
     if (!email) {
-      if (window.showToast) window.showToast('Please enter your email address to reset password.', 'warning');
+      setAuthMessage('Please enter your email address to reset password.', 'error');
       if (emailInput) emailInput.focus();
       return;
     }
@@ -356,16 +379,15 @@
       console.warn('Password reset request error:', err);
     }
     // Always the same generic success message
-    if (window.showToast) {
-      window.showToast('If an account exists with this email, a password reset link has been sent.', 'info');
-    }
+    setAuthMessage('If an account exists with this email, a password reset link has been sent.', 'info');
   }
 
   // Google Sign-In with Popup
   async function signInWithGoogle() {
+    setAuthMessage('');
     if (!isConfigured) {
       showUnconfiguredUI();
-      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      setAuthMessage('Sign-in is not configured', 'error');
       return;
     }
     if (!firebaseAuth) {
@@ -373,7 +395,7 @@
     }
     if (!firebaseAuth || !isConfigured) {
       showUnconfiguredUI();
-      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      setAuthMessage('Sign-in is not configured', 'error');
       return;
     }
     const googleBtn = document.getElementById('google-signin-btn');
@@ -396,7 +418,7 @@
       } else if (err.code === 'auth/unauthorized-domain') {
         msg = 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
       }
-      if (window.showToast) window.showToast(msg, 'error');
+      setAuthMessage(msg, 'error');
     } finally {
       if (googleBtn && isConfigured) googleBtn.disabled = false;
     }
