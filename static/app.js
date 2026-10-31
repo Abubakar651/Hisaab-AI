@@ -38,8 +38,8 @@ tailwind.config = {
 
     // State management
     const state = {
-      userId: localStorage.getItem('hisaab_user_id') || 'guest',
-      token: localStorage.getItem('hisaab_session_token') || '',
+      userId: '',
+      token: '',
       isRecording: false,
       mediaRecorder: null,
       audioChunks: [],
@@ -50,39 +50,14 @@ tailwind.config = {
     };
 
     // Authentication & Fetch Interceptor
-    function getAuthToken() {
-      return localStorage.getItem('hisaab_session_token') || '';
-    }
-
-    function setAuthToken(token) {
-      if (token) {
-        localStorage.setItem('hisaab_session_token', token);
-        state.token = token;
-      } else {
-        localStorage.removeItem('hisaab_session_token');
-        state.token = '';
-      }
-    }
-
     async function authFetch(url, options = {}) {
       if (window.HisaabAuth && typeof window.HisaabAuth.authFetch === 'function') {
         return window.HisaabAuth.authFetch(url, options);
       }
-      const token = getAuthToken();
-      const opts = { ...options };
-      opts.headers = { ...(opts.headers || {}) };
-      if (token) {
-        opts.headers['Authorization'] = `Bearer ${token}`;
-      }
-      const res = await fetch(url, opts);
-      if (res.status === 401) {
-        console.warn('Authentication token expired or missing, prompting login modal...');
-        setAuthToken('');
-        const authModal = document.getElementById('auth-modal');
-        if (authModal) authModal.classList.remove('hidden');
-        showToast('Session expired or required. Please sign in.', 'warning');
-      }
-      return res;
+      return new Response(JSON.stringify({ detail: 'Not authenticated' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // DOM Elements
@@ -165,7 +140,9 @@ tailwind.config = {
       bindEvents();
       bindAnalyticsForms();
       bindAuthEvents();
-      fetchDashboard();
+      if (state.userId) {
+        fetchDashboard();
+      }
       lucide.createIcons();
     }
 
@@ -299,8 +276,6 @@ tailwind.config = {
       if (!account) return;
       state.account = account;
       state.userId = account.user_id;
-      localStorage.setItem('hisaab_user_id', account.user_id);
-      try { localStorage.setItem('hisaab_user_account', JSON.stringify(account)); } catch (e) { }
 
       const nameEl = document.getElementById('user-display-name');
       const badgeEl = document.getElementById('user-provider-badge');
@@ -335,7 +310,6 @@ tailwind.config = {
       const clean = (newUserId || '').trim() || 'default';
       state.userId = clean;
       state.chatHistory = [];
-      localStorage.setItem('hisaab_user_id', clean);
       if (elements.userIdInput) elements.userIdInput.value = clean;
       if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = clean;
       updateAccountUI({ user_id: clean, auth_provider: 'guest', display_name: clean });
@@ -348,7 +322,8 @@ tailwind.config = {
     // Expose app interface for auth state updates
     window.HisaabApp = {
       onUserChanged: (newUserId) => {
-        state.userId = (newUserId || "bakar").toLowerCase();
+        if (!newUserId) return;
+        state.userId = String(newUserId).trim().toLowerCase();
         state.chatHistory = [];
         if (elements.messagesContainer) {
           elements.messagesContainer.innerHTML = "";
@@ -809,6 +784,7 @@ tailwind.config = {
     }
 
     async function checkAndRenderPendingConfirmation() {
+      if (!state.userId) return;
       try {
         const res = await authFetch('/api/transactions/pending');
         if (!res.ok) return;
@@ -880,6 +856,7 @@ tailwind.config = {
     // Dashboard & Live Ledger Flow
     // =========================================================================
     async function fetchDashboard() {
+      if (!state.userId) return;
       try {
         const response = await authFetch(`/api/transactions/${encodeURIComponent(state.userId)}`);
         if (!response.ok) throw new Error('Failed to load user ledger');

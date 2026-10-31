@@ -1051,6 +1051,26 @@ def test_whisper_transcription_ensures_urdu_script_not_devanagari(monkeypatch):
     assert len(called) == 0
 
 
+def test_auth_me_response_shape_contract(client, auth_headers):
+    """
+    Contract assertion: POST /api/auth/me response must have {status: 'success', user: {...}}
+    where user object explicitly contains 'email', 'user_id', 'display_name', 'auth_provider'.
+    """
+    email = "contract_test_user@example.com"
+    headers = auth_headers(email, provider="google.com", email_verified=True)
+    resp = client.post("/api/auth/me", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "success"
+    assert "user" in data
+    user = data["user"]
+    assert user.get("email") == email
+    assert user.get("user_id") == email
+    assert "display_name" in user
+    assert "auth_provider" in user
+
+
+
 
 
 

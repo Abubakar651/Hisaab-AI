@@ -79,19 +79,20 @@
   // Handle successful sign-in
   async function handleUserSignedIn(user) {
     try {
-      const idToken = await user.getIdToken();
-      localStorage.setItem('hisaab_session_token', idToken);
-      localStorage.setItem('hisaab_user_id', (user.email || 'bakar').toLowerCase());
-
       // Sync backend user profile
       const meRes = await authFetch('/api/auth/me', { method: 'POST' });
       let userData = {
         email: user.email,
-        display_name: user.displayName || user.email.split('@')[0],
+        display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
         photo_url: user.photoURL,
       };
       if (meRes.ok) {
-        userData = await meRes.json();
+        const body = await meRes.json();
+        userData = body.user || {
+          email: user.email,
+          display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
+          photo_url: user.photoURL,
+        };
       }
 
       updateUserUI(userData);
@@ -102,7 +103,10 @@
 
       // Dispatch event or callback for app to refresh ledger
       if (window.HisaabApp && typeof window.HisaabApp.onUserChanged === 'function') {
-        window.HisaabApp.onUserChanged(userData.email);
+        const targetEmail = userData.email || user.email;
+        if (targetEmail) {
+          window.HisaabApp.onUserChanged(targetEmail);
+        }
       }
     } catch (err) {
       console.error('Failed to sync user on sign-in:', err);
@@ -111,7 +115,6 @@
 
   // Handle sign-out
   function handleUserSignedOut() {
-    localStorage.removeItem('hisaab_session_token');
     const nameEl = document.getElementById('user-display-name');
     const letterEl = document.getElementById('avatar-letter');
     const activeEl = document.getElementById('active-user-display');
@@ -211,41 +214,56 @@
 
   // Authenticated fetch wrapper
   async function authFetch(url, options = {}) {
+    if (!currentUser) {
+      return new Response(JSON.stringify({ detail: 'Not authenticated' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const opts = { ...options };
     opts.headers = { ...(opts.headers || {}) };
 
     let token = '';
-    if (currentUser) {
-      try {
-        token = await currentUser.getIdToken();
-      } catch (e) {
-        token = localStorage.getItem('hisaab_session_token') || '';
-      }
-    } else {
-      token = localStorage.getItem('hisaab_session_token') || '';
+    try {
+      token = await currentUser.getIdToken();
+    } catch (e) {
+      console.warn('Failed to retrieve ID token:', e);
+      return new Response(JSON.stringify({ detail: 'Token retrieval failed' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    if (token) {
-      opts.headers['Authorization'] = `Bearer ${token}`;
-    }
-
+    opts.headers['Authorization'] = `Bearer ${token}`;
     let res = await fetch(url, opts);
 
     // 401 retry with forced token refresh
     if (res.status === 401 && currentUser) {
+      let isEmailNotVerified = false;
       try {
-        token = await currentUser.getIdToken(true); // force refresh
-        opts.headers['Authorization'] = `Bearer ${token}`;
-        res = await fetch(url, opts);
-      } catch (refreshErr) {
-        console.warn('Token refresh failed:', refreshErr);
-      }
+        const cloned = res.clone();
+        const errJson = await cloned.json();
+        if (errJson && errJson.detail === 'email_not_verified') {
+          isEmailNotVerified = true;
+        }
+      } catch (_) {}
 
-      if (res.status === 401) {
-        // Still unauthorized - log out
-        signOut();
-        const modal = document.getElementById('auth-modal');
-        if (modal) modal.classList.remove('hidden');
+      if (!isEmailNotVerified) {
+        try {
+          token = await currentUser.getIdToken(true); // force refresh
+          opts.headers['Authorization'] = `Bearer ${token}`;
+          res = await fetch(url, opts);
+        } catch (refreshErr) {
+          console.warn('Token refresh failed:', refreshErr);
+        }
+
+        if (res.status === 401) {
+          // Still unauthorized - log out
+          signOut();
+          const modal = document.getElementById('auth-modal');
+          if (modal) modal.classList.remove('hidden');
+        }
       }
     }
 
