@@ -1,9 +1,9 @@
 /* HisaabAI service worker.
  * - App shell (HTML + CSS + JS + icons) is cached so the app opens instantly / offline.
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
- * Upgraded from hisaabai-shell-v1 to support dark ink-teal theme.
+ * Upgrades from hisaabai-shell-v1 to hisaabai-shell-v3 to ensure immediate script updates.
  */
-const CACHE = 'hisaabai-shell-v2'; // upgrades from hisaabai-shell-v1
+const CACHE = 'hisaabai-shell-v3'; // upgrades from hisaabai-shell-v1
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -14,7 +14,11 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(SHELL))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -47,6 +51,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static assets.
+  // Network-first for script and style assets so frontend updates apply immediately
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Cache-first for images, fonts, and manifest icons.
   event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
 });

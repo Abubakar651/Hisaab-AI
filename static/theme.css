@@ -518,6 +518,11 @@ select:focus-visible,
   border-color: var(--brass);
 }
 
+.composer-input.recording-active-glow {
+  border-color: var(--brass) !important;
+  box-shadow: 0 0 12px rgba(212, 169, 90, 0.3) !important;
+}
+
 .composer-btn-circle {
   width: 46px;
   height: 46px;

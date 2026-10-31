@@ -894,7 +894,7 @@ tailwind.config = {
                 elements.messageInput.style.height = 'auto';
                 elements.messageInput.style.height = Math.min(elements.messageInput.scrollHeight, 120) + 'px';
                 state.pendingVoiceNote = true;
-                showToast("Voice note transcribed! Review or edit before sending.", "success");
+                showToast("Voice transcribed into chat box! Review, edit if needed, and click Send.", "success");
               } else {
                 showToast("No speech recognized. Please speak closer to your mic.", "warning");
               }
@@ -903,13 +903,13 @@ tailwind.config = {
               showToast(err.message || "Failed to transcribe voice note.", "error");
             } finally {
               elements.messageInput.disabled = false;
-              elements.messageInput.placeholder = origPlaceholder;
+              elements.messageInput.placeholder = "Type in English, Urdu or Roman Urdu";
               elements.messageInput.focus();
             }
           }
         };
 
-        // Live Audio Waveform Visualizer via Web Audio API
+        // Live Audio Waveform & Equalizer Visualizer via Web Audio API
         try {
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           if (AudioContextClass) {
@@ -934,14 +934,19 @@ tailwind.config = {
                 analyser.getByteTimeDomainData(dataArray);
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // 1. Draw smooth oscillating sound curve
                 ctx.lineWidth = 2.2;
                 ctx.strokeStyle = '#d4a95a'; // Brass gold curve
                 ctx.beginPath();
 
                 const sliceWidth = canvas.width / bufferLength;
                 let x = 0;
+                let maxDeviation = 0;
                 for (let i = 0; i < bufferLength; i++) {
                   const v = dataArray[i] / 128.0;
+                  const dev = Math.abs(dataArray[i] - 128);
+                  if (dev > maxDeviation) maxDeviation = dev;
                   const y = (v * canvas.height) / 2;
                   if (i === 0) {
                     ctx.moveTo(x, y);
@@ -952,6 +957,22 @@ tailwind.config = {
                 }
                 ctx.lineTo(canvas.width, canvas.height / 2);
                 ctx.stroke();
+
+                // 2. Draw 7 dancing frequency bars in center reacting live to voice input
+                const isSpeaking = maxDeviation > 3;
+                const barCount = 7;
+                const barWidth = 3;
+                const barGap = 4;
+                const startX = (canvas.width / 2) - ((barCount * (barWidth + barGap)) / 2);
+                const centerY = canvas.height / 2;
+
+                for (let b = 0; b < barCount; b++) {
+                  const sampleIdx = Math.floor((b / barCount) * bufferLength);
+                  const amp = isSpeaking ? (Math.abs(dataArray[sampleIdx] - 128) / 128.0) : 0.08;
+                  const barH = Math.max(3, amp * (canvas.height - 6));
+                  ctx.fillStyle = b % 2 === 0 ? '#d4a95a' : '#6fbf94';
+                  ctx.fillRect(startX + b * (barWidth + barGap), centerY - (barH / 2), barWidth, barH);
+                }
               }
               renderWave();
             }
@@ -967,6 +988,8 @@ tailwind.config = {
         // UI Updates for Recording
         elements.recordingBanner.classList.remove('hidden');
         elements.micBtn.classList.add('rec');
+        elements.messageInput.classList.add('recording-active-glow');
+        elements.messageInput.placeholder = "🎙️ Listening... Speak your expense in Urdu, Punjabi or English";
         state.recordingSeconds = 0;
         updateRecordingTimer();
         state.recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
@@ -1006,6 +1029,7 @@ tailwind.config = {
       clearInterval(state.recordingTimerInterval);
       elements.recordingBanner.classList.add('hidden');
       elements.micBtn.classList.remove('rec');
+      elements.messageInput.classList.remove('recording-active-glow');
     }
 
     function cancelRecording() {
