@@ -250,13 +250,11 @@
     const dropdownName = document.getElementById('dropdown-name');
     const dropdownSub = document.getElementById('dropdown-sub');
     const activeUserDisplay = document.getElementById('active-user-display');
-    const userIdInput = document.getElementById('user-id-input');
 
     if (nameEl) nameEl.textContent = name;
     if (dropdownName) dropdownName.textContent = name;
     if (dropdownSub) dropdownSub.textContent = email;
     if (activeUserDisplay) activeUserDisplay.textContent = email;
-    if (userIdInput) userIdInput.value = email;
 
     if (avatarEl) {
       avatarEl.textContent = '';
@@ -412,6 +410,12 @@
       }
       currentUser = null;
       handleUserSignedOut();
+
+      // Clear Service Worker caches on sign-out
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ action: 'clear-cache' });
+      }
+
       if (window.showToast) window.showToast('Signed out', 'info');
     } catch (err) {
       console.error('Sign out error:', err);

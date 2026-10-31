@@ -64,8 +64,6 @@ tailwind.config = {
     const elements = {};
 
     function initElements() {
-      elements.userIdInput = document.getElementById('user-id-input');
-      elements.switchUserBtn = document.getElementById('switch-user-btn');
       elements.activeUserDisplay = document.getElementById('active-user-display');
       elements.chatForm = document.getElementById('chat-form');
       elements.messageInput = document.getElementById('message-input');
@@ -148,23 +146,6 @@ tailwind.config = {
 
     // Bind Event Listeners
     function bindEvents() {
-      // User switcher (legacy support)
-      if (elements.switchUserBtn && elements.userIdInput) {
-        elements.switchUserBtn.addEventListener('click', () => switchUser(elements.userIdInput.value));
-        elements.userIdInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') switchUser(elements.userIdInput.value);
-        });
-      }
-
-      // Quick User Chips
-      document.querySelectorAll('.user-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          const u = chip.getAttribute('data-user');
-          if (elements.userIdInput) elements.userIdInput.value = u;
-          switchUser(u);
-        });
-      });
-
       // Prompt Suggestion Chips
       document.querySelectorAll('.prompt-chip').forEach(chip => {
         chip.addEventListener('click', () => {
@@ -283,14 +264,14 @@ tailwind.config = {
       const dropSubEl = document.getElementById('dropdown-sub');
       const avatarBox = document.getElementById('user-avatar');
 
-      const isGoogle = account.auth_provider === 'google';
-      const isPhone = account.auth_provider === 'phone';
-      const label = isGoogle ? 'Google Account' : (isPhone ? 'Phone Number' : 'Guest Profile');
+      const isGoogle = account.auth_provider === 'google' || account.auth_provider === 'google.com';
+      const isPassword = account.auth_provider === 'password';
+      const label = isGoogle ? 'Google Account' : (isPassword ? 'Email / Password' : 'User Account');
 
       if (nameEl) nameEl.textContent = account.display_name || account.user_id;
       if (badgeEl) badgeEl.textContent = label;
       if (dropNameEl) dropNameEl.textContent = account.display_name || account.user_id;
-      if (dropSubEl) dropSubEl.textContent = `${label} • ${account.email || account.phone_number || account.user_id}`;
+      if (dropSubEl) dropSubEl.textContent = `${label} • ${account.email || account.user_id}`;
 
       if (avatarBox) {
         avatarBox.textContent = '';
@@ -310,22 +291,7 @@ tailwind.config = {
         }
       }
 
-      if (elements.userIdInput) elements.userIdInput.value = account.user_id;
       if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = account.user_id;
-    }
-
-    // Switch User Logic
-    function switchUser(newUserId) {
-      const clean = (newUserId || '').trim() || 'default';
-      state.userId = clean;
-      state.chatHistory = [];
-      if (elements.userIdInput) elements.userIdInput.value = clean;
-      if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = clean;
-      updateAccountUI({ user_id: clean, auth_provider: 'guest', display_name: clean });
-
-      showToast(`Switched account to: ${clean}`, 'success');
-      appendSystemMessage(`Active user switched to **${clean}**. All transactions and queries are isolated to this account.`);
-      fetchDashboard();
     }
 
     // Expose app interface for auth state updates
