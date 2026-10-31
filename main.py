@@ -737,19 +737,25 @@ async def get_user_transactions(
 @app.get("/api/auth/config")
 async def get_auth_config():
     """Returns public Firebase configuration for client SDK."""
-    fb_key = os.getenv("FIREBASE_API_KEY", "")
+    fb_key = os.getenv("FIREBASE_API_KEY", "").strip()
+    auth_domain = os.getenv("FIREBASE_AUTH_DOMAIN", "").strip()
+    project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    storage_bucket = os.getenv("FIREBASE_STORAGE_BUCKET", "").strip()
+    messaging_sender_id = os.getenv("FIREBASE_MESSAGING_SENDER_ID", "").strip()
+    app_id = os.getenv("FIREBASE_APP_ID", "").strip()
     cfg = {
         "apiKey": fb_key,
-        "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
-        "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
-        "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
-        "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
-        "appId": os.getenv("FIREBASE_APP_ID", ""),
+        "authDomain": auth_domain,
+        "projectId": project_id,
+        "storageBucket": storage_bucket,
+        "messagingSenderId": messaging_sender_id,
+        "appId": app_id,
     }
+    is_configured = bool(fb_key and auth_domain and project_id and app_id)
     return {
         **cfg,
         "firebase": cfg,
-        "configured": bool(fb_key),
+        "configured": is_configured,
     }
 
 

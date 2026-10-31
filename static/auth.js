@@ -12,6 +12,21 @@
   let currentUser = null;
   let isConfigured = false;
 
+  // Show unconfigured warning in modal
+  function showUnconfiguredUI() {
+    isConfigured = false;
+    const noticeEl = document.getElementById('google-config-notice');
+    if (noticeEl) {
+      noticeEl.textContent = 'Sign-in is not configured';
+      noticeEl.className = 'text-xs text-bad font-semibold text-center pt-2';
+    }
+    const googleBtn = document.getElementById('google-signin-btn');
+    if (googleBtn) {
+      googleBtn.disabled = true;
+      googleBtn.setAttribute('title', 'Sign-in is not configured');
+    }
+  }
+
   // Initialize Firebase from backend configuration
   async function initAuth() {
     try {
@@ -19,31 +34,45 @@
       if (!res.ok) throw new Error('Failed to load auth config');
       const cfg = await res.json();
 
-      if (cfg.configured && cfg.firebase && window.firebase) {
-        if (!firebase.apps.length) {
-          firebase.initializeApp(cfg.firebase);
-        }
-        firebaseAuth = firebase.auth();
-        isConfigured = true;
+      const fb = (cfg && cfg.firebase) ? cfg.firebase : cfg;
+      const isComplete = Boolean(
+        cfg &&
+        cfg.configured &&
+        fb &&
+        fb.apiKey &&
+        fb.authDomain &&
+        fb.projectId &&
+        fb.appId
+      );
 
-        // Set persistence to LOCAL so user stays signed in across reloads
-        await firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-
-        // Listen for auth state changes
-        firebaseAuth.onAuthStateChanged(async (user) => {
-          if (user) {
-            currentUser = user;
-            await handleUserSignedIn(user);
-          } else {
-            currentUser = null;
-            handleUserSignedOut();
-          }
-        });
-      } else {
-        console.warn('Firebase Auth is not configured on backend.');
+      if (!isComplete || !window.firebase) {
+        showUnconfiguredUI();
+        console.warn('Sign-in is not configured on backend.');
+        return;
       }
+
+      if (!firebase.apps.length) {
+        firebase.initializeApp(fb);
+      }
+      firebaseAuth = firebase.auth();
+      isConfigured = true;
+
+      // Set persistence to LOCAL so user stays signed in across reloads
+      await firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+      // Listen for auth state changes
+      firebaseAuth.onAuthStateChanged(async (user) => {
+        if (user) {
+          currentUser = user;
+          await handleUserSignedIn(user);
+        } else {
+          currentUser = null;
+          handleUserSignedOut();
+        }
+      });
     } catch (err) {
       console.error('Error initializing Firebase Auth:', err);
+      showUnconfiguredUI();
     }
   }
 
@@ -127,12 +156,17 @@
 
   // Google Sign-In with Popup
   async function signInWithGoogle() {
-    if (!firebaseAuth) {
-      // Attempt auto-reconnect if config was loaded late
-      await initAuth();
+    if (!isConfigured) {
+      showUnconfiguredUI();
+      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      return;
     }
     if (!firebaseAuth) {
-      if (window.showToast) window.showToast('Firebase Auth is not ready yet. Please refresh the page (Ctrl+Shift+R).', 'error');
+      await initAuth();
+    }
+    if (!firebaseAuth || !isConfigured) {
+      showUnconfiguredUI();
+      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
       return;
     }
     const googleBtn = document.getElementById('google-signin-btn');
@@ -146,14 +180,18 @@
     } catch (err) {
       console.error('Google Sign-In failed:', err);
       let msg = err.message || 'Google Sign-In failed';
-      if (err.code === 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/configuration-not-found') {
+        msg = 'Firebase Authentication is not initialized in the Firebase Console (auth/configuration-not-found).';
+      } else if (err.code === 'auth/popup-closed-by-user') {
         msg = 'Sign-in cancelled';
       } else if (err.code === 'auth/popup-blocked') {
         msg = 'Sign-in popup was blocked by your browser. Please allow popups.';
+      } else if (err.code === 'auth/unauthorized-domain') {
+        msg = 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
       }
       if (window.showToast) window.showToast(msg, 'error');
     } finally {
-      if (googleBtn) googleBtn.disabled = false;
+      if (googleBtn && isConfigured) googleBtn.disabled = false;
     }
   }
 
