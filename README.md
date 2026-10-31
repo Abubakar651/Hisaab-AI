@@ -113,3 +113,27 @@ python3 main.py
 ```
 
 Open your browser at **`http://127.0.0.1:8000`**.
+
+---
+
+## Ink-Teal Dark Ledger Design System
+
+The application features an ink-teal ledger aesthetic designed for high legibility, financial focus, and cross-platform responsiveness.
+
+### Color Tokens
+- `--ink` (`#0d1517`): Deep page background and desktop ledger surface
+- `--s1` (`#121c1f`): Panel surface (chat pane background, modals)
+- `--s2` (`#18262a`): Raised surfaces (assistant chat bubbles, form inputs, track backgrounds)
+- `--rule` (`#26383d`): Subtle borders and dashed ledger dividers
+- `--tx` (`#ece7da`): Parchment primary text
+- `--mut` (`#8fa1a4`): Muted secondary text and labels
+- `--brass` (`#d4a95a`): Financial currency accent, primary buttons, and active indicators
+- `--ok` (`#6fbf94`): Positive status, paid bills, healthy budget (<80%)
+- `--warn` (`#e8b04a`): Warning states, budget threshold (80–99%)
+- `--bad` (`#e5707e`): Error notifications, over-budget indicators (≥100%), delete actions
+
+### Typography
+- **UI:** `Figtree`, system-ui fallback
+- **Financial & Headings:** `Fraunces 500` with `font-variant-numeric: tabular-nums` for aligned ledger currency
+- **Urdu Script:** `Noto Nastaliq Urdu` & `Jameel Noori Nastaleeq`
+

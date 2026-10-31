@@ -1,9 +1,17 @@
 /* HisaabAI service worker.
- * - App shell (HTML + icons) is cached so the app opens instantly / offline.
+ * - App shell (HTML + CSS + JS + icons) is cached so the app opens instantly / offline.
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
+ * Upgraded from hisaabai-shell-v1 to support dark ink-teal theme.
  */
-const CACHE = 'hisaabai-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/static/icons/icon-192.png', '/static/icons/icon-512.png'];
+const CACHE = 'hisaabai-shell-v2'; // upgrades from hisaabai-shell-v1
+const SHELL = [
+  '/',
+  '/manifest.webmanifest',
+  '/static/theme.css',
+  '/static/app.js',
+  '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -42,4 +50,3 @@ self.addEventListener('fetch', (event) => {
   // Cache-first for static assets.
   event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
 });
-

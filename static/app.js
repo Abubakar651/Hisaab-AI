@@ -31,6 +31,11 @@ tailwind.config = {
       window.location.hostname = 'localhost';
     }
 
+    function cssVar(name, fallback = '') {
+      const val = getComputedStyle(document.documentElement).getPropertyValue(name);
+      return val ? val.trim() : fallback;
+    }
+
     // State management
     const state = {
       userId: localStorage.getItem('hisaab_user_id') || 'guest',
@@ -686,17 +691,15 @@ tailwind.config = {
     function setMobileTab(tab) {
       state.activeTab = tab;
       if (tab === 'chat') {
-        elements.tabChat.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors';
-        elements.tabDashboard.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors';
+        if (elements.tabChat) elements.tabChat.classList.add('active');
+        if (elements.tabDashboard) elements.tabDashboard.classList.remove('active');
         elements.chatPane.classList.remove('hidden');
         elements.dashboardPane.classList.add('hidden');
-        elements.dashboardPane.classList.remove('flex');
       } else {
-        elements.tabDashboard.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-colors';
-        elements.tabChat.className = 'flex-1 py-2 text-xs font-semibold rounded-lg bg-surface-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors';
+        if (elements.tabDashboard) elements.tabDashboard.classList.add('active');
+        if (elements.tabChat) elements.tabChat.classList.remove('active');
         elements.chatPane.classList.add('hidden');
         elements.dashboardPane.classList.remove('hidden');
-        elements.dashboardPane.classList.add('flex');
       }
     }
 
@@ -875,28 +878,23 @@ tailwind.config = {
     // =========================================================================
     function appendUserMessage(text, voiceSubtext) {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex justify-end gap-2.5 max-w-2xl ml-auto';
+      wrapper.className = 'bubble-user';
 
       const isUrdu = isUrduScript(text);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-lg sm:text-xl leading-loose text-right' : 'text-base sm:text-lg leading-relaxed';
+      const nastaleeqClass = isUrdu ? 'font-ur text-base sm:text-lg leading-loose text-right' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
 
       let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
       if (voiceSubtext) {
         innerContent = `
-          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 mb-1.5">
-            <i data-lucide="mic" class="w-4 h-4"></i> ${escapeHtml(voiceSubtext)}
+          <div class="voice-note-tag mb-1">
+            <i data-lucide="mic" class="w-3.5 h-3.5"></i> ${escapeHtml(voiceSubtext)}
           </div>
           <p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>
         `;
       }
 
-      wrapper.innerHTML = `
-        <div class="bg-gradient-to-r from-emerald-700 to-teal-700 text-white rounded-2xl rounded-tr-sm p-3.5 sm:p-4 shadow-md">
-          ${innerContent}
-        </div>
-      `;
-
+      wrapper.innerHTML = innerContent;
       elements.messagesContainer.appendChild(wrapper);
       scrollToBottom();
       lucide.createIcons();
@@ -904,18 +902,19 @@ tailwind.config = {
 
     function appendAssistantMessage(markdownContent) {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex gap-3 max-w-2xl';
+      wrapper.className = 'bubble-assistant';
 
       const isUrdu = isUrduScript(markdownContent);
-      const nastaleeqClass = isUrdu ? 'font-nastaleeq text-lg sm:text-xl leading-loose' : 'text-base sm:text-lg leading-relaxed';
+      const nastaleeqClass = isUrdu ? 'font-ur text-base sm:text-lg leading-loose' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
       const parsedHtml = DOMPurify.sanitize(marked.parse(markdownContent || ''));
 
       wrapper.innerHTML = `
-        <div class="w-9 h-9 rounded-xl bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
-          <i data-lucide="bot" class="w-5 h-5"></i>
+        <div class="flex items-center gap-1.5 mb-1.5 text-brass">
+          <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+          <span class="text-xs font-semibold">HisaabAI</span>
         </div>
-        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 text-slate-100 shadow-sm ${nastaleeqClass} prose prose-invert max-w-none" ${dirAttr}>
+        <div class="${nastaleeqClass} text-tx prose prose-invert max-w-none" ${dirAttr}>
           ${parsedHtml}
         </div>
       `;
@@ -930,7 +929,7 @@ tailwind.config = {
       wrapper.className = 'text-center my-2';
       const parsedInline = DOMPurify.sanitize(marked.parseInline(markdownContent || ''));
       wrapper.innerHTML = `
-        <span class="inline-block px-3 py-1 rounded-full bg-surface-800 border border-slate-700 text-[11px] text-slate-400">
+        <span class="inline-block px-3 py-1 rounded-full bg-s2 border border-rule text-[11px] text-mut">
           ${parsedInline}
         </span>
       `;
@@ -940,18 +939,11 @@ tailwind.config = {
 
     function appendLoadingBubble() {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex gap-3 max-w-xl loading-bubble';
+      wrapper.className = 'bubble-assistant loading-bubble';
       wrapper.innerHTML = `
-        <div class="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
-          <i data-lucide="bot" class="w-4 h-4 animate-spin"></i>
-        </div>
-        <div class="bg-surface-800 border border-slate-700/70 rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-slate-400 flex items-center gap-2">
+        <div class="flex items-center gap-2 text-xs text-mut">
+          <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brass"></i>
           <span>HisaabAI is thinking...</span>
-          <div class="flex gap-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:0.2s]"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:0.4s]"></span>
-          </div>
         </div>
       `;
       elements.messagesContainer.appendChild(wrapper);
@@ -968,15 +960,12 @@ tailwind.config = {
 
     function appendErrorMessage(errorText) {
       const wrapper = document.createElement('div');
-      wrapper.className = 'flex gap-3 max-w-xl';
+      wrapper.className = 'bubble-assistant border-bad/40 bg-bad/10';
       wrapper.innerHTML = `
-        <div class="w-8 h-8 rounded-lg bg-rose-600/20 border border-rose-500/40 flex items-center justify-center shrink-0 text-rose-400 mt-1">
-          <i data-lucide="alert-circle" class="w-4 h-4"></i>
+        <div class="flex items-center gap-2 text-xs font-semibold text-bad mb-1">
+          <i data-lucide="alert-circle" class="w-4 h-4"></i> Processing Issue
         </div>
-        <div class="bg-rose-950/40 border border-rose-800/50 rounded-2xl rounded-tl-sm p-3.5 text-xs sm:text-sm text-rose-200 shadow-sm leading-relaxed">
-          <p class="font-semibold text-rose-300 mb-0.5">Processing Issue</p>
-          <p>${escapeHtml(errorText)}</p>
-        </div>
+        <p class="text-xs sm:text-sm text-tx">${escapeHtml(errorText)}</p>
       `;
       elements.messagesContainer.appendChild(wrapper);
       scrollToBottom();
@@ -999,34 +988,26 @@ tailwind.config = {
           const p = data.pending;
           const banner = document.createElement('div');
           banner.id = 'pending-expense-banner';
-          banner.className = 'my-3 p-4 rounded-xl bg-amber-950/60 border border-amber-600/50 shadow-lg text-slate-100 max-w-xl';
           banner.innerHTML = `
-            <div class="flex items-start gap-3">
-              <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 mt-0.5">
-                <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-              </div>
-              <div class="flex-1 min-w-0">
-                <h4 class="font-bold text-amber-300 text-sm flex items-center gap-2">
-                  <span>بڑے خرچے کی تصدیق درکار ہے</span>
-                  <span class="text-xs text-amber-400/80 font-normal">/ Large Expense Confirmation</span>
-                </h4>
-                <p class="text-xs text-slate-200 mt-1 leading-relaxed">
-                  <strong>${escapeHtml(p.store_name)}</strong> · <span class="font-mono text-amber-300 font-bold">PKR ${formatMoney(p.total_amount)}</span> (${escapeHtml(p.payment_method)})
-                </p>
-                <p class="text-[11px] text-slate-400 mt-0.5">
-                  یہ رقم سرور پر محفوظ ہے اور تصدیق کا انتظار ہے۔ کیا آپ اس خرچے کو درج کرنا چاہتے ہیں؟
-                </p>
-                <div class="flex items-center gap-2 mt-3">
-                  <button id="btn-confirm-pending" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow">
-                    <i data-lucide="check" class="w-4 h-4"></i>
-                    <span>تصدیق کریں (Confirm)</span>
-                  </button>
-                  <button id="btn-cancel-pending" class="px-3 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 border border-slate-700 text-rose-300 hover:text-rose-200 font-semibold text-xs flex items-center gap-1.5 transition-colors">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                    <span>کینسل کریں (Cancel)</span>
-                  </button>
-                </div>
-              </div>
+            <div class="pending-card-title flex items-center gap-2">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-brass"></i>
+              <span>بڑے خرچے کی تصدیق درکار ہے / Large Expense Confirmation</span>
+            </div>
+            <div class="pending-card-meta">
+              <strong>${escapeHtml(p.store_name)}</strong> · <span class="font-num tabular text-brass font-bold">PKR ${formatMoney(p.total_amount)}</span> (${escapeHtml(p.payment_method)})
+            </div>
+            <div class="pending-card-note">
+              یہ رقم سرور پر محفوظ ہے اور تصدیق کا انتظار ہے۔ کیا آپ اس خرچے کو درج کرنا چاہتے ہیں؟
+            </div>
+            <div class="pending-card-actions">
+              <button id="btn-confirm-pending">
+                <i data-lucide="check" class="w-4 h-4"></i>
+                <span>تصدیق کریں (Confirm)</span>
+              </button>
+              <button id="btn-cancel-pending">
+                <i data-lucide="x" class="w-4 h-4"></i>
+                <span>کینسل کریں (Cancel)</span>
+              </button>
             </div>
           `;
           elements.messagesContainer.appendChild(banner);
@@ -1044,12 +1025,12 @@ tailwind.config = {
               fetchDashboard();
             } else {
               if (resp.status === 409) {
-              appendAssistantMessage(`⚠️ یہ خرچہ پہلے ہی تصدیق، کینسل یا ختم ہو چکا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
-              showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
-              fetchDashboard();
-            } else {
-              showToast(resData.detail || 'Failed to confirm', 'error');
-            }
+                appendAssistantMessage(`⚠️ یہ خرچہ پہلے ہی تصدیق، کینسل یا ختم ہو چکا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
+                showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
+                fetchDashboard();
+              } else {
+                showToast(resData.detail || 'Failed to confirm', 'error');
+              }
             }
           });
 
@@ -1063,11 +1044,11 @@ tailwind.config = {
               showToast('Expense cancelled', 'info');
             } else {
               if (resp.status === 409) {
-              showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
-              fetchDashboard();
-            } else {
-              showToast(resData.detail || 'Failed to cancel', 'error');
-            }
+                showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
+                fetchDashboard();
+              } else {
+                showToast(resData.detail || 'Failed to cancel', 'error');
+              }
             }
           });
         }
@@ -1093,10 +1074,23 @@ tailwind.config = {
     }
 
     function renderDashboard(data) {
-      // 1. KPI Cards
-      elements.kpiMonthlyTotal.textContent = `PKR ${formatMoney(data.monthly_total || 0)}`;
+      // 1. KPI Cards / Hero
+      elements.kpiMonthlyTotal.textContent = `${formatMoney(data.monthly_total || 0)}`;
       elements.kpiVisitCount.textContent = data.monthly_count || 0;
       elements.kpiTopStore.textContent = data.top_store || 'N/A';
+
+      const heroBar = document.querySelector('.ledger-hero-bar');
+      if (heroBar) {
+        const totalBudget = (data.budgets || []).find(b => b.category === 'total');
+        if (totalBudget && totalBudget.monthly_limit > 0) {
+          const pct = Math.min(Math.round((data.monthly_total / totalBudget.monthly_limit) * 100), 100);
+          heroBar.style.width = `${pct}%`;
+          heroBar.style.backgroundColor = pct >= 100 ? 'var(--bad)' : pct >= 80 ? 'var(--warn)' : 'var(--brass)';
+        } else {
+          heroBar.style.width = '100%';
+          heroBar.style.backgroundColor = 'var(--brass)';
+        }
+      }
 
       // Analytics sections (budgets, charts, payment split, recurring bills)
       renderBudgets(data.budgets || []);
@@ -1111,16 +1105,17 @@ tailwind.config = {
       if (data.store_breakdown && data.store_breakdown.length > 0) {
         data.store_breakdown.forEach(item => {
           const pill = document.createElement('div');
-          pill.className = 'px-2.5 py-1 rounded-lg bg-surface-800 border border-slate-700/80 flex items-center gap-1.5 text-xs';
+          pill.className = 'prompt-chip text-xs';
+          pill.setAttribute('data-store', item.store_name);
           pill.innerHTML = `
-            <span class="font-medium text-slate-200">${escapeHtml(item.store_name)}</span>
-            <span class="text-[11px] text-emerald-400 font-bold">PKR ${formatMoney(item.total_pkr)}</span>
-            <span class="text-[10px] text-slate-500">(${item.visit_count})</span>
+            <span class="font-medium text-tx">${escapeHtml(item.store_name)}</span>
+            <span class="text-[11px] text-brass font-bold font-num tabular ml-1.5">PKR ${formatMoney(item.total_pkr)}</span>
+            <span class="text-[10px] text-mut ml-1">(${item.visit_count})</span>
           `;
           elements.storeBreakdownContainer.appendChild(pill);
         });
       } else {
-        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-slate-500 italic">No store data yet for this user.</span>`;
+        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-mut italic">No store data yet for this user.</span>`;
       }
 
       // 3. Transactions List
@@ -1130,7 +1125,7 @@ tailwind.config = {
 
       if (txs.length === 0) {
         elements.transactionsList.innerHTML = `
-          <div class="text-center py-10 text-slate-500 text-xs">
+          <div class="text-center py-10 text-mut text-xs">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
             No transactions found for <strong>${escapeHtml(state.userId)}</strong>.<br>Record an expense to see it here!
           </div>
@@ -1141,42 +1136,27 @@ tailwind.config = {
 
       txs.forEach(tx => {
         const card = document.createElement('div');
-        card.className = 'bg-surface-850/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3 transition-colors shadow-sm';
+        card.className = 'tx-ledger-row';
 
         let itemsHtml = '';
         if (tx.items && tx.items.length > 0) {
           const itemsBadges = tx.items.map(it => `
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-900 border border-slate-800 text-[11px] text-slate-300">
-              <span class="text-slate-200 font-medium">${escapeHtml(it.item_name)}</span>
-              ${it.quantity > 1 ? `<span class="text-slate-400">×${it.quantity}</span>` : ''}
-              <span class="text-emerald-400 font-mono">Rs ${formatMoney(it.price)}</span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-s2 border border-rule text-[11px] text-mut">
+              <span class="text-tx font-medium">${escapeHtml(it.item_name)}</span>
+              ${it.quantity > 1 ? `<span class="text-mut">×${it.quantity}</span>` : ''}
+              <span class="text-brass font-num tabular">Rs ${formatMoney(it.price)}</span>
             </span>
           `).join('');
-          itemsHtml = `<div class="flex flex-wrap gap-1 mt-2">${itemsBadges}</div>`;
+          itemsHtml = `<div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>`;
         }
 
         card.innerHTML = `
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-lg bg-surface-800 border border-slate-700 flex items-center justify-center text-emerald-400 shrink-0">
-                <i data-lucide="shopping-bag" class="w-3.5 h-3.5"></i>
-              </div>
-              <div>
-                <h4 class="text-xs sm:text-sm font-bold text-white capitalize flex items-center gap-1.5">
-                  ${escapeHtml(tx.store_name)}
-                  <span class="text-[10px] text-slate-500 font-normal">#${tx.id}</span>
-                </h4>
-                <span class="text-[11px] text-slate-400">${escapeHtml(tx.transaction_date || '')}</span>
-                <span class="ml-1.5 px-1.5 py-0.5 rounded bg-surface-900 border border-slate-700 text-[10px] uppercase tracking-wide ${tx.payment_method && tx.payment_method !== 'cash' ? 'text-sky-300' : 'text-slate-400'}">${escapeHtml((tx.payment_method || 'cash').replace('_', ' '))}</span>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <span class="text-xs sm:text-sm font-bold text-emerald-400 font-mono">
-                PKR ${formatMoney(tx.total_amount)}
-              </span>
+          <div class="tx-row-top">
+            <div class="tx-store-name capitalize">${escapeHtml(tx.store_name)}</div>
+            <div class="tx-row-amount">
+              <span class="text-brass font-bold">PKR ${formatMoney(tx.total_amount)}</span>
               <button 
-                class="delete-tx-btn p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-colors"
+                class="delete-tx-btn btn-icon-del"
                 data-id="${tx.id}"
                 data-store="${escapeHtml(tx.store_name)}"
                 title="Delete Transaction"
@@ -1184,6 +1164,11 @@ tailwind.config = {
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
               </button>
             </div>
+          </div>
+          <div class="tx-row-sub">
+            <span>${escapeHtml(tx.transaction_date || '')}</span>
+            <span class="badge-pill-method">${escapeHtml((tx.payment_method || 'cash').replace('_', ' '))}</span>
+            <span class="text-mut font-num tabular">#${tx.id}</span>
           </div>
           ${itemsHtml}
         `;
@@ -1229,38 +1214,38 @@ tailwind.config = {
     // (all numbers are computed by SQL on the server; the browser only draws them)
     // =========================================================================
     const charts = { category: null, trend: null };
-    const CHART_COLORS = ['#10b981', '#38bdf8', '#f59e0b', '#a78bfa', '#f43f5e', '#14b8a6', '#eab308', '#94a3b8'];
 
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
       if (!budgets.length) {
-        box.innerHTML = `<span class="text-xs text-slate-500 italic">No budget set. Add one below or say "mera mahana budget 50000 hai".</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic">No budget set. Add one below or say "mera mahana budget 50000 hai".</span>`;
         return;
       }
       box.innerHTML = '';
       budgets.forEach(b => {
         const pct = Math.min(b.percent, 100);
-        const barColor = b.level === 'over' ? 'bg-rose-500' : b.level === 'warning' ? 'bg-amber-400' : 'bg-emerald-500';
-        const txtColor = b.level === 'over' ? 'text-rose-300' : b.level === 'warning' ? 'text-amber-300' : 'text-emerald-300';
+        const barColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
+        const txtColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
         const label = b.category === 'total' ? 'Overall' : b.category;
         const row = document.createElement('div');
+        row.className = 'budget-item-box';
         row.innerHTML = `
-          <div class="flex items-center justify-between text-xs mb-1">
-            <span class="font-medium text-slate-200 capitalize">${escapeHtml(label)}</span>
+          <div class="budget-item-header">
+            <span class="font-medium text-tx capitalize">${escapeHtml(label)}</span>
             <span class="flex items-center gap-2">
-              <span class="${txtColor} font-mono">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
-              <button class="delete-budget-btn text-slate-500 hover:text-rose-400" data-id="${b.id}" title="Remove budget">
-                <i data-lucide="x" class="w-3 h-3"></i>
+              <span class="font-num tabular" style="color:${txtColor}">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
+              <button class="delete-budget-btn btn-icon-del" data-id="${b.id}" title="Remove budget">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
               </button>
             </span>
           </div>
-          <div class="h-2 rounded-full bg-surface-900 border border-slate-800 overflow-hidden">
-            <div class="h-full ${barColor} transition-all" style="width:${pct}%"></div>
+          <div class="budget-track-bg">
+            <div class="budget-fill-bar" style="width:${pct}%; background-color:${barColor};"></div>
           </div>
           ${b.level === 'over'
-            ? `<p class="text-[11px] text-rose-300 mt-1">Over budget by PKR ${formatMoney(Math.abs(b.remaining_pkr))}</p>`
+            ? `<p class="text-[11px] mt-1 font-num tabular" style="color:var(--bad)">Over budget by PKR ${formatMoney(Math.abs(b.remaining_pkr))}</p>`
             : b.level === 'warning'
-              ? `<p class="text-[11px] text-amber-300 mt-1">Only PKR ${formatMoney(b.remaining_pkr)} left this month</p>`
+              ? `<p class="text-[11px] mt-1 font-num tabular" style="color:var(--warn)">Only PKR ${formatMoney(b.remaining_pkr)} left this month</p>`
               : ''}
         `;
         box.appendChild(row);
@@ -1277,58 +1262,105 @@ tailwind.config = {
     function renderCategoryChart(rows) {
       const canvas = document.getElementById('category-chart');
       const empty = document.getElementById('category-empty');
+      const legendBox = document.getElementById('category-legend');
       if (typeof Chart === 'undefined') return;
       if (charts.category) { charts.category.destroy(); charts.category = null; }
       empty.classList.toggle('hidden', rows.length > 0);
-      canvas.parentElement.classList.toggle('hidden', rows.length === 0);
+      if (canvas && canvas.parentElement && canvas.parentElement.parentElement) {
+        canvas.parentElement.parentElement.classList.toggle('hidden', rows.length === 0);
+      }
+      if (legendBox) legendBox.innerHTML = '';
       if (!rows.length) return;
+
+      const cInk = cssVar('--ink', '#0d1517');
+      const cBrass = cssVar('--brass', '#d4a95a');
+      const cOk = cssVar('--ok', '#6fbf94');
+      const palette = [cBrass, cOk, '#5fa3b3', '#a88fd0', '#5d7074', '#e8b04a', '#e5707e'];
+
       charts.category = new Chart(canvas, {
         type: 'doughnut',
         data: {
           labels: rows.map(r => `${r.category} (${r.percent}%)`),
           datasets: [{
             data: rows.map(r => r.total_pkr),
-            backgroundColor: rows.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
-            borderColor: '#0f172a',
-            borderWidth: 2,
+            backgroundColor: rows.map((_, i) => palette[i % palette.length]),
+            borderColor: cInk,
+            borderWidth: 3,
           }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          cutout: '62%',
+          cutout: '72%',
           plugins: {
-            legend: { position: 'right', labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } },
-            tooltip: { callbacks: { label: (c) => ` PKR ${formatMoney(c.parsed)}` } },
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: cssVar('--s2', '#18262a'),
+              borderColor: cssVar('--rule', '#26383d'),
+              borderWidth: 1,
+              titleColor: cssVar('--tx', '#ece7da'),
+              bodyColor: cBrass,
+              callbacks: { label: (c) => ` PKR ${formatMoney(c.parsed)}` }
+            },
           },
         },
       });
+
+      if (legendBox) {
+        legendBox.innerHTML = rows.map((r, i) => {
+          const color = palette[i % palette.length];
+          return `
+            <div class="legend-row">
+              <div class="legend-label-group">
+                <span class="legend-color-box" style="background-color: ${color}"></span>
+                <span class="legend-cat-name capitalize text-tx">${escapeHtml(r.category)}</span>
+              </div>
+              <span class="legend-amount tabular font-num text-mut">PKR ${formatMoney(r.total_pkr)}</span>
+            </div>
+          `;
+        }).join('');
+      }
     }
 
     function renderTrendChart(days) {
       const canvas = document.getElementById('trend-chart');
       if (typeof Chart === 'undefined') return;
       if (charts.trend) { charts.trend.destroy(); charts.trend = null; }
+      const cBrass = cssVar('--brass', '#d4a95a');
+      const cRule = cssVar('--rule', '#26383d');
+      const cMut = cssVar('--mut', '#8fa1a4');
+      const cS2 = cssVar('--s2', '#18262a');
+      const cTx = cssVar('--tx', '#ece7da');
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
       charts.trend = new Chart(canvas, {
         type: 'bar',
         data: {
           labels: days.map(d => d.date.slice(5)),
           datasets: [{
             data: days.map(d => d.total_pkr),
-            backgroundColor: '#10b981',
+            backgroundColor: days.map((_, i) => i === days.length - 1 ? cBrass : '#3a5157'),
             borderRadius: 3,
           }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: prefersReducedMotion ? false : { duration: 400 },
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: { label: (c) => ` PKR ${formatMoney(c.parsed.y)}` } },
+            tooltip: {
+              backgroundColor: cS2,
+              borderColor: cRule,
+              borderWidth: 1,
+              titleColor: cTx,
+              bodyColor: cBrass,
+              callbacks: { label: (c) => ` PKR ${formatMoney(c.parsed.y)}` }
+            },
           },
           scales: {
-            x: { ticks: { color: '#94a3b8', maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
-            y: { beginAtZero: true, ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+            x: { ticks: { color: cMut, maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { color: cMut, font: { size: 10 } }, grid: { color: cRule } },
           },
         },
       });
@@ -1337,24 +1369,30 @@ tailwind.config = {
     function renderPaymentSplit(rows) {
       const box = document.getElementById('payment-split-container');
       if (!rows.length) {
-        box.innerHTML = `<span class="text-xs text-slate-500 italic">No payment data yet.</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic">No payment data yet.</span>`;
         return;
       }
       const total = rows.reduce((s, r) => s + r.total_pkr, 0) || 1;
       const cash = rows.filter(r => r.method === 'cash').reduce((s, r) => s + r.total_pkr, 0);
       const digital = total - cash;
+      const cashPct = ((cash / total) * 100).toFixed(1);
+      const digitalPct = ((digital / total) * 100).toFixed(1);
+
       box.innerHTML = `
-        <div class="flex gap-2 text-xs mb-1.5">
-          <span class="px-2 py-1 rounded-lg bg-surface-900 border border-slate-700 text-slate-200">Cash <b class="text-emerald-300">PKR ${formatMoney(cash)}</b></span>
-          <span class="px-2 py-1 rounded-lg bg-surface-900 border border-slate-700 text-slate-200">Digital <b class="text-sky-300">PKR ${formatMoney(digital)}</b></span>
+        <div class="split-bar-wrap mb-3">
+          <div class="split-track">
+            <div class="split-fill-cash" style="width: ${cashPct}%;"></div>
+            <div class="split-fill-digital" style="width: ${digitalPct}%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-xs mt-1.5 font-num tabular">
+            <span class="text-brass">Cash: ${cashPct}% (PKR ${formatMoney(cash)})</span>
+            <span class="text-ok">Digital: ${digitalPct}% (PKR ${formatMoney(digital)})</span>
+          </div>
         </div>
         ${rows.map(r => `
-          <div class="flex items-center gap-2 text-xs">
-            <span class="w-24 capitalize text-slate-300">${escapeHtml(r.method.replace('_', ' '))}</span>
-            <div class="flex-1 h-2 rounded-full bg-surface-900 overflow-hidden border border-slate-800">
-              <div class="h-full ${r.method === 'cash' ? 'bg-emerald-500' : 'bg-sky-400'}" style="width:${(r.total_pkr / total * 100).toFixed(1)}%"></div>
-            </div>
-            <span class="font-mono text-slate-200 w-24 text-right">PKR ${formatMoney(r.total_pkr)}</span>
+          <div class="flex items-center justify-between text-xs py-1 border-b border-dashed border-rule">
+            <span class="capitalize text-tx">${escapeHtml(r.method.replace('_', ' '))}</span>
+            <span class="font-num tabular text-mut">PKR ${formatMoney(r.total_pkr)} (${((r.total_pkr / total) * 100).toFixed(1)}%)</span>
           </div>`).join('')}
       `;
     }
@@ -1362,27 +1400,27 @@ tailwind.config = {
     function renderRecurring(items) {
       const box = document.getElementById('recurring-container');
       if (!items.length) {
-        box.innerHTML = `<span class="text-xs text-slate-500 italic">No recurring bills. Add rent, LESCO, school fee, BC below.</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic">No recurring bills. Add rent, LESCO, school fee, BC below.</span>`;
         return;
       }
       box.innerHTML = '';
       items.forEach(r => {
         const badge = r.paid_this_month
-          ? `<span class="px-1.5 py-0.5 rounded bg-emerald-900/50 border border-emerald-600/40 text-emerald-300 text-[10px] font-semibold">PAID</span>`
+          ? `<span class="px-2 py-0.5 rounded-full bg-ok/15 text-ok border border-ok/30 text-[10px] font-semibold">PAID</span>`
           : r.overdue
-            ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/50 border border-rose-600/40 text-rose-300 text-[10px] font-semibold">OVERDUE</span>`
-            : `<span class="px-1.5 py-0.5 rounded bg-amber-900/40 border border-amber-600/40 text-amber-300 text-[10px] font-semibold">PENDING</span>`;
+            ? `<span class="px-2 py-0.5 rounded-full bg-bad/15 text-bad border border-bad/30 text-[10px] font-semibold">OVERDUE</span>`
+            : `<span class="px-2 py-0.5 rounded-full bg-warn/15 text-warn border border-warn/30 text-[10px] font-semibold">PENDING</span>`;
         const row = document.createElement('div');
-        row.className = 'flex items-center justify-between gap-2 bg-surface-900/60 border border-slate-800 rounded-lg px-2.5 py-2';
+        row.className = 'bill-row';
         row.innerHTML = `
           <div class="min-w-0">
-            <div class="text-xs font-semibold text-slate-100 capitalize truncate">${escapeHtml(r.title)}</div>
-            <div class="text-[11px] text-slate-400">Due day ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-title capitalize truncate">${escapeHtml(r.title)}</div>
+            <div class="bill-sub font-num tabular">Due day ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
           </div>
-          <div class="flex items-center gap-1.5 shrink-0">
+          <div class="flex items-center gap-2 shrink-0">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold" data-id="${r.id}">Mark paid</button>`}
-            <button class="del-rec-btn text-slate-500 hover:text-rose-400" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-3 h-3"></i> Mark paid</button>`}
+            <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
           </div>
         `;
         box.appendChild(row);

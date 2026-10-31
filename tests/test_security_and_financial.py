@@ -1332,5 +1332,69 @@ def test_ui_pending_conflict_409_handling():
     assert "fetchDashboard()" in js, "UI must refresh ledger dashboard on conflict"
 
 
+def test_all_app_js_ids_exist_in_index_html():
+    """
+    Regression: All static element IDs queried by static/app.js must be present in templates/index.html.
+    Only dynamically generated elements (such as pending-expense-banner and its action buttons)
+    may be absent from the initial static DOM.
+    """
+    import re
+    with open("static/app.js", "r", encoding="utf-8") as f:
+        js = f.read()
+    js_ids = set(re.findall(r"getElementById\(['\"]([^'\"]+)['\"]\)", js))
+
+    with open("templates/index.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    html_ids = set(re.findall(r'id=["\']([^"\']+)["\']', html))
+
+    allowed_dynamic_ids = {"btn-cancel-pending", "btn-confirm-pending", "pending-expense-banner"}
+    missing = js_ids - html_ids - allowed_dynamic_ids
+    assert not missing, f"Missing element IDs in templates/index.html queried by app.js: {missing}"
+
+
+def test_theme_css_served_and_contains_tokens(client):
+    """
+    Regression: /static/theme.css must be served with 200 OK and define all ink-teal ledger design tokens.
+    """
+    resp = client.get("/static/theme.css")
+    assert resp.status_code == 200
+    css = resp.text
+    for token in ["--ink", "--s1", "--s2", "--rule", "--tx", "--mut", "--brass", "--ok", "--warn", "--bad"]:
+        assert token in css, f"Token {token} missing from static/theme.css"
+    assert "Figtree" in css
+    assert "Fraunces" in css
+    assert "Noto Nastaliq Urdu" in css
+
+
+def test_sw_precache_includes_theme_css_and_bumped_version(client):
+    """
+    Regression: Service worker /sw.js must precache /static/theme.css and /static/app.js,
+    while maintaining compatibility assertions.
+    """
+    resp = client.get("/sw.js")
+    assert resp.status_code == 200
+    sw = resp.text
+    assert "/static/theme.css" in sw, "/static/theme.css must be in service worker SHELL precache"
+    assert "/static/app.js" in sw, "/static/app.js must be in service worker SHELL precache"
+    assert "hisaabai-shell" in sw
+
+
+def test_no_inline_scripts_or_on_handlers_in_html():
+    """
+    Regression: templates/index.html must have ZERO inline script tags and ZERO inline on* event handlers,
+    ensuring compliance with strict CSP requirements.
+    """
+    import re
+    with open("templates/index.html", "r", encoding="utf-8") as f:
+        html = f.read()
+
+    inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+    assert len(inline_scripts) == 0, f"Found inline scripts in index.html: {inline_scripts}"
+
+    on_handlers = re.findall(r"\son\w+\s*=", html)
+    assert len(on_handlers) == 0, f"Found inline on* handlers in index.html: {on_handlers}"
+
+
+
 
 
