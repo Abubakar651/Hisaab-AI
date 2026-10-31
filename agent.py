@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session
 
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
+
+try:
+    from langchain_aws import ChatBedrockConverse
+except ImportError:
+    ChatBedrockConverse = None
+
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
@@ -43,10 +49,35 @@ MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-20b", "openai/gpt-oss-120b"
 _VALIDATED_MODEL = None
 
 
-def get_chat_llm() -> ChatGroq:
+def get_chat_llm():
     """
-    Initializes Groq Chat LLM with pre-validated model caching.
+    Initializes Chat LLM.
+    Priority 1: AWS Bedrock (if AWS credentials and/or BEDROCK_MODEL_ID are set).
+    Priority 2: Groq Chat LLM with pre-validated model fallback.
     """
+    aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+    bedrock_model = os.getenv("BEDROCK_MODEL_ID", "").strip()
+
+    if (aws_key and aws_secret) or bedrock_model:
+        if ChatBedrockConverse is not None:
+            try:
+                model_id = bedrock_model or "us.meta.llama3-3-70b-instruct-v1:0"
+                region = os.getenv("AWS_REGION", "us-east-1").strip() or "us-east-1"
+                kwargs = {
+                    "model": model_id,
+                    "region_name": region,
+                    "temperature": 0,
+                    "max_tokens": 1000,
+                }
+                if aws_key and aws_secret:
+                    kwargs["aws_access_key_id"] = aws_key
+                    kwargs["aws_secret_access_key"] = aws_secret
+
+                return ChatBedrockConverse(**kwargs)
+            except Exception as e:
+                logger.warning(f"Failed to initialize AWS Bedrock LLM ({bedrock_model}): {e}. Falling back to Groq.")
+
     global _VALIDATED_MODEL
     if _VALIDATED_MODEL:
         return ChatGroq(

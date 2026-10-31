@@ -64,6 +64,33 @@ def check_env():
     else:
         results.append(("APP_ENV", "FAIL", "Not set (will default to production)"))
 
+    # AWS Bedrock (Optional LLM Provider - fallback to Groq)
+    aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+    bedrock_model = os.getenv("BEDROCK_MODEL_ID", "").strip()
+    aws_region = os.getenv("AWS_REGION", "").strip()
+
+    if aws_key or bedrock_model:
+        if aws_key and re.match(r"^AKIA[0-9A-Z]{16}$", aws_key):
+            results.append(("AWS_ACCESS_KEY_ID", "PASS", "Valid AWS IAM Access Key ID format"))
+        else:
+            results.append(("AWS_ACCESS_KEY_ID", "WARN", "Configured, but check format (must start with AKIA, 20 chars)"))
+
+        if aws_secret and len(aws_secret) >= 30:
+            results.append(("AWS_SECRET_ACCESS_KEY", "PASS", f"Present (non-empty, length {len(aws_secret)})"))
+        else:
+            results.append(("AWS_SECRET_ACCESS_KEY", "WARN", "Missing or empty secret access key"))
+
+        if bedrock_model:
+            results.append(("BEDROCK_MODEL_ID", "PASS", f"Configured: {bedrock_model}"))
+        else:
+            results.append(("BEDROCK_MODEL_ID", "WARN", "Not set (defaults to us.meta.llama3-3-70b-instruct-v1:0)"))
+
+        if aws_region:
+            results.append(("AWS_REGION", "PASS", f"Configured: {aws_region}"))
+        else:
+            results.append(("AWS_REGION", "PASS", "Default: us-east-1"))
+
     print("=" * 80)
     print(f"{'VARIABLE':<24} | {'STATUS':<8} | {'DETAILS'}")
     print("-" * 80)
