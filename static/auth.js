@@ -128,7 +128,11 @@
   // Google Sign-In with Popup
   async function signInWithGoogle() {
     if (!firebaseAuth) {
-      if (window.showToast) window.showToast('Firebase Auth is not ready yet.', 'error');
+      // Attempt auto-reconnect if config was loaded late
+      await initAuth();
+    }
+    if (!firebaseAuth) {
+      if (window.showToast) window.showToast('Firebase Auth is not ready yet. Please refresh the page (Ctrl+Shift+R).', 'error');
       return;
     }
     const googleBtn = document.getElementById('google-signin-btn');
