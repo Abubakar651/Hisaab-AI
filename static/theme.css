@@ -108,19 +108,21 @@ html, body {
 select.font-ur,
 input.font-ur {
   font-family: var(--ur) !important;
-  font-size: 16.5px !important;
-  line-height: 2.3 !important;
-  padding: 8px 14px !important;
-  min-height: 46px !important;
+  font-size: 15px !important;
+  line-height: normal !important;
+  padding: 6px 14px !important;
+  min-height: 48px !important;
+  height: 48px !important;
   box-sizing: border-box !important;
+  overflow: visible !important;
 }
 
 .input-base.font-ur::placeholder,
 input.font-ur::placeholder,
 textarea.font-ur::placeholder {
   font-family: var(--ur) !important;
-  font-size: 15.5px !important;
-  line-height: 2.2 !important;
+  font-size: 14px !important;
+  line-height: normal !important;
   color: var(--mut) !important;
   opacity: 0.8 !important;
 }
@@ -454,6 +456,14 @@ select:focus-visible,
   border-radius: 99px;
   padding: 3px;
   gap: 2px;
+}
+
+@media (min-width: 980px) {
+  .view-switcher-bar {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 @media (max-width: 979px) {

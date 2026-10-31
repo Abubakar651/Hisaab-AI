@@ -23,8 +23,6 @@
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Application Client Script (Externalized to eliminate 'unsafe-inline' from script-src) -->
-  <script src="/static/app.js"></script>
 
   <!-- Lucide Icons (Pinned with SRI) -->
   <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js"
@@ -53,9 +51,14 @@
     integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt"
     crossorigin="anonymous"></script>
 
-  <!-- Firebase Auth SDK (compat v10) for Google Sign-In & Phone Number Auth -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <!-- Firebase Auth SDK (Local Vendored Compat v10) -->
+  <script src="/static/vendor/firebase/firebase-app-compat.js"></script>
+  <script src="/static/vendor/firebase/firebase-auth-compat.js"></script>
+
+  <!-- Firebase Auth Handler -->
+  <script src="/static/auth.js"></script>
+  <!-- Application Client Script -->
+  <script src="/static/app.js"></script>
 </head>
 
 <body>
@@ -124,77 +127,25 @@
       </button>
 
       <!-- Header Icon & Title -->
-      <div class="flex items-center gap-3 mb-4">
+      <div class="flex items-center gap-3 mb-5">
         <div
           class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
           <i data-lucide="shield-check" class="w-5 h-5"></i>
         </div>
         <div>
-          <h3 class="modal-title">Account Setup & Sign In</h3>
-          <p class="modal-subtitle mb-0">Google Account or Phone Number</p>
+          <h3 class="modal-title text-base sm:text-lg">Sign In to HisaabAI</h3>
+          <p class="modal-subtitle mb-0">Multilingual Voice & Text Ledger</p>
         </div>
       </div>
 
-      <!-- Auth Navigation Tabs -->
-      <div class="modal-tab-row">
-        <button id="auth-tab-phone" class="modal-tab-btn active">
-          <i data-lucide="phone" class="w-3.5 h-3.5 mr-1.5"></i> Phone
-        </button>
-        <button id="auth-tab-google" class="modal-tab-btn">
-          <svg class="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24">
-            <path fill="#EA4335"
-              d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
-            <path fill="#4285F4"
-              d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
-            <path fill="#FBBC05"
-              d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z" />
-            <path fill="#34A853"
-              d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z" />
-          </svg> Google
-        </button>
-        <button id="auth-tab-email" class="modal-tab-btn">
-          <i data-lucide="key-round" class="w-3.5 h-3.5 mr-1.5"></i> Password
-        </button>
-        <button id="auth-tab-guest" class="modal-tab-btn">
-          <i data-lucide="user" class="w-3.5 h-3.5 mr-1.5"></i> Guest
-        </button>
-      </div>
-
-      <!-- Tab Content: Phone Number -->
-      <div id="auth-panel-phone" class="space-y-3.5">
-        <p class="text-xs text-mut">
-          Enter your Pakistani mobile number. If you used the HisaabAI , this automatically syncs your WhatsApp ledger!
+      <!-- Google Sign In Panel -->
+      <div class="space-y-4">
+        <p class="text-xs text-mut leading-relaxed">
+          Sign in securely with your Google Account to automatically sync and access your expense ledger from any browser or device.
         </p>
-        <div id="phone-input-step">
-          <label class="form-label">Mobile Number</label>
-          <div class="flex items-center bg-s2 border border-rule rounded-xl px-3 py-2 focus-within:border-brass">
-            <span class="text-sm font-semibold text-brass mr-2">+92</span>
-            <input type="tel" id="phone-number-input" placeholder="300 1234567"
-              class="bg-transparent text-sm text-tx placeholder-mut focus:outline-none flex-1 font-mono" />
-          </div>
-          <div id="recaptcha-container" class="mt-2"></div>
-          <button id="send-phone-otp-btn" class="btn-primary-brass mt-3">
-            <i data-lucide="send" class="w-4 h-4"></i> Sign In / Send Code
-          </button>
-        </div>
 
-        <div id="phone-otp-step" class="hidden space-y-3">
-          <label class="form-label">Enter 6-digit Verification Code</label>
-          <input type="text" id="phone-otp-input" maxlength="6" placeholder="123456"
-            class="form-input text-center text-lg tracking-widest font-mono text-brass" />
-          <button id="verify-phone-otp-btn" class="btn-primary-brass">
-            <i data-lucide="check-circle" class="w-4 h-4"></i> Confirm & Sign In
-          </button>
-        </div>
-      </div>
-
-      <!-- Tab Content: Google Account -->
-      <div id="auth-panel-google" class="hidden space-y-4">
-        <p class="text-xs text-mut">
-          Sign in securely with your Google Account to back up and sync your expenses across all your devices.
-        </p>
-        <button id="google-signin-btn" class="btn-outlined-s2">
-          <svg class="w-4 h-4" viewBox="0 0 24 24">
+        <button id="google-signin-btn" class="btn-primary-brass w-full py-3 px-4 text-sm font-semibold flex items-center justify-center gap-3">
+          <svg class="w-5 h-5" viewBox="0 0 24 24">
             <path fill="#EA4335"
               d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
             <path fill="#4285F4"
@@ -204,54 +155,12 @@
             <path fill="#34A853"
               d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z" />
           </svg>
-          Continue with Google
+          <span>Continue with Google</span>
         </button>
-        <div id="google-config-notice" class="text-[11px] text-mut italic text-center">
-          Requires Firebase credentials in .env. Click to test or sign in.
+
+        <div id="google-config-notice" class="text-[11px] text-mut/80 text-center pt-2">
+          Encrypted & Isolated • Google Firebase Authentication
         </div>
-      </div>
-
-      <!-- Tab Content: Email & Password (Sign Up & Login) -->
-      <div id="auth-panel-email" class="hidden space-y-3.5">
-        <div class="flex items-center justify-between p-1 bg-s2 rounded-xl border border-rule">
-          <button id="email-mode-login" type="button"
-            class="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-brass text-ink transition-colors">Sign In</button>
-          <button id="email-mode-register" type="button"
-            class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-mut hover:text-tx transition-colors">Create
-            Account</button>
-        </div>
-
-        <div id="email-register-fields" class="hidden">
-          <label class="form-label">Your Name</label>
-          <input type="text" id="email-name-input" placeholder="e.g. Abubakar" class="form-input text-xs" />
-        </div>
-
-        <div>
-          <label class="form-label">Email or Phone Number</label>
-          <input type="text" id="email-ident-input" placeholder="name@example.com or 03001234567"
-            class="form-input text-xs font-mono" />
-        </div>
-
-        <div>
-          <label class="form-label">Password</label>
-          <input type="password" id="email-password-input" placeholder="At least 6 characters"
-            class="form-input text-xs" />
-        </div>
-
-        <button id="email-submit-btn" type="button" class="btn-primary-brass">
-          <i data-lucide="log-in" class="w-4 h-4" id="email-submit-icon"></i>
-          <span id="email-submit-text">Sign In</span>
-        </button>
-      </div>
-
-      <!-- Tab Content: Guest / ID Switcher -->
-      <div id="auth-panel-guest" class="hidden space-y-3.5">
-        <p class="text-xs text-mut">
-          Create a private guest session without signing in. Guests are given an isolated, unguessable ledger ID.
-        </p>
-        <button id="confirm-guest-btn" class="btn-primary-brass">
-          Continue as Guest
-        </button>
       </div>
 
     </div>
@@ -264,10 +173,7 @@
       <div class="app-logo-icon">
         <i data-lucide="wallet" class="w-4 h-4"></i>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="app-logo-text">HisaabAI</span>
-        <span class="badge-tag">Urdu • Punjabi • English</span>
-      </div>
+      <span class="app-logo-text">HisaabAI</span>
     </a>
 
     <!-- Desktop View Mode Switcher (visible on desktop >=980px) -->
@@ -296,27 +202,27 @@
         <div id="user-avatar" class="user-avatar-circle">
           <span id="avatar-letter">B</span>
         </div>
-        <div class="user-pill-info hidden sm:block">
+        <div class="user-pill-info">
           <div id="user-display-name" class="user-pill-name">bakar</div>
-          <div id="user-provider-badge" class="user-pill-badge">Guest Profile</div>
+          <span id="user-provider-badge" class="hidden"></span>
         </div>
         <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-mut ml-0.5"></i>
       </button>
 
       <!-- Account Dropdown Menu -->
       <div id="account-dropdown" class="account-dropdown-menu hidden">
-        <div class="dropdown-header">
-          <div id="dropdown-name" class="dropdown-title">bakar</div>
-          <div id="dropdown-sub" class="dropdown-subtitle">User ID: bakar</div>
+        <div class="dropdown-header-box">
+          <div id="dropdown-name" class="font-semibold text-sm text-tx">bakar</div>
+          <div id="dropdown-sub" class="text-xs text-mut truncate">bakar</div>
         </div>
-        <button id="open-auth-modal-btn" class="dropdown-item-btn">
-          <i data-lucide="user-plus" class="w-4 h-4 text-brass"></i> Google / Phone Sign In
-        </button>
         <a id="export-csv-btn" href="#" class="dropdown-item-btn">
           <i data-lucide="download" class="w-4 h-4 text-ok"></i> Export CSV
         </a>
+        <button id="open-auth-modal-btn" class="dropdown-item-btn">
+          <i data-lucide="user-check" class="w-4 h-4 text-brass"></i> Switch Account
+        </button>
         <button id="signout-btn" class="dropdown-item-btn text-bad">
-          <i data-lucide="log-out" class="w-4 h-4"></i> Switch Account
+          <i data-lucide="log-out" class="w-4 h-4"></i> Sign Out
         </button>
       </div>
     </div>

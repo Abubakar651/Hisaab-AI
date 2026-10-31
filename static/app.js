@@ -65,6 +65,9 @@ tailwind.config = {
     }
 
     async function authFetch(url, options = {}) {
+      if (window.HisaabAuth && typeof window.HisaabAuth.authFetch === 'function') {
+        return window.HisaabAuth.authFetch(url, options);
+      }
       const token = getAuthToken();
       const opts = { ...options };
       opts.headers = { ...(opts.headers || {}) };
@@ -72,7 +75,7 @@ tailwind.config = {
         opts.headers['Authorization'] = `Bearer ${token}`;
       }
       const res = await fetch(url, opts);
-      if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/password-login') && !url.includes('/api/auth/register')) {
+      if (res.status === 401) {
         console.warn('Authentication token expired or missing, prompting login modal...');
         setAuthToken('');
         const authModal = document.getElementById('auth-modal');
@@ -162,7 +165,6 @@ tailwind.config = {
       bindEvents();
       bindAnalyticsForms();
       bindAuthEvents();
-      initAuth();
       fetchDashboard();
       lucide.createIcons();
     }
@@ -343,382 +345,32 @@ tailwind.config = {
       fetchDashboard();
     }
 
-    // Initialize Authentication State & Firebase
-    async function initAuth() {
-      let token = getAuthToken();
-      if (!token) {
-        // Auto-provision secure guest session on first visit
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: 'guest' }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setAuthToken(data.token);
-            updateAccountUI(data.user);
-          }
-        } catch (e) { }
-      } else {
-        const uid = state.userId || 'guest';
-        try {
-          const res = await authFetch(`/api/auth/profile/${encodeURIComponent(uid)}`);
-          if (res.ok) {
-            const data = await res.json();
-            updateAccountUI(data.user);
-          } else {
-            const gRes = await fetch('/api/auth/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: 'guest' }),
-            });
-            if (gRes.ok) {
-              const gdata = await gRes.json();
-              setAuthToken(gdata.token);
-              updateAccountUI(gdata.user);
-            }
-          }
-        } catch (e) { }
-      }
-
-      // Check Firebase SDK configuration
-      try {
-        const cfgRes = await fetch('/api/auth/config');
-        const cfgData = await cfgRes.json();
-        if (cfgData.configured && window.firebase && !firebase.apps.length) {
-          firebase.initializeApp(cfgData.firebase);
-          window.firebaseAuth = firebase.auth();
-          const notice = document.getElementById('google-config-notice');
-          if (notice) notice.textContent = 'Firebase connected. Click to sign in.';
+    // Expose app interface for auth state updates
+    window.HisaabApp = {
+      onUserChanged: (newUserId) => {
+        state.userId = (newUserId || "bakar").toLowerCase();
+        state.chatHistory = [];
+        if (elements.messagesContainer) {
+          elements.messagesContainer.innerHTML = "";
         }
-      } catch (err) {
-        console.log('Firebase config note:', err);
+        fetchDashboard();
       }
-    }
+    };
 
-    // Bind Auth Modal and Events
+    // Bind Auth Dropdown Events
     function bindAuthEvents() {
-      const accountBtn = document.getElementById('account-btn');
-      const accountDropdown = document.getElementById('account-dropdown');
-      const authModal = document.getElementById('auth-modal');
-      const openAuthModalBtn = document.getElementById('open-auth-modal-btn');
-      const closeAuthModalBtn = document.getElementById('close-auth-modal-btn');
-      const signoutBtn = document.getElementById('signout-btn');
+      const accountBtn = document.getElementById("account-btn");
+      const accountDropdown = document.getElementById("account-dropdown");
 
       if (accountBtn && accountDropdown) {
-        accountBtn.addEventListener('click', (e) => {
+        accountBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          accountDropdown.classList.toggle('hidden');
+          accountDropdown.classList.toggle("hidden");
         });
-        document.addEventListener('click', (e) => {
+        document.addEventListener("click", (e) => {
           if (!accountDropdown.contains(e.target) && !accountBtn.contains(e.target)) {
-            accountDropdown.classList.add('hidden');
+            accountDropdown.classList.add("hidden");
           }
-        });
-      }
-
-      if (openAuthModalBtn) {
-        openAuthModalBtn.addEventListener('click', () => {
-          if (accountDropdown) accountDropdown.classList.add('hidden');
-          if (authModal) authModal.classList.remove('hidden');
-        });
-      }
-      if (closeAuthModalBtn) {
-        closeAuthModalBtn.addEventListener('click', () => {
-          if (authModal) authModal.classList.add('hidden');
-        });
-      }
-
-      // Tabs
-      const tabPhone = document.getElementById('auth-tab-phone');
-      const tabGoogle = document.getElementById('auth-tab-google');
-      const tabEmail = document.getElementById('auth-tab-email');
-      const tabGuest = document.getElementById('auth-tab-guest');
-      const panelPhone = document.getElementById('auth-panel-phone');
-      const panelGoogle = document.getElementById('auth-panel-google');
-      const panelEmail = document.getElementById('auth-panel-email');
-      const panelGuest = document.getElementById('auth-panel-guest');
-
-      function setAuthTab(tab) {
-        [tabPhone, tabGoogle, tabEmail, tabGuest].forEach(t => {
-          if (t) t.className = 'pb-2 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors whitespace-nowrap';
-        });
-        [panelPhone, panelGoogle, panelEmail, panelGuest].forEach(p => p && p.classList.add('hidden'));
-
-        if (tab === 'phone') {
-          if (tabPhone) tabPhone.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors whitespace-nowrap';
-          if (panelPhone) panelPhone.classList.remove('hidden');
-        } else if (tab === 'google') {
-          if (tabGoogle) tabGoogle.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors whitespace-nowrap';
-          if (panelGoogle) panelGoogle.classList.remove('hidden');
-        } else if (tab === 'email') {
-          if (tabEmail) tabEmail.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors whitespace-nowrap';
-          if (panelEmail) panelEmail.classList.remove('hidden');
-        } else if (tab === 'guest') {
-          if (tabGuest) tabGuest.className = 'pb-2 text-xs font-semibold text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-1.5 transition-colors whitespace-nowrap';
-          if (panelGuest) panelGuest.classList.remove('hidden');
-        }
-      }
-
-      if (tabPhone) tabPhone.addEventListener('click', () => setAuthTab('phone'));
-      if (tabGoogle) tabGoogle.addEventListener('click', () => setAuthTab('google'));
-      if (tabEmail) tabEmail.addEventListener('click', () => setAuthTab('email'));
-      if (tabGuest) tabGuest.addEventListener('click', () => setAuthTab('guest'));
-
-      // Email / Password: Mode Toggle (Sign In vs Create Account)
-      let emailMode = 'login'; // 'login' or 'register'
-      const modeLoginBtn = document.getElementById('email-mode-login');
-      const modeRegisterBtn = document.getElementById('email-mode-register');
-      const registerFields = document.getElementById('email-register-fields');
-      const emailSubmitBtn = document.getElementById('email-submit-btn');
-      const emailSubmitText = document.getElementById('email-submit-text');
-      const nameInput = document.getElementById('email-name-input');
-      const identInput = document.getElementById('email-ident-input');
-      const pwdInput = document.getElementById('email-password-input');
-
-      function setEmailMode(mode) {
-        emailMode = mode;
-        if (mode === 'login') {
-          if (modeLoginBtn) modeLoginBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white transition-colors';
-          if (modeRegisterBtn) modeRegisterBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition-colors';
-          if (registerFields) registerFields.classList.add('hidden');
-          if (emailSubmitText) emailSubmitText.textContent = 'Sign In';
-        } else {
-          if (modeRegisterBtn) modeRegisterBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white transition-colors';
-          if (modeLoginBtn) modeLoginBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition-colors';
-          if (registerFields) registerFields.classList.remove('hidden');
-          if (emailSubmitText) emailSubmitText.textContent = 'Create Account';
-        }
-      }
-
-      if (modeLoginBtn) modeLoginBtn.addEventListener('click', () => setEmailMode('login'));
-      if (modeRegisterBtn) modeRegisterBtn.addEventListener('click', () => setEmailMode('register'));
-
-      if (emailSubmitBtn) {
-        emailSubmitBtn.addEventListener('click', async () => {
-          const ident = (identInput.value || '').trim();
-          const pwd = (pwdInput.value || '').trim();
-          const name = (nameInput.value || '').trim();
-
-          if (!ident) {
-            showToast('Please enter your email or phone number', 'error');
-            return;
-          }
-          if (pwd.length < 6) {
-            showToast('Password must be at least 6 characters', 'error');
-            return;
-          }
-
-          if (emailMode === 'register') {
-            if (!name) {
-              showToast('Please enter your full name', 'error');
-              return;
-            }
-            try {
-              const res = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name, email_or_phone: ident, password: pwd }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.detail || 'Registration failed');
-              if (data.token) setAuthToken(data.token);
-              updateAccountUI(data.user);
-              if (authModal) authModal.classList.add('hidden');
-              showToast(`Account created! Welcome, ${data.user.display_name}`, 'success');
-              fetchDashboard();
-            } catch (err) {
-              showToast(err.message, 'error');
-            }
-          } else {
-            try {
-              const res = await fetch('/api/auth/password-login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email_or_phone: ident, password: pwd }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.detail || 'Login failed');
-              if (data.token) setAuthToken(data.token);
-              updateAccountUI(data.user);
-              if (authModal) authModal.classList.add('hidden');
-              showToast(`Welcome back, ${data.user.display_name}`, 'success');
-              fetchDashboard();
-            } catch (err) {
-              showToast(err.message, 'error');
-            }
-          }
-        });
-      }
-
-      // Google Sign-In
-      const googleBtn = document.getElementById('google-signin-btn');
-      if (googleBtn) {
-        googleBtn.addEventListener('click', async () => {
-          if (window.firebaseAuth) {
-            try {
-              const provider = new firebase.auth.GoogleAuthProvider();
-              const result = await firebase.auth().signInWithPopup(provider);
-              const u = result.user;
-              const idToken = await u.getIdToken();
-              const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  provider: 'google',
-                  email: u.email,
-                  display_name: u.displayName || u.email.split('@')[0],
-                  photo_url: u.photoURL,
-                  id_token: idToken,
-                }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.detail || 'Google login failed');
-              if (data.token) setAuthToken(data.token);
-              updateAccountUI(data.user);
-              if (authModal) authModal.classList.add('hidden');
-              showToast(`Signed in as ${data.user.display_name}`, 'success');
-              fetchDashboard();
-            } catch (err) {
-              showToast(`Google Sign-In: ${err.message}`, 'error');
-            }
-          } else {
-            showToast('Firebase is not configured for Google Sign-In. Use Email/Password.', 'warning');
-          }
-        });
-      }
-
-      // Phone Sign-In
-      const sendPhoneBtn = document.getElementById('send-phone-otp-btn');
-      const verifyPhoneBtn = document.getElementById('verify-phone-otp-btn');
-      const phoneInput = document.getElementById('phone-number-input');
-      const otpInput = document.getElementById('phone-otp-input');
-      const phoneStep = document.getElementById('phone-input-step');
-      const otpStep = document.getElementById('phone-otp-step');
-
-      if (sendPhoneBtn) {
-        sendPhoneBtn.addEventListener('click', async () => {
-          let raw = (phoneInput.value || '').trim().replace(/\D/g, '');
-          if (raw.startsWith('92')) raw = raw.slice(2);
-          if (raw.startsWith('0')) raw = raw.slice(1);
-          if (!raw || raw.length < 10) {
-            showToast('Enter valid Pakistani phone (e.g. 300 1234567)', 'error');
-            return;
-          }
-          const formatted = '+92' + raw;
-
-          if (window.firebaseAuth) {
-            try {
-              if (!window.recaptchaVerifier) {
-                window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', { size: 'invisible' });
-              }
-              const conf = await firebase.auth().signInWithPhoneNumber(formatted, window.recaptchaVerifier);
-              window.phoneConfirmation = conf;
-              if (phoneStep) phoneStep.classList.add('hidden');
-              if (otpStep) otpStep.classList.remove('hidden');
-              showToast(`Verification code sent to ${formatted}`, 'success');
-            } catch (err) {
-              showToast(`SMS gateway error: ${err.message}`, 'error');
-            }
-          } else {
-            completePhoneLogin(formatted);
-          }
-        });
-      }
-
-      if (verifyPhoneBtn) {
-        verifyPhoneBtn.addEventListener('click', async () => {
-          const code = (otpInput.value || '').trim();
-          if (!code || code.length < 6) {
-            showToast('Please enter the 6-digit code', 'error');
-            return;
-          }
-          if (window.phoneConfirmation) {
-            try {
-              const res = await window.phoneConfirmation.confirm(code);
-              const idToken = await res.user.getIdToken();
-              completePhoneLogin(res.user.phoneNumber, idToken);
-            } catch (err) {
-              showToast('Invalid verification code: ' + err.message, 'error');
-            }
-          } else {
-            completePhoneLogin('+92' + phoneInput.value.replace(/\D/g, ''));
-          }
-        });
-      }
-
-      async function completePhoneLogin(phoneNum, idToken = null) {
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              provider: 'phone',
-              phone_number: phoneNum,
-              display_name: phoneNum,
-              id_token: idToken,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || 'Phone login failed');
-          if (data.token) setAuthToken(data.token);
-          updateAccountUI(data.user);
-          if (authModal) authModal.classList.add('hidden');
-          if (phoneStep) phoneStep.classList.remove('hidden');
-          if (otpStep) otpStep.classList.add('hidden');
-          showToast(`Signed in with phone ${data.user.phone_number}!`, 'success');
-          fetchDashboard();
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-      }
-
-      // Guest Session Provisioning
-      const confirmGuestBtn = document.getElementById('confirm-guest-btn');
-      if (confirmGuestBtn) {
-        confirmGuestBtn.addEventListener('click', async () => {
-          try {
-            const res = await fetch('/api/auth/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: 'guest' }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Guest session error');
-            if (data.token) setAuthToken(data.token);
-            updateAccountUI(data.user);
-            if (authModal) authModal.classList.add('hidden');
-            showToast(`Started private guest session (${data.user.user_id})`, 'success');
-            fetchDashboard();
-          } catch (err) {
-            showToast(err.message, 'error');
-          }
-        });
-      }
-
-      // Sign out / switch to guest
-      if (signoutBtn) {
-        signoutBtn.addEventListener('click', async () => {
-          if (accountDropdown) accountDropdown.classList.add('hidden');
-          if (window.firebaseAuth) {
-            try { await firebase.auth().signOut(); } catch (e) { }
-          }
-          setAuthToken('');
-          try {
-            const res = await fetch('/api/auth/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: 'guest' }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.token) setAuthToken(data.token);
-              updateAccountUI(data.user);
-            }
-          } catch (e) { }
-          showToast('Signed out. Active in private guest mode.', 'info');
-          fetchDashboard();
         });
       }
     }

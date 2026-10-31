@@ -3,12 +3,15 @@
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
  * Upgrades from hisaabai-shell-v1 to hisaabai-shell-v3 to ensure immediate script updates.
  */
-const CACHE = 'hisaabai-shell-v3'; // upgrades from hisaabai-shell-v1
+const CACHE = 'hisaabai-shell-v4';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
   '/static/theme.css',
+  '/static/auth.js',
   '/static/app.js',
+  '/static/vendor/firebase/firebase-app-compat.js',
+  '/static/vendor/firebase/firebase-auth-compat.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'
 ];
