@@ -11,6 +11,106 @@
   let firebaseAuth = null;
   let currentUser = null;
   let isConfigured = false;
+  let authMode = 'signin'; // 'signin' or 'signup'
+  let resendCooldownTimer = null;
+
+  // Map Firebase error codes to user-friendly messages
+  function mapAuthError(err) {
+    const code = err && err.code ? err.code : '';
+    switch (code) {
+      case 'auth/invalid-credential':
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+        return 'Incorrect email or password.';
+      case 'auth/email-already-in-use':
+        return 'An account already exists with this email.';
+      case 'auth/weak-password':
+        return 'Password is too weak. Please use at least 8 characters.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Please wait a moment and try again.';
+      case 'auth/configuration-not-found':
+        return 'Firebase Authentication is not initialized in the Firebase Console (auth/configuration-not-found).';
+      case 'auth/popup-closed-by-user':
+        return 'Sign-in cancelled';
+      case 'auth/popup-blocked':
+        return 'Sign-in popup was blocked by your browser. Please allow popups.';
+      case 'auth/unauthorized-domain':
+        return 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
+      default:
+        return err.message || 'Authentication failed. Please try again.';
+    }
+  }
+
+  // Show verify email panel
+  function showVerifyEmailPanel(email) {
+    const mainPanel = document.getElementById('auth-main-panel');
+    const verifyPanel = document.getElementById('auth-verify-panel');
+    const modal = document.getElementById('auth-modal');
+    const emailText = document.getElementById('verify-email-text');
+
+    if (mainPanel) mainPanel.classList.add('hidden');
+    if (verifyPanel) verifyPanel.classList.remove('hidden');
+    if (modal) modal.classList.remove('hidden');
+    if (emailText && email) {
+      emailText.textContent = `A verification link has been sent to ${email}. Please click the link to activate your account.`;
+    }
+  }
+
+  // Hide verify email panel and return to main form
+  function hideVerifyEmailPanel() {
+    const mainPanel = document.getElementById('auth-main-panel');
+    const verifyPanel = document.getElementById('auth-verify-panel');
+    if (verifyPanel) verifyPanel.classList.add('hidden');
+    if (mainPanel) mainPanel.classList.remove('hidden');
+  }
+
+  // 30-second cooldown timer for verification resend
+  function startResendCooldown() {
+    const resendBtn = document.getElementById('btn-verify-resend');
+    const countdownEl = document.getElementById('verify-resend-countdown');
+    if (!resendBtn || !countdownEl) return;
+
+    let seconds = 30;
+    resendBtn.classList.add('hidden');
+    countdownEl.classList.remove('hidden');
+    countdownEl.textContent = `Resend in ${seconds}s`;
+
+    if (resendCooldownTimer) clearInterval(resendCooldownTimer);
+    resendCooldownTimer = setInterval(() => {
+      seconds--;
+      if (seconds <= 0) {
+        clearInterval(resendCooldownTimer);
+        resendCooldownTimer = null;
+        countdownEl.classList.add('hidden');
+        resendBtn.classList.remove('hidden');
+      } else {
+        countdownEl.textContent = `Resend in ${seconds}s`;
+      }
+    }, 1000);
+  }
+
+  // Switch between Sign In and Create Account tabs
+  function setAuthMode(mode) {
+    authMode = mode;
+    const tabSignin = document.getElementById('auth-tab-signin');
+    const tabSignup = document.getElementById('auth-tab-signup');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const forgotBtn = document.getElementById('auth-forgot-btn');
+
+    if (mode === 'signup') {
+      if (tabSignin) tabSignin.classList.remove('active');
+      if (tabSignup) tabSignup.classList.add('active');
+      if (submitBtn) submitBtn.innerHTML = '<span>Create Account</span>';
+      if (forgotBtn) forgotBtn.classList.add('hidden');
+    } else {
+      if (tabSignup) tabSignup.classList.remove('active');
+      if (tabSignin) tabSignin.classList.add('active');
+      if (submitBtn) submitBtn.innerHTML = '<span>Sign In</span>';
+      if (forgotBtn) forgotBtn.classList.remove('hidden');
+    }
+  }
 
   // Show unconfigured warning in modal
   function showUnconfiguredUI() {
@@ -24,6 +124,11 @@
     if (googleBtn) {
       googleBtn.disabled = true;
       googleBtn.setAttribute('title', 'Sign-in is not configured');
+    }
+    const submitBtn = document.getElementById('auth-submit-btn');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.setAttribute('title', 'Sign-in is not configured');
     }
   }
 
@@ -64,6 +169,11 @@
       firebaseAuth.onAuthStateChanged(async (user) => {
         if (user) {
           currentUser = user;
+          const isPasswordProvider = user.providerData && user.providerData[0] && user.providerData[0].providerId === 'password';
+          if (isPasswordProvider && !user.emailVerified) {
+            showVerifyEmailPanel(user.email);
+            return; // CRITICAL: RETURN BEFORE calling /api/auth/me or any API
+          }
           await handleUserSignedIn(user);
         } else {
           currentUser = null;
@@ -163,6 +273,93 @@
         span.textContent = initial;
         avatarEl.appendChild(span);
       }
+    }
+  }
+
+  // Email & Password Sign-In / Sign-Up
+  async function handleEmailAuthSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    if (!isConfigured) {
+      showUnconfiguredUI();
+      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      return;
+    }
+    if (!firebaseAuth) {
+      await initAuth();
+    }
+    if (!firebaseAuth || !isConfigured) {
+      showUnconfiguredUI();
+      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      return;
+    }
+
+    const emailInput = document.getElementById('auth-email');
+    const passwordInput = document.getElementById('auth-password');
+    const submitBtn = document.getElementById('auth-submit-btn');
+
+    const email = (emailInput ? emailInput.value : '').trim();
+    const password = passwordInput ? passwordInput.value : '';
+
+    if (!email) {
+      if (window.showToast) window.showToast('Please enter your email address.', 'error');
+      return;
+    }
+    if (password.length < 8) {
+      if (window.showToast) window.showToast('Password must be at least 8 characters long.', 'error');
+      return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      if (authMode === 'signup') {
+        const cred = await firebaseAuth.createUserWithEmailAndPassword(email, password);
+        currentUser = cred.user;
+        await cred.user.sendEmailVerification();
+        showVerifyEmailPanel(email);
+        startResendCooldown();
+        if (window.showToast) window.showToast('Account created! Please check your email for the verification link.', 'success');
+      } else {
+        const cred = await firebaseAuth.signInWithEmailAndPassword(email, password);
+        currentUser = cred.user;
+        if (!cred.user.emailVerified) {
+          showVerifyEmailPanel(email);
+          return;
+        }
+        if (window.showToast) window.showToast('Successfully signed in!', 'success');
+      }
+    } catch (err) {
+      console.error('Email authentication error:', err);
+      if (window.showToast) window.showToast(mapAuthError(err), 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  // Forgot Password
+  async function handleForgotPassword() {
+    if (!isConfigured || !firebaseAuth) {
+      if (window.showToast) window.showToast('Sign-in is not configured', 'error');
+      return;
+    }
+    const emailInput = document.getElementById('auth-email');
+    const email = (emailInput ? emailInput.value : '').trim();
+
+    if (!email) {
+      if (window.showToast) window.showToast('Please enter your email address to reset password.', 'warning');
+      if (emailInput) emailInput.focus();
+      return;
+    }
+
+    try {
+      await firebaseAuth.sendPasswordResetEmail(email);
+    } catch (err) {
+      console.warn('Password reset request error:', err);
+    }
+    // Always the same generic success message
+    if (window.showToast) {
+      window.showToast('If an account exists with this email, a password reset link has been sent.', 'info');
     }
   }
 
@@ -295,6 +492,72 @@
   // Auto-init on DOMContentLoaded
   document.addEventListener('DOMContentLoaded', () => {
     initAuth();
+
+    // Bind Email & Password tabs
+    const tabSignin = document.getElementById('auth-tab-signin');
+    const tabSignup = document.getElementById('auth-tab-signup');
+    if (tabSignin) tabSignin.addEventListener('click', () => setAuthMode('signin'));
+    if (tabSignup) tabSignup.addEventListener('click', () => setAuthMode('signup'));
+
+    // Bind Email form
+    const emailForm = document.getElementById('auth-email-form');
+    if (emailForm) {
+      emailForm.addEventListener('submit', handleEmailAuthSubmit);
+    }
+
+    // Bind Forgot password
+    const forgotBtn = document.getElementById('auth-forgot-btn');
+    if (forgotBtn) {
+      forgotBtn.addEventListener('click', handleForgotPassword);
+    }
+
+    // Bind Verify Email panel actions
+    const verifyDoneBtn = document.getElementById('btn-verify-done');
+    if (verifyDoneBtn) {
+      verifyDoneBtn.addEventListener('click', async () => {
+        if (currentUser) {
+          verifyDoneBtn.disabled = true;
+          try {
+            await currentUser.reload();
+            if (currentUser.emailVerified) {
+              await currentUser.getIdToken(true);
+              hideVerifyEmailPanel();
+              await handleUserSignedIn(currentUser);
+              if (window.showToast) window.showToast('Email verified successfully!', 'success');
+            } else {
+              if (window.showToast) window.showToast('Email not verified yet. Please check your inbox or spam folder.', 'warning');
+            }
+          } catch (e) {
+            if (window.showToast) window.showToast(mapAuthError(e), 'error');
+          } finally {
+            verifyDoneBtn.disabled = false;
+          }
+        }
+      });
+    }
+
+    const verifyResendBtn = document.getElementById('btn-verify-resend');
+    if (verifyResendBtn) {
+      verifyResendBtn.addEventListener('click', async () => {
+        if (currentUser && !resendCooldownTimer) {
+          try {
+            await currentUser.sendEmailVerification();
+            if (window.showToast) window.showToast('Verification email resent.', 'info');
+            startResendCooldown();
+          } catch (e) {
+            if (window.showToast) window.showToast(mapAuthError(e), 'error');
+          }
+        }
+      });
+    }
+
+    const verifyCancelBtn = document.getElementById('btn-verify-cancel');
+    if (verifyCancelBtn) {
+      verifyCancelBtn.addEventListener('click', async () => {
+        await signOut();
+        hideVerifyEmailPanel();
+      });
+    }
 
     // Bind Google button
     const googleBtn = document.getElementById('google-signin-btn');
