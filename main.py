@@ -329,8 +329,11 @@ async def get_current_user(
     claims = verify_firebase_token_claims(token)
     clean_uid = claims["email"].strip().lower()
     provider_name = "google" if claims.get("firebase", {}).get("sign_in_provider") == "google.com" else "password"
-    disp_name = claims.get("name") or clean_uid.split("@")[0].capitalize()
-    photo_url = claims.get("picture")
+    raw_name = claims.get("name") or clean_uid.split("@")[0].capitalize()
+    sanitized_name = re.sub(r'[<>"\'\x00-\x1f\x7f]', '', str(raw_name)).strip()[:80]
+    disp_name = sanitized_name if sanitized_name else clean_uid.split("@")[0].capitalize()[:80]
+    raw_photo = claims.get("picture")
+    photo_url = raw_photo if (isinstance(raw_photo, str) and re.match(r"^https://", raw_photo, re.I)) else None
     firebase_uid = str(claims.get("uid") or claims.get("sub") or "")
 
     # Upsert user account row
@@ -339,7 +342,7 @@ async def get_current_user(
         account.last_login = get_pkt_now()
         if firebase_uid:
             account.firebase_uid = firebase_uid
-        if disp_name and (not account.display_name or account.display_name == clean_uid):
+        if disp_name:
             account.display_name = disp_name
         if photo_url:
             account.photo_url = photo_url

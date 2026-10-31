@@ -1070,6 +1070,35 @@ def test_auth_me_response_shape_contract(client, auth_headers):
     assert "auth_provider" in user
 
 
+def test_display_name_is_sanitized(client, db, auth_headers):
+    """
+    Asserts get_current_user strips < > " ' and control characters from claims['name']
+    and trims to 80 characters before storing in SQLite.
+    """
+    malicious_name = '<script>alert("xss")</script>\x00\x1b' + ('A' * 100)
+    headers = auth_headers(
+        "xss_test_user@example.com",
+        provider="google.com",
+        email_verified=True,
+        display_name=malicious_name,
+    )
+    resp = client.post("/api/auth/me", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    user = data["user"]
+    stored_name = user["display_name"]
+
+    assert "<" not in stored_name
+    assert ">" not in stored_name
+    assert '"' not in stored_name
+    assert "'" not in stored_name
+    assert "\x00" not in stored_name
+    assert "\x1b" not in stored_name
+    assert len(stored_name) <= 80
+    assert "scriptalert(xss)/script" in stored_name
+
+
+
 
 
 

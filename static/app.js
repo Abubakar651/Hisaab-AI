@@ -293,11 +293,20 @@ tailwind.config = {
       if (dropSubEl) dropSubEl.textContent = `${label} • ${account.email || account.phone_number || account.user_id}`;
 
       if (avatarBox) {
+        avatarBox.textContent = '';
         if (account.photo_url && /^https:\/\//i.test(account.photo_url)) {
-          avatarBox.innerHTML = `<img src="${escapeHtml(account.photo_url)}" alt="avatar" class="w-full h-full object-cover rounded-full" />`;
+          const img = document.createElement('img');
+          img.src = account.photo_url;
+          img.alt = 'avatar';
+          img.referrerPolicy = 'no-referrer';
+          img.className = 'w-full h-full object-cover rounded-full';
+          avatarBox.appendChild(img);
         } else {
           const letter = (account.display_name || account.user_id || 'U').charAt(0).toUpperCase();
-          avatarBox.innerHTML = `<span id="avatar-letter">${escapeHtml(letter)}</span>`;
+          const span = document.createElement('span');
+          span.id = 'avatar-letter';
+          span.textContent = letter;
+          avatarBox.appendChild(span);
         }
       }
 

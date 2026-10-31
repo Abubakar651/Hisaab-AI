@@ -149,10 +149,19 @@
     if (userIdInput) userIdInput.value = email;
 
     if (avatarEl) {
-      if (user.photo_url) {
-        avatarEl.innerHTML = `<img src="${user.photo_url}" alt="${name}" referrerpolicy="no-referrer" class="w-full h-full object-cover rounded-full" />`;
+      avatarEl.textContent = '';
+      if (user.photo_url && /^https:\/\//i.test(user.photo_url)) {
+        const img = document.createElement('img');
+        img.src = user.photo_url;
+        img.alt = name;
+        img.referrerPolicy = 'no-referrer';
+        img.className = 'w-full h-full object-cover rounded-full';
+        avatarEl.appendChild(img);
       } else {
-        avatarEl.innerHTML = `<span id="avatar-letter">${initial}</span>`;
+        const span = document.createElement('span');
+        span.id = 'avatar-letter';
+        span.textContent = initial;
+        avatarEl.appendChild(span);
       }
     }
   }

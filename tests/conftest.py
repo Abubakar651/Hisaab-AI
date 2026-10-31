@@ -138,7 +138,13 @@ def make_firebase_token():
 
 @pytest.fixture
 def auth_headers(make_firebase_token):
-    def _headers(user_id: str, provider: str = "google.com", email_verified: bool = True, token_version: int = 0):
+    def _headers(
+        user_id: str,
+        provider: str = "google.com",
+        email_verified: bool = True,
+        token_version: int = 0,
+        display_name: str = None,
+    ):
         email = user_id.strip().lower()
         session = TestingSessionLocal()
         try:
@@ -148,7 +154,7 @@ def auth_headers(make_firebase_token):
                     user_id=email,
                     firebase_uid=f"uid-{email}",
                     auth_provider="google" if provider in ("google", "google.com") else "password",
-                    display_name=email.split("@")[0].capitalize(),
+                    display_name=display_name or email.split("@")[0].capitalize(),
                     email=email,
                     identity_verified=email_verified,
                 )
@@ -156,7 +162,12 @@ def auth_headers(make_firebase_token):
                 session.commit()
         finally:
             session.close()
-        token = make_firebase_token(user_id=email, provider=provider, email_verified=email_verified)
+        token = make_firebase_token(
+            user_id=email,
+            provider=provider,
+            email_verified=email_verified,
+            display_name=display_name,
+        )
         return {"Authorization": f"Bearer {token}"}
     return _headers
 
