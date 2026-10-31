@@ -11,7 +11,8 @@
   <!-- Google Fonts: Figtree (UI), Fraunces (Headings/Big Numbers), Noto Nastaliq Urdu (Urdu text) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap"
+  <link
+    href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap"
     rel="stylesheet">
 
   <!-- Jameel Noori Nastaleeq Web Font CDN -->
@@ -26,11 +27,17 @@
   <script src="/static/app.js"></script>
 
   <!-- Lucide Icons (Pinned with SRI) -->
-  <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js" integrity="sha384-c4W8Fm5eAFkR+fiwPvJ1sXKBeXCtwThNMMceQyANSRz0w5ilnJFrNESyvcx/UJII" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js"
+    integrity="sha384-c4W8Fm5eAFkR+fiwPvJ1sXKBeXCtwThNMMceQyANSRz0w5ilnJFrNESyvcx/UJII"
+    crossorigin="anonymous"></script>
   <!-- DOMPurify for XSS Sanitization (Pinned with SRI) -->
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"
+    integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a"
+    crossorigin="anonymous"></script>
   <!-- Marked.js for markdown rendering (Pinned with SRI) -->
-  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"
+    integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi"
+    crossorigin="anonymous"></script>
 
   <!-- PWA: installable on Android / iOS ("Add to Home Screen") -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -42,7 +49,9 @@
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 
   <!-- Chart.js for dashboard analytics (Pinned with SRI) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"
+    integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt"
+    crossorigin="anonymous"></script>
 
   <!-- Firebase Auth SDK (compat v10) for Google Sign-In & Phone Number Auth -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -64,7 +73,8 @@
 
       <!-- Header Icon & Title -->
       <div class="flex items-center gap-3 mb-3">
-        <div class="w-10 h-10 rounded-xl bg-bad/15 border border-bad/30 flex items-center justify-center text-bad shrink-0">
+        <div
+          class="w-10 h-10 rounded-xl bg-bad/15 border border-bad/30 flex items-center justify-center text-bad shrink-0">
           <i data-lucide="mic-off" class="w-5 h-5"></i>
         </div>
         <div>
@@ -75,17 +85,24 @@
 
       <!-- Explanation & Steps -->
       <div class="bg-s2 border border-rule rounded-xl p-3.5 mb-4 text-xs space-y-2.5 leading-relaxed text-tx">
-        <div class="p-2.5 rounded-lg bg-warn/15 border border-warn/30 text-warn text-[11px] font-medium flex items-start gap-2">
+        <div
+          class="p-2.5 rounded-lg bg-warn/15 border border-warn/30 text-warn text-[11px] font-medium flex items-start gap-2">
           <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
-          <span><strong>Why Chrome blocked it:</strong> You accessed via <code>http://0.0.0.0:8000</code>. Google Chrome completely disables the microphone on <code>0.0.0.0</code>. Please use <strong><code>http://localhost:8000</code></strong>.</span>
+          <span><strong>Why Chrome blocked it:</strong> You accessed via <code>http://0.0.0.0:8000</code>. Google Chrome
+            completely disables the microphone on <code>0.0.0.0</code>. Please use
+            <strong><code>http://localhost:8000</code></strong>.</span>
         </div>
         <p class="font-semibold text-tx">How to fix in 5 seconds:</p>
         <div class="flex items-start gap-2.5">
-          <span class="w-5 h-5 rounded-full bg-ok/20 text-ok font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-          <span>Open <strong><a href="http://localhost:8000" class="text-brass underline hover:text-tx font-mono">http://localhost:8000</a></strong> in your address bar.</span>
+          <span
+            class="w-5 h-5 rounded-full bg-ok/20 text-ok font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
+          <span>Open <strong><a href="http://localhost:8000"
+                class="text-brass underline hover:text-tx font-mono">http://localhost:8000</a></strong> in your address
+            bar.</span>
         </div>
         <div class="flex items-start gap-2.5">
-          <span class="w-5 h-5 rounded-full bg-ok/20 text-ok font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
+          <span
+            class="w-5 h-5 rounded-full bg-ok/20 text-ok font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
           <span>When prompted by Chrome, click <strong>"Allow"</strong> for microphone access.</span>
         </div>
       </div>
@@ -108,7 +125,8 @@
 
       <!-- Header Icon & Title -->
       <div class="flex items-center gap-3 mb-4">
-        <div class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
+        <div
+          class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
           <i data-lucide="shield-check" class="w-5 h-5"></i>
         </div>
         <div>
@@ -123,7 +141,16 @@
           <i data-lucide="phone" class="w-3.5 h-3.5 mr-1.5"></i> Phone
         </button>
         <button id="auth-tab-google" class="modal-tab-btn">
-          <svg class="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/></svg> Google
+          <svg class="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24">
+            <path fill="#EA4335"
+              d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
+            <path fill="#4285F4"
+              d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
+            <path fill="#FBBC05"
+              d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z" />
+            <path fill="#34A853"
+              d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z" />
+          </svg> Google
         </button>
         <button id="auth-tab-email" class="modal-tab-btn">
           <i data-lucide="key-round" class="w-3.5 h-3.5 mr-1.5"></i> Password
@@ -136,7 +163,7 @@
       <!-- Tab Content: Phone Number -->
       <div id="auth-panel-phone" class="space-y-3.5">
         <p class="text-xs text-mut">
-          Enter your Pakistani mobile number. If you used the HisaabAI WhatsApp bot, this automatically syncs your WhatsApp ledger!
+          Enter your Pakistani mobile number. If you used the HisaabAI , this automatically syncs your WhatsApp ledger!
         </p>
         <div id="phone-input-step">
           <label class="form-label">Mobile Number</label>
@@ -167,7 +194,16 @@
           Sign in securely with your Google Account to back up and sync your expenses across all your devices.
         </p>
         <button id="google-signin-btn" class="btn-outlined-s2">
-          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/></svg>
+          <svg class="w-4 h-4" viewBox="0 0 24 24">
+            <path fill="#EA4335"
+              d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
+            <path fill="#4285F4"
+              d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
+            <path fill="#FBBC05"
+              d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z" />
+            <path fill="#34A853"
+              d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z" />
+          </svg>
           Continue with Google
         </button>
         <div id="google-config-notice" class="text-[11px] text-mut italic text-center">
@@ -181,7 +217,8 @@
           <button id="email-mode-login" type="button"
             class="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-brass text-ink transition-colors">Sign In</button>
           <button id="email-mode-register" type="button"
-            class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-mut hover:text-tx transition-colors">Create Account</button>
+            class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-mut hover:text-tx transition-colors">Create
+            Account</button>
         </div>
 
         <div id="email-register-fields" class="hidden">
@@ -297,12 +334,13 @@
       <div class="px-5 py-3 border-b border-rule flex items-center justify-between bg-s1">
         <div class="flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-brass animate-pulse"></span>
-          <span class="text-xs text-mut">
-            Active Session: <span id="active-user-display" class="font-bold text-tx">bakar</span>
+          <span class="text-xs text-mut font-ur">
+            ایکٹو سیشن: <span id="active-user-display" class="font-bold text-tx font-mono">bakar</span>
           </span>
         </div>
-        <button id="clear-chat-btn" class="text-xs text-mut hover:text-tx flex items-center gap-1 transition-colors" title="Clear Screen">
-          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Clear Screen
+        <button id="clear-chat-btn" class="text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
+          title="اسکرین صاف کریں" style="font-size:14.5px; line-height:2">
+          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass"></i> اسکرین صاف کریں
         </button>
       </div>
 
@@ -310,17 +348,17 @@
       <div id="messages-container" class="chat-messages-container">
 
         <!-- Welcome Message -->
-        <div class="bubble-assistant">
+        <div class="bubble-assistant has-urdu">
           <div class="flex items-center gap-2 mb-2 text-brass">
-            <i data-lucide="wallet" class="w-4 h-4"></i>
-            <strong class="font-num text-sm">Assalam-o-Alaikum! Welcome to HisaabAI.</strong>
+            <i data-lucide="wallet" class="w-5 h-5"></i>
+            <strong class="font-ur text-lg font-semibold" style="line-height:2.2">السلام علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
           </div>
-          <p class="text-tx text-xs sm:text-sm">Record your daily expenses by typing or tapping the microphone button below in:</p>
-          <ul class="list-disc pl-5 mt-2 space-y-1 text-tx text-xs sm:text-sm">
-            <li><strong>Urdu (<span class="font-ur text-brass inline-block">اردو</span>):</strong> <span class="font-ur text-brass">"آج میں نے الفتح سے 2500 کا سامان لیا"</span></li>
-            <li><strong>Punjabi (<span class="font-ur text-brass inline-block">پنجابی</span>):</strong> "Main aaj Imtiaz ton 1500 da tel te 450 di bread layi"</li>
-            <li><strong>English:</strong> "Bought groceries from Jalal Sons for PKR 3,400"</li>
-            <li><strong>Queries:</strong> "Mera is mahine kinna kharcha hoya?", "How much did I spend on milk?"</li>
+          <p class="text-tx font-ur text-base leading-relaxed" dir="rtl">اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
+          <ul class="list-disc pr-6 mt-2.5 space-y-2 text-tx font-ur text-base leading-loose" dir="rtl">
+            <li><strong>اردو:</strong> <span class="text-brass">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
+            <li><strong>پنجابی:</strong> <span class="text-brass">"1500 دا پٹرول ڈلوایا تے 450 دا سامان لیا"</span></li>
+            <li dir="ltr" class="text-left font-ui text-[14.5px]"><strong>English:</strong> <span class="text-brass">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
+            <li><strong>حساب پوچھیں:</strong> <span class="text-brass">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
           </ul>
         </div>
 
@@ -328,40 +366,40 @@
 
       <!-- Suggestion Chips Bar -->
       <div class="chat-suggestions-box">
-        <button class="prompt-chip" data-prompt="Is mahine ka kharcha">Is mahine ka kharcha</button>
-        <button class="prompt-chip" data-prompt="What did I spend in the last 3 days?">Last 3 days</button>
-        <button class="prompt-chip" data-prompt="Mera is mahine ka budget set karo">Set a budget</button>
-        <button class="prompt-chip" data-prompt="Delete my last entry">Undo last entry</button>
+        <button class="prompt-chip font-ur" data-prompt="Is mahine ka kharcha">اس مہینے کا خرچہ</button>
+        <button class="prompt-chip font-ur" data-prompt="What did I spend in the last 3 days?">پچھلے ۳ دن</button>
+        <button class="prompt-chip font-ur" data-prompt="Mera is mahine ka budget set karo">بجٹ سیٹ کریں</button>
+        <button class="prompt-chip font-ur" data-prompt="Delete my last entry">آخری اندراج مٹائیں</button>
       </div>
 
       <!-- Voice Recording Status Banner with Live Wave Visualizer -->
-      <div id="recording-banner" class="hidden px-5 py-2.5 bg-bad/15 border-t border-bad/30 flex items-center justify-between">
+      <div id="recording-banner"
+        class="hidden px-5 py-2.5 bg-bad/15 border-t border-bad/30 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-bad animate-pulse"></span>
-          <span class="text-xs font-semibold text-bad">Recording...</span>
+          <span class="text-xs font-semibold text-bad font-ur">آواز ریکارڈ ہو رہی ہے...</span>
           <canvas id="voice-wave-canvas" width="160" height="28" class="voice-wave-canvas"></canvas>
           <span id="recording-timer" class="recording-timer font-num tabular">00:00</span>
         </div>
-        <button id="cancel-recording-btn" class="recording-cancel-btn">Cancel</button>
+        <button id="cancel-recording-btn" class="recording-cancel-btn font-ur">منسوخ کریں</button>
       </div>
 
       <!-- Bottom Chat Composer -->
       <div class="chat-composer-box">
         <form id="chat-form" class="composer-input-row">
-          <textarea id="message-input" rows="1"
-            placeholder="Type in English, Urdu or Roman Urdu"
-            class="composer-input"></textarea>
+          <textarea id="message-input" rows="1" placeholder="اردو، پنجابی یا انگریزی میں بولیں یا لکھیں..."
+            class="composer-input font-ur"></textarea>
 
-          <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" title="Record Voice Note">
+          <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" title="آواز ریکارڈ کریں">
             <i data-lucide="mic" id="mic-icon" class="w-5 h-5"></i>
           </button>
 
-          <button type="submit" id="send-btn" class="composer-btn-circle btn-send-hisaab" title="Send Message">
+          <button type="submit" id="send-btn" class="composer-btn-circle btn-send-hisaab" title="ارسال کریں">
             <i data-lucide="send" class="w-4 h-4"></i>
           </button>
         </form>
-        <p class="text-[11px] text-mut text-center mt-2">
-          Tip: Tap mic to speak Pakistani store names like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro.
+        <p class="text-xs text-mut text-center mt-2.5 font-ur" style="font-size:14px; line-height:2">
+          ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا ادویات)۔
         </p>
       </div>
 
@@ -375,8 +413,8 @@
       <!-- Ledger Hero Card -->
       <div class="ledger-hero-card">
         <div class="flex items-center justify-between mb-1">
-          <div class="ledger-hero-label">Spent this month</div>
-          <button id="refresh-dashboard-btn" class="btn-icon-del text-mut hover:text-tx" title="Refresh Ledger">
+          <div class="ledger-hero-label font-ur">اس مہینے کا کل خرچ</div>
+          <button id="refresh-dashboard-btn" class="btn-icon-del text-mut hover:text-tx" title="تازہ کریں">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -387,54 +425,54 @@
         <div class="ledger-hero-track">
           <div class="ledger-hero-bar" style="width: 0%;"></div>
         </div>
-        <div class="ledger-hero-facts">
-          <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> visits</span>
+        <div class="ledger-hero-facts font-ur">
+          <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> خریداری</span>
           <span class="hero-fact-divider">•</span>
-          <span>Top store: <strong id="kpi-top-store">N/A</strong></span>
+          <span>پسندیدہ دکان: <strong id="kpi-top-store">درج نہیں</strong></span>
           <span class="hero-fact-divider">•</span>
-          <span id="tx-count-badge" class="tabular font-num">0 records</span>
+          <span id="tx-count-badge" class="font-ur">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
         </div>
       </div>
 
       <!-- Monthly Budgets -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Monthly Budgets</h2>
-        <div id="budgets-container" class="space-y-2">
-          <span class="text-xs text-mut italic">No budget set. Add one below or say "mera mahana budget 50000 hai".</span>
+        <h2 class="ledger-section-title font-ur">ماہانہ بجٹ</h2>
+        <div id="budgets-container" class="space-y-2 font-ur">
+          <span class="text-xs text-mut italic font-ur">کوئی بجٹ سیٹ نہیں ہے۔ نیچے بجٹ شامل کریں یا لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>
         </div>
-        <form id="budget-form" class="mt-3 flex flex-wrap items-center gap-2">
-          <select id="budget-category" class="input-base text-xs py-1.5 px-2.5">
-            <option value="total">Overall</option>
-            <option value="groceries">Groceries</option>
-            <option value="dairy">Dairy</option>
-            <option value="fuel">Fuel</option>
-            <option value="dining">Dining</option>
-            <option value="utilities">Utilities</option>
-            <option value="healthcare">Healthcare</option>
-            <option value="clothing">Clothing</option>
-            <option value="other">Other</option>
+        <form id="budget-form" class="mt-4 flex flex-wrap items-center gap-3">
+          <select id="budget-category" class="input-base font-ur flex-1 min-w-[170px]">
+            <option value="total">کل بجٹ (Overall)</option>
+            <option value="groceries">راشن و گروسری (Groceries)</option>
+            <option value="dairy">ڈیری و بیکری (Dairy)</option>
+            <option value="fuel">فیول و پیٹرول (Fuel)</option>
+            <option value="dining">کھانا پینا (Dining)</option>
+            <option value="utilities">یوٹیلیٹی بلز (Utilities)</option>
+            <option value="healthcare">ادویات و صحت (Healthcare)</option>
+            <option value="clothing">کپڑے و شاپنگ (Clothing)</option>
+            <option value="other">دیگر (Other)</option>
           </select>
-          <input id="budget-limit" type="number" min="1" step="1" placeholder="Limit (PKR)" required
-            class="input-base text-xs py-1.5 px-2.5 flex-1 min-w-[90px]">
-          <button type="submit" class="btn-primary text-xs py-1.5 px-3">Set</button>
+          <input id="budget-limit" type="number" min="1" step="1" placeholder="بجٹ رقم (PKR)" required
+            class="input-base font-ur flex-1 min-w-[140px]">
+          <button type="submit" class="btn-primary font-ur">محفوظ کریں</button>
         </form>
       </section>
 
       <!-- Where It Went (Category Doughnut) -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Where It Went</h2>
-        <div id="category-empty" class="text-xs text-mut italic hidden">No spending yet this month.</div>
+        <h2 class="ledger-section-title font-ur">کہاں کتنا خرچ ہوا</h2>
+        <div id="category-empty" class="text-xs text-mut italic hidden font-ur text-sm py-3">اس مہینے کا کوئی خرچہ درج نہیں ہے۔</div>
         <div class="category-analytics-row">
           <div class="category-chart-wrap">
             <canvas id="category-chart"></canvas>
           </div>
-          <div id="category-legend" class="category-legend-list"></div>
+          <div id="category-legend" class="category-legend-list font-ur"></div>
         </div>
       </section>
 
       <!-- 30-Day Trend Bar Chart -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Daily Spending (Last 30 Days)</h2>
+        <h2 class="ledger-section-title font-ur">روزانہ اخراجات (گزشتہ ۳۰ دن)</h2>
         <div class="trend-chart-box">
           <canvas id="trend-chart"></canvas>
         </div>
@@ -442,46 +480,46 @@
 
       <!-- Store Breakdown -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Store Breakdown</h2>
-        <div id="store-breakdown-container" class="flex flex-wrap gap-2">
-          <span class="text-xs text-mut italic">No store data yet for this user.</span>
+        <h2 class="ledger-section-title font-ur">دکانوں کے لحاظ سے تفصیل</h2>
+        <div id="store-breakdown-container" class="flex flex-wrap gap-2 font-ur">
+          <span class="text-xs text-mut italic font-ur">ابھی تک کوئی دکان ریکارڈ میں نہیں۔</span>
         </div>
       </section>
 
       <!-- Cash vs Digital Split -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Cash vs Digital</h2>
-        <div id="payment-split-container" class="space-y-2">
-          <span class="text-xs text-mut italic">No payment data yet.</span>
+        <h2 class="ledger-section-title font-ur">ادائیگی کا طریقہ (نقد بمقابلہ ڈیجیٹل)</h2>
+        <div id="payment-split-container" class="space-y-2 font-ur">
+          <span class="text-xs text-mut italic font-ur">ادائیگی کا کوئی ڈیٹا درج نہیں۔</span>
         </div>
       </section>
 
       <!-- Recurring Monthly Bills -->
       <section class="ledger-section">
-        <h2 class="ledger-section-title">Monthly Bills</h2>
-        <div id="recurring-container" class="space-y-2">
-          <span class="text-xs text-mut italic">No recurring bills. Add rent, LESCO, school fee, BC below.</span>
+        <h2 class="ledger-section-title font-ur">ماہانہ بل اور ضروری واجبات</h2>
+        <div id="recurring-container" class="space-y-2 font-ur">
+          <span class="text-xs text-mut italic font-ur">کوئی بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>
         </div>
-        <form id="recurring-form" class="mt-3 grid grid-cols-12 gap-2">
-          <input id="rec-title" type="text" maxlength="100" placeholder="Title (e.g. house rent)" required
-            class="col-span-12 sm:col-span-5 input-base text-xs py-1.5 px-2.5">
-          <input id="rec-amount" type="number" min="1" step="1" placeholder="Amount" required
-            class="col-span-6 sm:col-span-3 input-base text-xs py-1.5 px-2.5">
-          <input id="rec-day" type="number" min="1" max="28" value="1" title="Due day of month"
-            class="col-span-3 sm:col-span-2 input-base text-xs py-1.5 px-2.5">
-          <button type="submit" class="col-span-3 sm:col-span-2 btn-primary text-xs py-1.5 px-2.5">Add</button>
+        <form id="recurring-form" class="mt-4 grid grid-cols-12 gap-3 font-ur">
+          <input id="rec-title" type="text" maxlength="100" placeholder="بل کا نام (مثلاً مکان کا کرایہ، بجلی بل)" required
+            class="col-span-12 sm:col-span-5 input-base font-ur">
+          <input id="rec-amount" type="number" min="1" step="1" placeholder="رقم (PKR)" required
+            class="col-span-6 sm:col-span-3 input-base font-ur">
+          <input id="rec-day" type="number" min="1" max="28" value="1" title="مہینے کی تاریخ" placeholder="تاریخ (1-28)"
+            class="col-span-3 sm:col-span-2 input-base font-ur">
+          <button type="submit" class="col-span-3 sm:col-span-2 btn-primary font-ur">شامل کریں</button>
         </form>
       </section>
 
       <!-- Recent Transactions -->
       <section class="ledger-section">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="ledger-section-title mb-0">Recent Entries</h2>
+          <h2 class="ledger-section-title mb-0 font-ur">حالیہ اخراجات کی تفصیل</h2>
         </div>
-        <div id="transactions-list" class="space-y-2">
-          <div class="text-center py-10 text-mut text-xs">
+        <div id="transactions-list" class="space-y-2 font-ur">
+          <div class="text-center py-10 text-mut text-xs font-ur">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-            No transactions found for this user.<br>Log your first expense in chat!
+            ابھی تک کوئی خرچہ ریکارڈ نہیں ہوا۔<br>چیٹ میں اپنا پہلا خرچہ بولیں یا لکھیں!
           </div>
         </div>
       </section>

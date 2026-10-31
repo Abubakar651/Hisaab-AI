@@ -186,14 +186,15 @@ class UserAccount(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(100), unique=True, index=True, nullable=False)
-    auth_provider = Column(String(30), default="guest", nullable=False)  # 'google', 'phone', 'credentials', 'guest'
+    firebase_uid = Column(String(128), index=True, nullable=True)
+    auth_provider = Column(String(30), default="google", nullable=False)  # 'google', 'password'
     display_name = Column(String(150), nullable=True)
     email = Column(String(150), index=True, nullable=True)
     phone_number = Column(String(50), index=True, nullable=True)
     photo_url = Column(String(500), nullable=True)
     password_hash = Column(String(255), nullable=True)
     identity_verified = Column(Boolean, default=False, nullable=False)
-    token_version = Column(Integer, default=0, nullable=False)  # Incremented on password change or log out everywhere
+    token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=get_pkt_now, nullable=False)
     last_login = Column(DateTime, default=get_pkt_now, nullable=False)
 
@@ -201,13 +202,12 @@ class UserAccount(Base):
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "firebase_uid": self.firebase_uid,
             "auth_provider": self.auth_provider,
-            "display_name": self.display_name or self.phone_number or self.email or self.user_id,
+            "display_name": self.display_name or (self.email.split("@")[0] if self.email else self.user_id),
             "email": self.email,
             "phone_number": self.phone_number,
             "photo_url": self.photo_url,
-            "identity_verified": bool(self.identity_verified),
-            "token_version": self.token_version,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
             "last_login": self.last_login.strftime("%Y-%m-%d %H:%M") if self.last_login else None,
         }
@@ -272,12 +272,17 @@ def _migrate_sqlite():
             conn.execute(text("ALTER TABLE transactions ADD COLUMN deleted_at DATETIME NULL"))
 
         user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
+        if user_cols and "firebase_uid" not in user_cols:
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN firebase_uid VARCHAR(128) NULL"))
         if user_cols and "password_hash" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN password_hash VARCHAR(255) NULL"))
         if user_cols and "identity_verified" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN identity_verified BOOLEAN NOT NULL DEFAULT 0"))
         if user_cols and "token_version" not in user_cols:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
+        # Idempotent migration: null out all legacy password hashes so no stored password hashes remain
+        if user_cols and "password_hash" in user_cols:
+            conn.execute(text("UPDATE user_accounts SET password_hash = NULL WHERE password_hash IS NOT NULL"))
 
 
 def init_db():

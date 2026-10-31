@@ -13,8 +13,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 
-import jwt
 import httpx
+import requests
+from cachecontrol import CacheControl
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from fastapi import (
@@ -35,6 +36,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import firebase_admin
+from firebase_admin import auth as admin_auth
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
@@ -48,7 +51,6 @@ from database import (
     Budget,
     RecurringExpense,
     UserAccount,
-    LoginAttempt,
     PendingTransaction,
 )
 from agent import run_agent, transcribe_audio, clear_user_history
@@ -64,7 +66,7 @@ logging.basicConfig(
 logger = logging.getLogger("hisaab_ai")
 
 # ---------------------------------------------------------------------------
-# Environment & Session Security Verification (Fail-Closed Default)
+# Environment & Firebase Configuration (Fail-Closed Default)
 # ---------------------------------------------------------------------------
 APP_ENV = os.getenv("APP_ENV", "").strip().lower()
 if not APP_ENV:
@@ -75,29 +77,25 @@ if not APP_ENV:
         APP_ENV = "production"
 
 IS_DEV = APP_ENV in ("dev", "development", "test")
-SESSION_SECRET = os.getenv("SESSION_SECRET")
-
-if not SESSION_SECRET or len(SESSION_SECRET) < 32:
-    if IS_DEV:
-        SESSION_SECRET = (
-            SESSION_SECRET
-            if (SESSION_SECRET and len(SESSION_SECRET) >= 32)
-            else "hisaab-ai-dev-secret-key-do-not-use-in-production-1234567890"
-        )
-        logger.warning("Using dev fallback SESSION_SECRET (min 32 chars).")
-    else:
-        raise RuntimeError(
-            "SESSION_SECRET environment variable is required and must be at least 32 characters in production mode."
-        )
 
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "").strip()
 if not IS_DEV and not FIREBASE_PROJECT_ID:
     raise RuntimeError("FIREBASE_PROJECT_ID environment variable is required in production mode.")
 
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_DAYS = 7
-PBKDF2_ITERATIONS = 600_000
-OLD_PBKDF2_ITERATIONS = 100_000
+# Initialize Firebase Admin SDK once at startup
+try:
+    if not firebase_admin._apps:
+        if FIREBASE_PROJECT_ID:
+            firebase_admin.initialize_app(options={"projectId": FIREBASE_PROJECT_ID})
+        else:
+            firebase_admin.initialize_app()
+except Exception as e:
+    logger.warning(f"firebase_admin initialization note: {e}")
+
+# In-memory certificate-cached request adapter for fallback verification
+_cached_session = CacheControl(requests.Session())
+_cached_request_adapter = google_requests.Request(session=_cached_session)
+
 MAX_AUDIO_SIZE = 5 * 1024 * 1024  # 5 MB
 VALID_AUDIO_EXTENSIONS = (".webm", ".ogg", ".mp3", ".wav", ".m4a", ".aac")
 
@@ -117,13 +115,28 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+
+    auth_domain = os.getenv("FIREBASE_AUTH_DOMAIN", "").strip()
+    frame_src_parts = ["https://accounts.google.com"]
+    if auth_domain:
+        if not auth_domain.startswith("https://"):
+            frame_src_parts.append(f"https://{auth_domain}")
+        else:
+            frame_src_parts.append(auth_domain)
+    frame_src = " ".join(frame_src_parts)
+
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com https://apis.google.com; "
+        "script-src 'self' https://apis.google.com https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
         "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://unpkg.com data:; "
         "img-src 'self' data: https:; "
-        "connect-src 'self' https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com; "
+        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com; "
+        f"frame-src {frame_src}; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
         "frame-ancestors 'none';"
     )
     return response
@@ -150,42 +163,139 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 # ---------------------------------------------------------------------------
-# Session JWT Helpers & FastAPI Authentication Dependency
+# Firebase Authentication & FastAPI Dependency
 # ---------------------------------------------------------------------------
-def create_session_token(user_id: str, provider: str = "credentials", token_version: int = 0) -> str:
-    """Generates signed HS256 JWT session token with 7-day expiry and token version claim."""
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": user_id,
-        "provider": provider,
-        "ver": int(token_version or 0),
-        "iat": now,
-        "exp": now + timedelta(days=JWT_EXPIRY_DAYS),
-    }
-    return jwt.encode(payload, SESSION_SECRET, algorithm=JWT_ALGORITHM)
+class AuthenticatedUser(str):
+    """
+    Represents an authenticated user verified via Firebase ID Token.
+    Subclasses str so it can be passed interchangeably anywhere a user_id string is expected,
+    while also exposing tenant attributes (firebase_uid, display_name, email, photo_url, auth_provider).
+    """
+    firebase_uid: str
+    display_name: str
+    photo_url: Optional[str]
+    auth_provider: str
+    email: str
+
+    def __new__(
+        cls,
+        user_id: str,
+        firebase_uid: str = "",
+        display_name: str = "",
+        photo_url: Optional[str] = None,
+        auth_provider: str = "google",
+        email: Optional[str] = None,
+    ):
+        instance = super().__new__(cls, user_id)
+        instance.user_id = user_id
+        instance.firebase_uid = firebase_uid
+        instance.display_name = display_name
+        instance.photo_url = photo_url
+        instance.auth_provider = auth_provider
+        instance.email = email or user_id
+        return instance
 
 
-def decode_session_token(token: str) -> Dict[str, Any]:
-    """Validates signature and claims of session JWT (strictly HS256, requires exp, sub, iat)."""
+def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
+    """
+    Verifies Firebase ID token server-side.
+    Uses firebase_admin with automatic fallback to certificate-cached google-auth id_token verification.
+    Enforces aud, iss, email presence, email_verified, and authorized providers (google.com or password).
+    """
+    project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    if not IS_DEV and not project_id:
+        raise RuntimeError("FIREBASE_PROJECT_ID environment variable is required in production mode.")
+
+    if not token or not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please sign in.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    claims = None
+    # 1. Primary verification via Firebase Admin SDK
     try:
-        return jwt.decode(
-            token,
-            SESSION_SECRET,
-            algorithms=[JWT_ALGORITHM],
-            options={"require": ["exp", "sub", "iat"]},
-        )
-    except jwt.ExpiredSignatureError:
+        claims = admin_auth.verify_id_token(token.strip(), check_revoked=False)
+    except Exception as admin_err:
+        # 2. Resilient fallback via google-auth with CacheControl session
+        try:
+            claims = google_id_token.verify_firebase_token(
+                token.strip(),
+                _cached_request_adapter,
+                audience=project_id if project_id else None,
+            )
+        except Exception as ga_err:
+            logger.warning(f"Firebase token verification failed (admin: {admin_err}, fallback: {ga_err})")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired authentication token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    if not isinstance(claims, dict):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session has expired. Please sign in again.",
+            detail="Invalid token claims.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except jwt.InvalidTokenError:
+
+    # Strictly assert audience and issuer
+    if project_id:
+        aud = claims.get("aud")
+        iss = claims.get("iss")
+        expected_iss = f"https://securetoken.google.com/{project_id}"
+        if aud != project_id:
+            logger.warning(f"Firebase token audience mismatch: got '{aud}', expected '{project_id}'")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Firebase token audience mismatch.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if iss != expected_iss:
+            logger.warning(f"Firebase token issuer mismatch: got '{iss}', expected '{expected_iss}'")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Firebase token issuer mismatch.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    # Provider enforcement: allow ONLY google.com and password
+    fb_claims = claims.get("firebase", {})
+    provider = fb_claims.get("sign_in_provider")
+    if provider not in ("google.com", "password"):
+        logger.warning(f"Unsupported sign-in provider attempted: '{provider}'")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token.",
+            detail="Unsupported authentication provider.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Email verification requirements
+    if provider == "password" and not claims.get("email_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="email_not_verified",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if provider == "google.com" and not claims.get("email_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email is not verified.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Non-empty email required
+    email = (claims.get("email") or "").strip()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token does not contain a verified email.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return claims
 
 
 security_bearer = HTTPBearer(auto_error=False)
@@ -195,11 +305,11 @@ async def get_current_user(
     request: Request,
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
     db: Session = Depends(get_db),
-) -> str:
+) -> AuthenticatedUser:
     """
     FastAPI dependency that reads Bearer token from Authorization header.
-    Validates token signature, expiration, account existence, and token_version match.
-    Guarantees tenant identity and provides instant token revocation.
+    Verifies Firebase token server-side, ensures a UserAccount row exists,
+    and returns AuthenticatedUser.
     """
     token = None
     if auth_header and auth_header.credentials:
@@ -216,35 +326,52 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    payload = decode_session_token(token)
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token claims.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    claims = verify_firebase_token_claims(token)
+    clean_uid = claims["email"].strip().lower()
+    provider_name = "google" if claims.get("firebase", {}).get("sign_in_provider") == "google.com" else "password"
+    disp_name = claims.get("name") or clean_uid.split("@")[0].capitalize()
+    photo_url = claims.get("picture")
+    firebase_uid = str(claims.get("uid") or claims.get("sub") or "")
 
-    clean_uid = str(user_id).strip()
-    token_ver = payload.get("ver", 0)
-
-    # Validate against DB: account must exist and token_version must match
+    # Upsert user account row
     account = db.query(UserAccount).filter(UserAccount.user_id == clean_uid).first()
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account does not exist or has been removed.",
-            headers={"WWW-Authenticate": "Bearer"},
+    if account:
+        account.last_login = get_pkt_now()
+        if firebase_uid:
+            account.firebase_uid = firebase_uid
+        if disp_name and (not account.display_name or account.display_name == clean_uid):
+            account.display_name = disp_name
+        if photo_url:
+            account.photo_url = photo_url
+        account.auth_provider = provider_name
+        account.email = clean_uid
+        account.identity_verified = True
+        account.password_hash = None
+    else:
+        account = UserAccount(
+            user_id=clean_uid,
+            firebase_uid=firebase_uid,
+            auth_provider=provider_name,
+            display_name=disp_name,
+            email=clean_uid,
+            photo_url=photo_url,
+            identity_verified=True,
+            password_hash=None,
+            token_version=0,
+            created_at=get_pkt_now(),
+            last_login=get_pkt_now(),
         )
+        db.add(account)
+    db.commit()
 
-    if (account.token_version or 0) != token_ver:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session has been revoked. Please sign in again.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return clean_uid
+    return AuthenticatedUser(
+        user_id=clean_uid,
+        firebase_uid=firebase_uid,
+        display_name=account.display_name or disp_name,
+        photo_url=account.photo_url or photo_url,
+        auth_provider=provider_name,
+        email=clean_uid,
+    )
 
 
 def verify_user_access(requested_user_id: str, authenticated_user_id: str):
@@ -258,204 +385,6 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
             detail="Access forbidden: you do not have permission to access another user's data.",
         )
 
-
-# ---------------------------------------------------------------------------
-# Password Hashing & Persistent Rate Limiting Helpers
-# ---------------------------------------------------------------------------
-def get_client_ip(request: Request) -> str:
-    """
-    Safely extracts client IP.
-    By default (TRUSTED_PROXY=false), ignores X-Forwarded-For to prevent spoofing.
-    Only trusts X-Forwarded-For when TRUSTED_PROXY is explicitly enabled.
-    """
-    trusted_proxy = os.getenv("TRUSTED_PROXY", "false").strip().lower() in ("true", "1", "yes")
-    if trusted_proxy:
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host.strip()
-    return "127.0.0.1"
-
-
-def check_rate_limit(
-    db: Session,
-    client_ip: str,
-    action: str,
-    identifier: str,
-    max_attempts: int = 5,
-    window_seconds: int = 60,
-):
-    """
-    Enforces persistent database-backed rate limiting across multiple workers.
-    Raises HTTP 429 Too Many Requests if threshold is exceeded.
-    Also automatically prunes stale attempt records older than 1 hour.
-    """
-    now = get_pkt_now()
-    # Prune stale records older than 1 hour to prevent unbounded growth of login_attempts table
-    prune_cutoff = now - timedelta(seconds=3600)
-    db.query(LoginAttempt).filter(LoginAttempt.attempted_at < prune_cutoff).delete(synchronize_session=False)
-
-    cutoff = now - timedelta(seconds=window_seconds)
-    key = f"{client_ip}:{action}:{identifier.lower()}"
-
-    count = (
-        db.query(func.count(LoginAttempt.id))
-        .filter(LoginAttempt.key == key, LoginAttempt.attempted_at >= cutoff)
-        .scalar()
-    ) or 0
-
-    if count >= max_attempts:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many attempts. Please wait a minute and try again.",
-        )
-
-
-def record_failed_attempt(db: Session, client_ip: str, action: str, identifier: str):
-    """Records an attempt in the persistent login_attempts table."""
-    now = get_pkt_now()
-    prune_cutoff = now - timedelta(seconds=3600)
-    db.query(LoginAttempt).filter(LoginAttempt.attempted_at < prune_cutoff).delete(synchronize_session=False)
-
-    key = f"{client_ip}:{action}:{identifier.lower()}"
-    attempt = LoginAttempt(key=key, attempted_at=now)
-    db.add(attempt)
-    db.commit()
-
-
-def clear_failed_attempts(db: Session, client_ip: str, action: str, identifier: str):
-    """Resets failed attempt counter upon successful authentication."""
-    key = f"{client_ip}:{action}:{identifier.lower()}"
-    db.query(LoginAttempt).filter(LoginAttempt.key == key).delete(synchronize_session=False)
-    db.commit()
-
-
-def clear_login_rate_limit(client_ip: str, identifier: str):
-    """Convenience helper to clear login rate limit for tests and administrative resets."""
-    is_email = "@" in identifier
-    uid = identifier.lower() if is_email else normalize_pakistan_phone(identifier)
-    db: Session = SessionLocal()
-    try:
-        clear_failed_attempts(db, client_ip, "login", uid)
-        clear_failed_attempts(db, "global", "acct_login", uid)
-    finally:
-        db.close()
-
-
-def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS) -> str:
-    """PBKDF2-HMAC-SHA256 password hash with 600,000 iterations and 16-byte random salt."""
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    salt_b64 = base64.b64encode(salt).decode("utf-8")
-    dk_b64 = base64.b64encode(dk).decode("utf-8")
-    return f"pbkdf2_sha256${iterations}${salt_b64}${dk_b64}"
-
-
-def verify_and_check_rehash(password: str, hashed: str) -> Tuple[bool, bool]:
-    """
-    Verifies password against stored hash.
-    Transparently supports legacy 100,000 iteration hashes and signals rehash on login.
-    Does NOT strip password.
-    """
-    if not hashed:
-        return False, False
-    try:
-        if hashed.startswith("pbkdf2_sha256$"):
-            parts = hashed.split("$")
-            if len(parts) == 4:
-                iters = int(parts[1])
-                salt = base64.b64decode(parts[2].encode("utf-8"))
-                expected_dk = base64.b64decode(parts[3].encode("utf-8"))
-                dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
-                valid = hmac.compare_digest(expected_dk, dk)
-                needs_rehash = valid and (iters < PBKDF2_ITERATIONS)
-                return valid, needs_rehash
-
-        # Legacy format: base64(salt + dk) with 100,000 iterations
-        raw = base64.b64decode(hashed.encode("utf-8"))
-        if len(raw) == 48:
-            salt = raw[:16]
-            expected_dk = raw[16:]
-            dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, OLD_PBKDF2_ITERATIONS)
-            if hmac.compare_digest(expected_dk, dk):
-                return True, True  # Needs upgrade to 600,000 iterations
-        return False, False
-    except Exception:
-        return False, False
-
-
-# Precomputed constant-time dummy hash to eliminate timing oracle on non-existent accounts
-DUMMY_PBKDF2_HASH = hash_password("dummy_password_timing_oracle", iterations=PBKDF2_ITERATIONS)
-
-
-
-def normalize_pakistan_phone(phone: str) -> str:
-    """Normalizes Pakistani phone numbers to standard E.164: +923001234567."""
-    digits = re.sub(r"[^\d+]", "", phone.strip())
-    if digits.startswith("03") and len(digits) == 11:
-        return "+92" + digits[1:]
-    if digits.startswith("923") and len(digits) == 12:
-        return "+" + digits
-    if digits.startswith("+923") and len(digits) == 13:
-        return digits
-    return digits
-
-
-def verify_firebase_id_token(id_token_str: str) -> Dict[str, Any]:
-    """
-    Verifies Firebase ID token server-side using google-auth.
-    Enforces non-empty project_id, matching audience, and valid issuer.
-    """
-    project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
-    if not id_token_str or not id_token_str.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Firebase id_token is required.",
-        )
-
-    if not project_id:
-        if not IS_DEV:
-            raise RuntimeError("FIREBASE_PROJECT_ID is not configured in production mode.")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Firebase authentication requires FIREBASE_PROJECT_ID to be configured.",
-        )
-
-    try:
-        request_adapter = google_requests.Request()
-        claims = google_id_token.verify_firebase_token(
-            id_token_str.strip(),
-            request_adapter,
-            audience=project_id,
-        )
-    except Exception as e:
-        logger.warning(f"Firebase token verification failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired Firebase authentication token.",
-        )
-
-    # Strictly verify audience and issuer
-    aud = claims.get("aud")
-    iss = claims.get("iss")
-    expected_iss = f"https://securetoken.google.com/{project_id}"
-
-    if aud != project_id:
-        logger.warning(f"Firebase token audience mismatch: got '{aud}', expected '{project_id}'")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Firebase token audience mismatch (token issued for different project).",
-        )
-
-    if iss != expected_iss:
-        logger.warning(f"Firebase token issuer mismatch: got '{iss}', expected '{expected_iss}'")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Firebase token issuer mismatch.",
-        )
-
-    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -803,172 +732,41 @@ async def get_user_transactions(
 
 
 # ---------------------------------------------------------------------------
-# API: Authentication & User Accounts (Google, Phone, Credentials & Guests)
+# API: Authentication & User Accounts (Firebase Auth Integration)
 # ---------------------------------------------------------------------------
-class RegisterPayload(BaseModel):
-    name: str
-    email_or_phone: str
-    password: str
-
-
-class PasswordLoginPayload(BaseModel):
-    email_or_phone: str
-    password: str
-
-
-class LoginPayload(BaseModel):
-    provider: str = "guest"  # 'google', 'phone', 'guest'
-    user_id: Optional[str] = None
-    email: Optional[str] = None
-    phone_number: Optional[str] = None
-    display_name: Optional[str] = None
-    photo_url: Optional[str] = None
-    id_token: Optional[str] = None
-
-
 @app.get("/api/auth/config")
 async def get_auth_config():
     """Returns public Firebase configuration for client SDK."""
     fb_key = os.getenv("FIREBASE_API_KEY", "")
+    cfg = {
+        "apiKey": fb_key,
+        "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
+        "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
+        "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
+        "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
+        "appId": os.getenv("FIREBASE_APP_ID", ""),
+    }
     return {
-        "firebase": {
-            "apiKey": fb_key,
-            "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
-            "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
-            "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
-            "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
-            "appId": os.getenv("FIREBASE_APP_ID", ""),
-        },
+        **cfg,
+        "firebase": cfg,
         "configured": bool(fb_key),
     }
 
 
-@app.post("/api/auth/login")
-async def auth_login(
-    request: Request,
-    payload: LoginPayload,
+@app.post("/api/auth/me")
+async def auth_me(
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Logs in or registers a user via Google, Phone Number, or Guest mode.
-    Enforces server-side token verification, pre-hijacking prevention, and issues signed JWT session tokens.
+    Returns the authenticated user's profile, upserting their account in SQLite.
+    Guarantees user ledger continuity with verified email.
     """
-    client_ip = get_client_ip(request)
-    provider = payload.provider.strip().lower()
-
-    if provider == "google":
-        # Strictly verify Firebase ID token server-side
-        if not payload.id_token:
-            raise HTTPException(status_code=400, detail="Firebase ID token is required for Google sign-in.")
-        claims = verify_firebase_id_token(payload.id_token)
-
-        # Check email_verified is True
-        if not claims.get("email_verified", False):
-            raise HTTPException(status_code=401, detail="Google account email is not verified.")
-
-        # Check sign_in_provider is google.com
-        sign_in_provider = claims.get("firebase", {}).get("sign_in_provider", "")
-        if sign_in_provider != "google.com":
-            raise HTTPException(status_code=401, detail="Token was not issued by Google sign-in provider.")
-
-        verified_email = claims.get("email")
-        if not verified_email:
-            raise HTTPException(status_code=401, detail="Google token does not contain a verified email.")
-        uid = verified_email.strip().lower()
-        display_name = claims.get("name") or uid.split("@")[0].title()
-        photo_url = claims.get("picture")
-        email = uid
-        phone_number = None
-
-    elif provider == "phone":
-        if payload.id_token:
-            # Verified via Firebase SMS OTP
-            claims = verify_firebase_id_token(payload.id_token)
-            verified_phone = claims.get("phone_number")
-            if not verified_phone:
-                raise HTTPException(status_code=401, detail="Phone token does not contain a verified phone number.")
-            uid = normalize_pakistan_phone(verified_phone)
-            display_name = uid
-            photo_url = None
-            email = None
-            phone_number = uid
-        elif IS_DEV and (payload.phone_number or payload.user_id):
-            # Development-only instant verification fallback for Pakistani numbers
-            raw_phone = (payload.phone_number or payload.user_id or "").strip()
-            uid = normalize_pakistan_phone(raw_phone)
-            display_name = uid
-            photo_url = None
-            email = None
-            phone_number = uid
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Firebase ID token is required for phone sign-in in this environment.",
-            )
-
-    else:
-        # Rate limit guest account generation
-        check_rate_limit(db, client_ip, "guest", client_ip, max_attempts=10, window_seconds=60)
-        record_failed_attempt(db, client_ip, "guest", client_ip)
-
-        # Secure Guest Mode: generate random unguessable guest ID
-        guest_uuid = uuid.uuid4().hex[:12]
-        uid = f"guest_{guest_uuid}"
-        display_name = f"Guest {guest_uuid[:4].upper()}"
-        email = None
-        phone_number = None
-        photo_url = None
-        provider = "guest"
-
-    account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
-    is_verified_provider = provider in ("google", "phone")
-
-    if account:
-        # Pre-hijacking mitigation: if account was registered with credentials without verification,
-        # or has an untrusted password_hash when claimed by a verified provider (Google or Phone OTP):
-        if is_verified_provider and (not account.identity_verified or account.password_hash or account.auth_provider == "credentials"):
-            logger.warning(
-                f"Verified {provider} sign-in for {uid}. Clearing unverified credentials "
-                "and revoking old sessions while preserving existing ledger data."
-            )
-            account.password_hash = None
-            account.identity_verified = True
-            account.auth_provider = provider
-            account.token_version = (account.token_version or 0) + 1
-
-        account.last_login = get_pkt_now()
-        if display_name:
-            account.display_name = display_name
-        if photo_url:
-            account.photo_url = photo_url
-        if email:
-            account.email = email
-        if phone_number:
-            account.phone_number = phone_number
-        if provider != "guest":
-            account.auth_provider = provider
-        if is_verified_provider:
-            account.identity_verified = True
-    else:
-        account = UserAccount(
-            user_id=uid,
-            auth_provider=provider,
-            display_name=display_name,
-            email=email,
-            phone_number=phone_number,
-            photo_url=photo_url,
-            identity_verified=is_verified_provider,
-            token_version=0,
-            created_at=get_pkt_now(),
-            last_login=get_pkt_now(),
-        )
-        db.add(account)
-
-    db.commit()
-    session_token = create_session_token(uid, provider, token_version=account.token_version or 0)
+    account = db.query(UserAccount).filter(UserAccount.user_id == str(current_user)).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="User account not found.")
     return {
         "status": "success",
-        "token": session_token,
         "user": account.to_dict(),
     }
 
@@ -976,163 +774,24 @@ async def auth_login(
 @app.get("/api/auth/profile/{user_id}")
 async def get_user_profile(
     user_id: str,
-    current_user: str = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Retrieves user profile under multi-tenant isolation."""
     verify_user_access(user_id, current_user)
-    clean_uid = current_user
-    account = db.query(UserAccount).filter(UserAccount.user_id == clean_uid).first()
+    account = db.query(UserAccount).filter(UserAccount.user_id == str(current_user)).first()
     if account:
         return {"user": account.to_dict()}
     return {
         "user": {
-            "user_id": clean_uid,
-            "auth_provider": "guest",
-            "display_name": clean_uid.capitalize(),
-            "email": None,
-            "phone_number": clean_uid if clean_uid.startswith("+") else None,
-            "photo_url": None,
+            "user_id": str(current_user),
+            "auth_provider": current_user.auth_provider,
+            "display_name": current_user.display_name,
+            "email": current_user.email,
+            "phone_number": None,
+            "photo_url": current_user.photo_url,
         }
     }
-
-
-@app.post("/api/auth/register")
-async def auth_register(
-    request: Request,
-    payload: RegisterPayload,
-    db: Session = Depends(get_db),
-):
-    """Creates a new user account with Name, Email/Phone, and Password. Prevents account squatting and rate limits registrations."""
-    client_ip = get_client_ip(request)
-    check_rate_limit(db, client_ip, "register", client_ip, max_attempts=5, window_seconds=60)
-
-    ident = payload.email_or_phone.strip()
-    name = payload.name.strip()
-    password = payload.password  # Do NOT strip password
-
-    if not name or len(name) < 2:
-        raise HTTPException(status_code=400, detail="Name must be at least 2 characters.")
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
-
-    is_email = "@" in ident
-    if is_email:
-        email = ident.lower()
-        phone = None
-        uid = email
-    else:
-        email = None
-        phone = normalize_pakistan_phone(ident)
-        uid = phone
-
-    existing = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
-    if existing:
-        # Never silently take over an existing account row
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this email/phone already exists. Please sign in.",
-        )
-
-    pwd_hash = hash_password(password)
-
-    account = UserAccount(
-        user_id=uid,
-        auth_provider="credentials",
-        display_name=name,
-        email=email,
-        phone_number=phone,
-        password_hash=pwd_hash,
-        identity_verified=False,
-        token_version=0,
-        created_at=get_pkt_now(),
-        last_login=get_pkt_now(),
-    )
-    db.add(account)
-    db.commit()
-
-    record_failed_attempt(db, client_ip, "register", client_ip)
-    session_token = create_session_token(uid, "credentials", token_version=0)
-    return {
-        "status": "success",
-        "message": "Account created successfully!",
-        "token": session_token,
-        "user": account.to_dict(),
-    }
-
-
-@app.post("/api/auth/password-login")
-async def auth_password_login(
-    request: Request,
-    payload: PasswordLoginPayload,
-    db: Session = Depends(get_db),
-):
-    """Signs in user with Email/Phone and Password with rate limiting and uniform error reporting."""
-    ident = payload.email_or_phone.strip()
-    password = payload.password  # Do NOT strip password
-
-    client_ip = get_client_ip(request)
-
-    # Normalize identifier BEFORE rate limiting so 0300..., +92300..., 0300-... share the same bucket
-    is_email = "@" in ident
-    uid = ident.lower() if is_email else normalize_pakistan_phone(ident)
-
-    # Enforce 5 failed attempts/min per IP+normalized identifier with 429
-    check_rate_limit(db, client_ip, "login", uid, max_attempts=5, window_seconds=60)
-    # Also enforce 10 failed attempts/15min globally per account (distributed brute-force protection)
-    check_rate_limit(db, "global", "acct_login", uid, max_attempts=10, window_seconds=900)
-
-    account = db.query(UserAccount).filter(UserAccount.user_id == uid).first()
-    if not account or not account.password_hash:
-        # Eliminate timing oracle: perform dummy PBKDF2 verification with equal iterations
-        verify_and_check_rehash(password, DUMMY_PBKDF2_HASH)
-        record_failed_attempt(db, client_ip, "login", uid)
-        record_failed_attempt(db, "global", "acct_login", uid)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email/phone or password.",
-        )
-
-    is_valid, needs_rehash = verify_and_check_rehash(password, account.password_hash)
-    if not is_valid:
-        record_failed_attempt(db, client_ip, "login", uid)
-        record_failed_attempt(db, "global", "acct_login", uid)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email/phone or password.",
-        )
-
-    # Transparently upgrade 100k hashes to 600k on successful login
-    if needs_rehash:
-        account.password_hash = hash_password(password)
-
-    account.last_login = get_pkt_now()
-    db.commit()
-
-    clear_failed_attempts(db, client_ip, "login", uid)
-    clear_failed_attempts(db, "global", "acct_login", uid)
-    session_token = create_session_token(
-        uid,
-        account.auth_provider or "credentials",
-        token_version=account.token_version or 0,
-    )
-    return {
-        "status": "success",
-        "token": session_token,
-        "user": account.to_dict(),
-    }
-
-
-@app.post("/api/auth/logout-all")
-async def logout_all_sessions(
-    current_user: str = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Increments user's token_version, immediately revoking all issued JWT session tokens."""
-    account = db.query(UserAccount).filter(UserAccount.user_id == current_user).first()
-    if account:
-        account.token_version = (account.token_version or 0) + 1
-        db.commit()
-    return {"status": "success", "message": "All sessions revoked successfully. Please sign in again."}
 
 
 # ---------------------------------------------------------------------------

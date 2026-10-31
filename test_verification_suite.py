@@ -28,10 +28,10 @@ from analytics import (
     EXPORT_HEADER,
     month_start,
 )
-from main import app, create_session_token
+from main import app, verify_firebase_token_claims
 from agent import get_tools_for_user, clear_user_history
 
-TEST_USER = "test_verification_suite_user"
+TEST_USER = "test_verification_suite_user@example.com"
 
 
 def cleanup():
@@ -70,7 +70,18 @@ def run_tests():
     cleanup()
 
     client = TestClient(app)
-    token = create_session_token(TEST_USER)
+    token = "test-verification-token"
+    mock_claims = {
+        "uid": f"uid-{TEST_USER}",
+        "email": TEST_USER,
+        "email_verified": True,
+        "name": "Test User",
+        "aud": os.environ.get("FIREBASE_PROJECT_ID", "test-hisaab-ai-project"),
+        "iss": f"https://securetoken.google.com/{os.environ.get('FIREBASE_PROJECT_ID', 'test-hisaab-ai-project')}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    import main
+    main.verify_firebase_token_claims = lambda t: mock_claims
     auth_headers = {"Authorization": f"Bearer {token}"}
     results = {}
 

@@ -3,8 +3,10 @@
 venv/
 ENV/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
+*service*account*.json
+*credentials*.json
 
 # Database
 *.db

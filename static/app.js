@@ -127,6 +127,17 @@ tailwind.config = {
       return /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(str || '');
     }
 
+    function syncInputScriptDirection() {
+      if (!elements.messageInput) return;
+      if (isUrduScript(elements.messageInput.value)) {
+        elements.messageInput.classList.add('font-ur', 'font-nastaleeq');
+        elements.messageInput.setAttribute('dir', 'rtl');
+      } else {
+        elements.messageInput.classList.remove('font-ur', 'font-nastaleeq');
+        elements.messageInput.setAttribute('dir', 'ltr');
+      }
+    }
+
     // Initialize UI
     function initApp() {
       initElements();
@@ -136,15 +147,8 @@ tailwind.config = {
       // Auto-resize textarea and auto-detect Nastaleeq script
       elements.messageInput.addEventListener('input', function () {
         this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-
-        if (isUrduScript(this.value)) {
-          this.classList.add('font-nastaleeq', 'text-right', 'text-base', 'sm:text-lg', 'leading-loose');
-          this.setAttribute('dir', 'rtl');
-        } else {
-          this.classList.remove('font-nastaleeq', 'text-right', 'leading-loose');
-          this.setAttribute('dir', 'ltr');
-        }
+        this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+        syncInputScriptDirection();
       });
 
       // Enter key sends message (Shift+Enter for new line)
@@ -750,6 +754,7 @@ tailwind.config = {
       appendUserMessage(message, wasVoice ? 'Voice note, transcribed' : null);
       elements.messageInput.value = '';
       elements.messageInput.style.height = 'auto';
+      syncInputScriptDirection();
 
       // Send to API
       await sendChatRequest({ message });
@@ -870,10 +875,10 @@ tailwind.config = {
             const audioBlob = new Blob(state.audioChunks, { type: state.mediaRecorder.mimeType || 'audio/webm' });
 
             // Speech-to-Text Paste-to-Composer Review Flow
-            const origPlaceholder = elements.messageInput.placeholder;
-            elements.messageInput.placeholder = "Transcribing voice note with Groq Whisper...";
+            const origPlaceholder = "اردو، پنجابی یا انگریزی میں بولیں یا لکھیں...";
+            elements.messageInput.placeholder = "آواز تحریر میں تبدیل ہو رہی ہے...";
             elements.messageInput.disabled = true;
-            showToast("Transcribing voice note...", "info");
+            showToast("آواز تحریر میں تبدیل ہو رہی ہے...", "info");
 
             try {
               const formData = new FormData();
@@ -892,18 +897,19 @@ tailwind.config = {
               if (data.transcript && data.transcript.trim()) {
                 elements.messageInput.value = data.transcript.trim();
                 elements.messageInput.style.height = 'auto';
-                elements.messageInput.style.height = Math.min(elements.messageInput.scrollHeight, 120) + 'px';
+                elements.messageInput.style.height = Math.min(elements.messageInput.scrollHeight, 140) + 'px';
+                syncInputScriptDirection();
                 state.pendingVoiceNote = true;
-                showToast("Voice transcribed into chat box! Review, edit if needed, and click Send.", "success");
+                showToast("🎤 آواز چیٹ باکس میں تحریر ہو گئی! جائزہ لیں اور Send دبائیں۔", "success");
               } else {
-                showToast("No speech recognized. Please speak closer to your mic.", "warning");
+                showToast("کوئی آواز ریکارڈ نہیں ہوئی۔ مائیک کے قریب بولیں۔", "warning");
               }
             } catch (err) {
               console.error("Transcription error:", err);
-              showToast(err.message || "Failed to transcribe voice note.", "error");
+              showToast(err.message || "آواز تحریر کرنے میں مسئلہ پیش آیا۔", "error");
             } finally {
               elements.messageInput.disabled = false;
-              elements.messageInput.placeholder = "Type in English, Urdu or Roman Urdu";
+              elements.messageInput.placeholder = origPlaceholder;
               elements.messageInput.focus();
             }
           }
@@ -1053,13 +1059,14 @@ tailwind.config = {
       wrapper.className = 'bubble-user';
 
       const isUrdu = isUrduScript(text);
-      const nastaleeqClass = isUrdu ? 'font-ur text-base sm:text-lg leading-loose text-right' : 'text-sm sm:text-base leading-relaxed';
+      if (isUrdu) wrapper.classList.add('has-urdu');
+      const nastaleeqClass = isUrdu ? 'font-ur font-nastaleeq' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
 
       let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
       if (voiceSubtext) {
         innerContent = `
-          <div class="voice-note-tag mb-1">
+          <div class="voice-note-tag">
             <i data-lucide="mic" class="w-3.5 h-3.5"></i> ${escapeHtml(voiceSubtext)}
           </div>
           <p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>
@@ -1077,7 +1084,8 @@ tailwind.config = {
       wrapper.className = 'bubble-assistant';
 
       const isUrdu = isUrduScript(markdownContent);
-      const nastaleeqClass = isUrdu ? 'font-ur text-base sm:text-lg leading-loose' : 'text-sm sm:text-base leading-relaxed';
+      if (isUrdu) wrapper.classList.add('has-urdu');
+      const nastaleeqClass = isUrdu ? 'font-ur font-nastaleeq' : 'text-sm sm:text-base leading-relaxed';
       const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
       const parsedHtml = DOMPurify.sanitize(marked.parse(markdownContent || ''));
 
@@ -1113,9 +1121,9 @@ tailwind.config = {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant loading-bubble';
       wrapper.innerHTML = `
-        <div class="flex items-center gap-2 text-xs text-mut">
+        <div class="flex items-center gap-2 text-xs text-mut font-ur">
           <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brass"></i>
-          <span>HisaabAI is thinking...</span>
+          <span>حساب کتاب دیکھا جا رہا ہے...</span>
         </div>
       `;
       elements.messagesContainer.appendChild(wrapper);
@@ -1162,11 +1170,11 @@ tailwind.config = {
           banner.id = 'pending-expense-banner';
           banner.className = 'm hold';
           banner.innerHTML = `
-            <strong>Rs ${formatMoney(p.total_amount)} is unusually large.</strong>
-            <p style="color:var(--mut);margin-top:2px">Nothing is saved yet. Confirm to record this expense${p.store_name ? ` (${escapeHtml(p.store_name)} · ${escapeHtml(p.payment_method)})` : ''}.</p>
-            <div class="acts">
-              <button id="btn-confirm-pending" class="btn go">Confirm expense</button>
-              <button id="btn-cancel-pending" class="btn no">Cancel</button>
+            <strong class="font-ur text-base" style="line-height:2.2">PKR ${formatMoney(p.total_amount)} ایک بڑی رقم ہے۔</strong>
+            <p class="font-ur text-sm" style="color:var(--mut);margin-top:4px;line-height:2">ابھی تک کچھ محفوظ نہیں ہوا۔ کیا آپ یہ خرچہ درج کرنا چاہتے ہیں؟${p.store_name ? ` (${escapeHtml(p.store_name)} · ${escapeHtml(p.payment_method)})` : ''}</p>
+            <div class="acts mt-2">
+              <button id="btn-confirm-pending" class="btn go font-ur">خرچہ درج کریں (Confirm)</button>
+              <button id="btn-cancel-pending" class="btn no font-ur">منسوخ کریں (Cancel)</button>
             </div>
           `;
           elements.messagesContainer.appendChild(banner);
@@ -1175,7 +1183,7 @@ tailwind.config = {
 
           document.getElementById('btn-confirm-pending')?.addEventListener('click', async () => {
             banner.remove();
-            appendUserMessage("Haan, confirm kar do.");
+            appendUserMessage("ہاں، تصدیق کر دیں (Confirm)");
             const resp = await authFetch('/api/transactions/pending/confirm', { method: 'POST' });
             const resData = await resp.json();
             if (resp.ok) {
@@ -1195,7 +1203,7 @@ tailwind.config = {
 
           document.getElementById('btn-cancel-pending')?.addEventListener('click', async () => {
             banner.remove();
-            appendUserMessage("Nahi, cancel kar do.");
+            appendUserMessage("نہیں، منسوخ کر دیں (Cancel)");
             const resp = await authFetch('/api/transactions/pending/cancel', { method: 'POST' });
             const resData = await resp.json();
             if (resp.ok) {
@@ -1236,7 +1244,7 @@ tailwind.config = {
       // 1. KPI Cards / Hero
       elements.kpiMonthlyTotal.textContent = `${formatMoney(data.monthly_total || 0)}`;
       elements.kpiVisitCount.textContent = data.monthly_count || 0;
-      elements.kpiTopStore.textContent = data.top_store || 'N/A';
+      elements.kpiTopStore.textContent = data.top_store || 'درج نہیں';
 
       const heroBar = document.querySelector('.ledger-hero-bar');
       if (heroBar) {
@@ -1274,19 +1282,23 @@ tailwind.config = {
           elements.storeBreakdownContainer.appendChild(pill);
         });
       } else {
-        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-mut italic">No store data yet for this user.</span>`;
+        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-mut italic font-ur">ابھی تک کوئی دکان ریکارڈ میں نہیں۔</span>`;
       }
 
       // 3. Transactions List
       const txs = data.recent_transactions || [];
-      elements.txCountBadge.textContent = `${txs.length} records`;
+      if (txs.length === 0) {
+        elements.txCountBadge.textContent = 'اس مہینے کا کوئی خرچہ درج نہیں ہے';
+      } else {
+        elements.txCountBadge.textContent = `${txs.length} ریکارڈز`;
+      }
       elements.transactionsList.innerHTML = '';
 
       if (txs.length === 0) {
         elements.transactionsList.innerHTML = `
-          <div class="text-center py-10 text-mut text-xs">
+          <div class="text-center py-10 text-mut text-xs font-ur">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-            No transactions found for <strong>${escapeHtml(state.userId)}</strong>.<br>Record an expense to see it here!
+            ابھی تک کوئی خرچہ ریکارڈ نہیں ہوا۔<br>چیٹ میں اپنا پہلا خرچہ بولیں یا لکھیں!
           </div>
         `;
         lucide.createIcons();
@@ -1341,7 +1353,7 @@ tailwind.config = {
           e.stopPropagation();
           const txId = btn.getAttribute('data-id');
           const store = btn.getAttribute('data-store');
-          if (confirm(`Are you sure you want to delete transaction #${txId} (${store})?`)) {
+          if (confirm(`کیا آپ واقعی اس خرچے کو مٹانا چاہتے ہیں؟ (#${txId} - ${store})`)) {
             await deleteTransaction(txId);
           }
         });
@@ -1377,7 +1389,7 @@ tailwind.config = {
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
       if (!budgets.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic">No budget set. Add one below or say "mera mahana budget 50000 hai".</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic font-ur">کوئی بجٹ مقرر نہیں ہے۔ نیچے شامل کریں یا چیٹ میں لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>`;
         return;
       }
       box.innerHTML = '';
@@ -1385,12 +1397,12 @@ tailwind.config = {
         const pct = Math.min(b.percent, 100);
         const barColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
         const txtColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
-        const label = b.category === 'total' ? 'Overall' : b.category;
+        const label = b.category === 'total' ? 'کل بجٹ (Overall)' : b.category;
         const row = document.createElement('div');
         row.className = 'budget-item-box';
         row.innerHTML = `
           <div class="budget-item-header">
-            <span class="font-medium text-tx capitalize">${escapeHtml(label)}</span>
+            <span class="font-medium text-tx capitalize font-ur">${escapeHtml(label)}</span>
             <span class="flex items-center gap-2">
               <span class="font-num tabular" style="color:${txtColor}">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
               <button class="delete-budget-btn btn-icon-del" data-id="${b.id}" title="Remove budget">
@@ -1402,9 +1414,9 @@ tailwind.config = {
             <div class="budget-fill-bar" style="width:${pct}%; background-color:${barColor};"></div>
           </div>
           ${b.level === 'over'
-            ? `<p class="text-[11px] mt-1 font-num tabular" style="color:var(--bad)">Over budget by PKR ${formatMoney(Math.abs(b.remaining_pkr))}</p>`
+            ? `<p class="text-xs mt-1 font-ur tabular" style="color:var(--bad)">بجٹ سے PKR ${formatMoney(Math.abs(b.remaining_pkr))} زیادہ خرچ ہو گئے</p>`
             : b.level === 'warning'
-              ? `<p class="text-[11px] mt-1 font-num tabular" style="color:var(--warn)">Only PKR ${formatMoney(b.remaining_pkr)} left this month</p>`
+              ? `<p class="text-xs mt-1 font-ur tabular" style="color:var(--warn)">اس مہینے صرف PKR ${formatMoney(b.remaining_pkr)} باقی ہیں</p>`
               : ''}
         `;
         box.appendChild(row);
@@ -1528,7 +1540,7 @@ tailwind.config = {
     function renderPaymentSplit(rows) {
       const box = document.getElementById('payment-split-container');
       if (!rows.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic">No payment data yet.</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic font-ur">ادائیگی کا کوئی ڈیٹا درج نہیں ہے۔</span>`;
         return;
       }
       const total = rows.reduce((s, r) => s + r.total_pkr, 0) || 1;
@@ -1543,9 +1555,9 @@ tailwind.config = {
             <div class="split-fill-cash" style="width: ${cashPct}%;"></div>
             <div class="split-fill-digital" style="width: ${digitalPct}%;"></div>
           </div>
-          <div class="flex items-center justify-between text-xs mt-1.5 font-num tabular">
-            <span class="text-brass">Cash: ${cashPct}% (PKR ${formatMoney(cash)})</span>
-            <span class="text-ok">Digital: ${digitalPct}% (PKR ${formatMoney(digital)})</span>
+          <div class="flex items-center justify-between text-xs mt-1.5 font-ur tabular">
+            <span class="text-brass">نقد (Cash): ${cashPct}% (PKR ${formatMoney(cash)})</span>
+            <span class="text-ok">ڈیجیٹل (Digital): ${digitalPct}% (PKR ${formatMoney(digital)})</span>
           </div>
         </div>
         ${rows.map(r => `
@@ -1559,26 +1571,26 @@ tailwind.config = {
     function renderRecurring(items) {
       const box = document.getElementById('recurring-container');
       if (!items.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic">No recurring bills. Add rent, LESCO, school fee, BC below.</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic font-ur">کوئی ماہانہ بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>`;
         return;
       }
       box.innerHTML = '';
       items.forEach(r => {
         const badge = r.paid_this_month
-          ? `<span class="px-2 py-0.5 rounded-full bg-ok/15 text-ok border border-ok/30 text-[10px] font-semibold">PAID</span>`
+          ? `<span class="px-2 py-0.5 rounded-full bg-ok/15 text-ok border border-ok/30 text-[10px] font-semibold font-ur">ادا شدہ</span>`
           : r.overdue
-            ? `<span class="px-2 py-0.5 rounded-full bg-bad/15 text-bad border border-bad/30 text-[10px] font-semibold">OVERDUE</span>`
-            : `<span class="px-2 py-0.5 rounded-full bg-warn/15 text-warn border border-warn/30 text-[10px] font-semibold">PENDING</span>`;
+            ? `<span class="px-2 py-0.5 rounded-full bg-bad/15 text-bad border border-bad/30 text-[10px] font-semibold font-ur">واجب الادا</span>`
+            : `<span class="px-2 py-0.5 rounded-full bg-warn/15 text-warn border border-warn/30 text-[10px] font-semibold font-ur">زیر التواء</span>`;
         const row = document.createElement('div');
         row.className = 'bill-row';
         row.innerHTML = `
           <div class="min-w-0">
-            <div class="bill-title capitalize truncate">${escapeHtml(r.title)}</div>
-            <div class="bill-sub font-num tabular">Due day ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
+            <div class="bill-sub font-ur tabular">تاریخ ادائیگی: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-3 h-3"></i> Mark paid</button>`}
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid font-ur" data-id="${r.id}"><i data-lucide="check" class="w-3 h-3"></i> ادا شدہ نشان لگائیں</button>`}
             <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
           </div>
         `;

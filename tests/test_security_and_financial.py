@@ -1,3 +1,4 @@
+import os
 import io
 import json
 import base64
@@ -82,129 +83,158 @@ def test_idor_cross_user_access_returns_403(client, auth_headers):
     assert resp.status_code == 403
 
 
-def test_forged_google_login_rejected(client):
-    """Forged Google login with missing or invalid token must be rejected."""
+def test_firebase_token_verification_cases(client, db):
+    """
+    Tests server-side Firebase ID token verification:
+    - Missing token -> 401
+    - Garbage token -> 401
+    - Unsupported provider ('phone', 'anonymous', 'custom') -> 401
+    - Password provider with email_verified=False -> 401 with 'email_not_verified'
+    - Password provider with email_verified=True -> 200 on /api/auth/me and row upserted
+    - Google provider with email_verified=True -> 200 on /api/auth/me and row upserted
+    - Google provider with email_verified=False -> 401
+    - Missing email -> 401
+    """
+    project_id = "test-hisaab-ai-project"
+
     # 1. Missing token
-    resp = client.post("/api/auth/login", json={"provider": "google", "email": "attacker@gmail.com"})
-    assert resp.status_code == 400
+    resp = client.post("/api/auth/me")
+    assert resp.status_code == 401
 
-    # 2. Forged invalid token: test real verify_firebase_id_token exception path
-    with patch("google.oauth2.id_token.verify_firebase_token", side_effect=Exception("Invalid signature")):
-        resp = client.post(
-            "/api/auth/login",
-            json={"provider": "google", "id_token": "fake_forged_jwt_token", "email": "attacker@gmail.com"},
-        )
-        assert resp.status_code == 401
+    # 2. Garbage token
+    resp_garbage = client.post("/api/auth/me", headers={"Authorization": "Bearer not-a-valid-jwt"})
+    assert resp_garbage.status_code == 401
 
-
-def test_account_squatting_prevented(client, db):
-    """Registering with an already existing identifier must return an error and never overwrite existing account."""
-    # 1. First registration succeeds
-    payload = {
-        "name": "Original User",
-        "email_or_phone": "victim@example.com",
-        "password": "CorrectPassword123!",
+    # 3. Unsupported provider (phone)
+    phone_claims = {
+        "email": "phone_user@example.com",
+        "email_verified": True,
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "phone"},
     }
-    resp = client.post("/api/auth/register", json=payload)
-    assert resp.status_code == 200
-    assert "token" in resp.json()
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=phone_claims):
+            resp_phone = client.post("/api/auth/me", headers={"Authorization": "Bearer phone-token"})
+            assert resp_phone.status_code == 401
+            assert "unsupported" in resp_phone.json()["detail"].lower()
 
-    # 2. Second registration for same email attempts to squat
-    squatter_payload = {
-        "name": "Attacker",
-        "email_or_phone": "victim@example.com",
-        "password": "HackerPassword999!",
+    # 4. Password provider with email_verified=False
+    pw_unverified_claims = {
+        "email": "unverified@example.com",
+        "email_verified": False,
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "password"},
     }
-    resp2 = client.post("/api/auth/register", json=squatter_payload)
-    assert resp2.status_code == 400
-    assert "already exists" in resp2.json()["detail"].lower()
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=pw_unverified_claims):
+            resp_unverified = client.post("/api/auth/me", headers={"Authorization": "Bearer unverified-token"})
+            assert resp_unverified.status_code == 401
+            assert resp_unverified.json()["detail"] == "email_not_verified"
 
-    # 3. Verify original account was not overwritten
-    account = db.query(UserAccount).filter(UserAccount.user_id == "victim@example.com").first()
-    assert account.display_name == "Original User"
+    # 5. Password provider with email_verified=True
+    pw_verified_claims = {
+        "uid": "fb-pw-user-1",
+        "email": "pw_verified@example.com",
+        "email_verified": True,
+        "name": "Password User",
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "password"},
+    }
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=pw_verified_claims):
+            resp_pw = client.post("/api/auth/me", headers={"Authorization": "Bearer valid-pw-token"})
+            assert resp_pw.status_code == 200
+            data = resp_pw.json()
+            assert data["status"] == "success"
+            assert data["user"]["user_id"] == "pw_verified@example.com"
+            assert data["user"]["auth_provider"] == "password"
+            assert data["user"]["firebase_uid"] == "fb-pw-user-1"
+
+    # 6. Google provider with email_verified=True
+    google_claims = {
+        "uid": "fb-google-user-1",
+        "email": "google_verified@example.com",
+        "email_verified": True,
+        "name": "Google User",
+        "picture": "https://lh3.googleusercontent.com/photo.jpg",
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=google_claims):
+            resp_g = client.post("/api/auth/me", headers={"Authorization": "Bearer valid-google-token"})
+            assert resp_g.status_code == 200
+            data_g = resp_g.json()
+            assert data_g["user"]["user_id"] == "google_verified@example.com"
+            assert data_g["user"]["auth_provider"] == "google"
+            assert data_g["user"]["photo_url"] == "https://lh3.googleusercontent.com/photo.jpg"
+
+    # 7. Google provider with email_verified=False
+    google_unverified_claims = {
+        "email": "google_bad@example.com",
+        "email_verified": False,
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=google_unverified_claims):
+            resp_gbad = client.post("/api/auth/me", headers={"Authorization": "Bearer bad-google-token"})
+            assert resp_gbad.status_code == 401
+
+    # 8. Missing email in token
+    no_email_claims = {
+        "email": "",
+        "email_verified": True,
+        "aud": project_id,
+        "iss": f"https://securetoken.google.com/{project_id}",
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+        with patch("google.oauth2.id_token.verify_firebase_token", return_value=no_email_claims):
+            resp_no_email = client.post("/api/auth/me", headers={"Authorization": "Bearer no-email-token"})
+            assert resp_no_email.status_code == 401
 
 
-def test_password_login_rate_limiting_and_uniform_errors(client):
+def test_removed_auth_endpoints_return_404(client):
     """
-    6th rapid wrong-password attempt must return 429 Too Many Requests.
-    Errors for unknown user and wrong password must be identical.
+    Deleted legacy authentication endpoints must return 404 Not Found.
     """
-    client_ip = "127.0.0.1"
-    ident = "testuser@example.com"
-    main.clear_login_rate_limit(client_ip, ident)
-
-    # First register user
-    client.post(
-        "/api/auth/register",
-        json={"name": "Test User", "email_or_phone": ident, "password": "ValidPassword123"},
-    )
-
-    # Unknown user attempt
-    resp_unknown = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": "nonexistent@example.com", "password": "SomePassword123"},
-    )
-    assert resp_unknown.status_code == 401
-    unknown_detail = resp_unknown.json()["detail"]
-
-    # Wrong password attempt (attempt 1)
-    resp_wrong = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": ident, "password": "WrongPassword!"},
-    )
-    assert resp_wrong.status_code == 401
-    assert resp_wrong.json()["detail"] == unknown_detail, "Error messages must be uniform to prevent enumeration"
-
-    # Rapid wrong password attempts 2, 3, 4, 5
-    for _ in range(4):
-        resp = client.post(
-            "/api/auth/password-login",
-            json={"email_or_phone": ident, "password": "WrongPassword!"},
-        )
-        assert resp.status_code == 401
-
-    # 6th attempt should be rate limited with HTTP 429
-    resp_6th = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": ident, "password": "WrongPassword!"},
-    )
-    assert resp_6th.status_code == 429, f"Expected 429, got {resp_6th.status_code}"
-    main.clear_login_rate_limit(client_ip, ident)
+    assert client.post("/api/auth/register", json={}).status_code == 404
+    assert client.post("/api/auth/password-login", json={}).status_code == 404
+    assert client.post("/api/auth/login", json={}).status_code == 404
+    assert client.post("/api/auth/logout-all").status_code == 404
 
 
-def test_password_hash_auto_migration_from_100k_to_600k(client, db):
-    """Legacy 100,000-iteration PBKDF2 hashes must transparently rehash to 600,000 on login."""
-    ident = "legacy@example.com"
-    password = "LegacyPassword123"
+def test_no_custom_jwt_or_pbkdf2_code():
+    """
+    Static code audit: main.py must not contain custom JWT or PBKDF2 password code.
+    """
+    with open("main.py", "r", encoding="utf-8") as f:
+        src = f.read()
 
-    # Insert legacy hash with 100,000 iterations
-    salt = b"0123456789abcdef"
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
-    legacy_hash = base64.b64encode(salt + dk).decode("utf-8")
+    assert "import jwt" not in src
+    assert "create_session_token" not in src
+    assert "decode_session_token" not in src
+    assert "hash_password" not in src
+    assert "DUMMY_PBKDF2_HASH" not in src
+    assert "SESSION_SECRET" not in src
 
-    account = UserAccount(
-        user_id=ident,
-        auth_provider="credentials",
-        display_name="Legacy User",
-        email=ident,
-        password_hash=legacy_hash,
-        created_at=get_pkt_now(),
-        last_login=get_pkt_now(),
-    )
-    db.add(account)
-    db.commit()
 
-    # Login with legacy password
-    resp = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": ident, "password": password},
-    )
+def test_firebase_auth_config_endpoint(client):
+    """
+    GET /api/auth/config returns public Firebase configuration without leaking backend secrets.
+    """
+    resp = client.get("/api/auth/config")
     assert resp.status_code == 200
-    assert "token" in resp.json()
+    cfg = resp.json()
+    assert "projectId" in cfg or "projectId" in cfg.get("firebase", {})
+    assert "apiKey" in cfg or "apiKey" in cfg.get("firebase", {})
 
-    # Verify that the DB hash was upgraded to 600,000 iterations
-    db.refresh(account)
-    assert account.password_hash.startswith("pbkdf2_sha256$600000$")
 
 
 def test_amount_handling_and_confirmation(client, db, auth_headers):
@@ -415,16 +445,6 @@ def test_recurring_bill_idempotency(db):
     assert tx_count == 1
 
 
-def test_guest_mode_random_uuid_and_isolation(client):
-    """Guest login generates random unguessable guest ID and cannot claim arbitrary IDs."""
-    resp = client.post("/api/auth/login", json={"provider": "guest"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "token" in data
-    assert data["user"]["user_id"].startswith("guest_")
-    assert len(data["user"]["user_id"]) > 10
-
-
 def test_audio_file_size_and_mimetype_validation(client, auth_headers):
     """Audio files > 5MB or invalid MIME-types must be rejected."""
     headers = auth_headers("audio_user")
@@ -447,177 +467,6 @@ def test_audio_file_size_and_mimetype_validation(client, auth_headers):
         headers=headers,
     )
     assert resp_large.status_code == 413
-
-
-def test_token_revocation_and_forgery_protections(client, db, make_token, auth_headers):
-    """
-    Validates token versioning, instant revocation, and forgery protections:
-    - Token version mismatch immediately returns 401
-    - 'Log out everywhere' (/api/auth/logout-all) revokes all previously issued tokens
-    - Deleted user account immediately returns 401
-    - Forged tokens (wrong secret, alg: none, expired) return 401
-    """
-    user_id = "revocation_user"
-    headers = auth_headers(user_id)
-
-    # 1. Active valid session works
-    resp = client.get(f"/api/transactions/{user_id}", headers=headers)
-    assert resp.status_code == 200
-
-    # 2. Call logout-all to bump token_version
-    resp_logout = client.post("/api/auth/logout-all", headers=headers)
-    assert resp_logout.status_code == 200
-    assert resp_logout.json()["status"] == "success"
-
-    # 3. Old token now rejected with 401
-    resp_revoked = client.get(f"/api/transactions/{user_id}", headers=headers)
-    assert resp_revoked.status_code == 401
-    assert "Session has been revoked" in resp_revoked.json()["detail"]
-
-    # 4. New token with updated token_version=1 works
-    new_headers = auth_headers(user_id, token_version=1)
-    resp_new = client.get(f"/api/transactions/{user_id}", headers=new_headers)
-    assert resp_new.status_code == 200
-
-    # 5. Token for deleted user is rejected with 401
-    acc = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
-    db.delete(acc)
-    db.commit()
-    resp_deleted = client.get(f"/api/transactions/{user_id}", headers=new_headers)
-    assert resp_deleted.status_code == 401
-    assert "User account does not exist" in resp_deleted.json()["detail"]
-
-    # 6. Forged token signed with wrong secret
-    import jwt
-    from datetime import timezone, timedelta
-    now = datetime.now(timezone.utc)
-    forged_token = jwt.encode(
-        {"sub": "attacker", "ver": 0, "iat": now, "exp": now + timedelta(days=1)},
-        "completely-wrong-secret-key-123456789012345",
-        algorithm="HS256",
-    )
-    resp_forged = client.get("/api/transactions/attacker", headers={"Authorization": f"Bearer {forged_token}"})
-    assert resp_forged.status_code == 401
-
-    # 7. Forged token with alg: none
-    none_token = jwt.encode(
-        {"sub": "attacker", "ver": 0, "iat": now, "exp": now + timedelta(days=1)},
-        key="",
-        algorithm="none",
-    )
-    resp_none = client.get("/api/transactions/attacker", headers={"Authorization": f"Bearer {none_token}"})
-    assert resp_none.status_code == 401
-
-    # 8. Expired token
-    expired_token = jwt.encode(
-        {"sub": user_id, "ver": 0, "iat": now - timedelta(days=10), "exp": now - timedelta(days=1)},
-        main.SESSION_SECRET,
-        algorithm="HS256",
-    )
-    resp_expired = client.get(f"/api/transactions/{user_id}", headers={"Authorization": f"Bearer {expired_token}"})
-    assert resp_expired.status_code == 401
-    assert "expired" in resp_expired.json()["detail"].lower()
-
-
-def test_pre_hijacking_mitigation_and_google_claims(client, db):
-    """
-    Prevents pre-hijacking attacks where an attacker pre-registers victim's email:
-    - If user later authenticates via verified Google sign-in:
-      - Clears password_hash so attacker password is neutralized
-      - Upgrades auth_provider to google
-      - Increments token_version so attacker's active tokens are revoked
-    - Rejects Google token if email_verified is False
-    - Rejects Google token if sign_in_provider is not google.com
-    """
-    victim_email = "victim.student@gmail.com"
-
-    # 1. Attacker pre-registers account with password
-    resp_reg = client.post(
-        "/api/auth/register",
-        json={"name": "Attacker", "email_or_phone": victim_email, "password": "AttackerPassword123"},
-    )
-    assert resp_reg.status_code == 200
-    attacker_token = resp_reg.json()["token"]
-
-    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
-    assert account.password_hash is not None
-    assert account.auth_provider == "credentials"
-    old_version = account.token_version
-
-    # 2. Fake Google login with email_verified=False is rejected
-    fake_claims_unverified = {
-        "email": victim_email,
-        "email_verified": False,
-        "firebase": {"sign_in_provider": "google.com"},
-        "name": "Victim Real",
-    }
-    with patch("main.verify_firebase_id_token", return_value=fake_claims_unverified):
-        resp_unverified = client.post(
-            "/api/auth/login",
-            json={"provider": "google", "id_token": "valid_structure_unverified_email"},
-        )
-        assert resp_unverified.status_code == 401
-        assert "not verified" in resp_unverified.json()["detail"]
-
-    # 3. Fake Google login with wrong sign_in_provider (e.g. password/anonymous) is rejected
-    fake_claims_wrong_provider = {
-        "email": victim_email,
-        "email_verified": True,
-        "firebase": {"sign_in_provider": "password"},
-        "name": "Victim Real",
-    }
-    with patch("main.verify_firebase_id_token", return_value=fake_claims_wrong_provider):
-        resp_wrong_prov = client.post(
-            "/api/auth/login",
-            json={"provider": "google", "id_token": "token_with_password_provider"},
-        )
-        assert resp_wrong_prov.status_code == 401
-        assert "provider" in resp_wrong_prov.json()["detail"].lower()
-
-    # 4. Legitimate Google login by real victim
-    legit_google_claims = {
-        "email": victim_email,
-        "email_verified": True,
-        "firebase": {"sign_in_provider": "google.com"},
-        "name": "Victim Real Name",
-        "picture": "https://lh3.googleusercontent.com/avatar",
-    }
-    with patch("main.verify_firebase_id_token", return_value=legit_google_claims):
-        resp_legit = client.post(
-            "/api/auth/login",
-            json={"provider": "google", "id_token": "valid_real_google_token"},
-        )
-        assert resp_legit.status_code == 200
-        victim_token = resp_legit.json()["token"]
-
-    # 5. Check database state: password neutralized, provider elevated, version bumped
-    db.expire_all()
-    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
-    assert account.password_hash is None, "Attacker password must be wiped"
-    assert account.auth_provider == "google"
-    assert account.token_version > old_version, "Token version must be incremented"
-    assert account.display_name == "Victim Real Name"
-
-    # 6. Attacker tries to use previously issued session token -> 401 Revoked
-    resp_attacker_access = client.get(
-        f"/api/transactions/{victim_email}",
-        headers={"Authorization": f"Bearer {attacker_token}"},
-    )
-    assert resp_attacker_access.status_code == 401
-
-    # 7. Attacker tries to log in with old password -> 401 Invalid credentials
-    resp_attacker_login = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": victim_email, "password": "AttackerPassword123"},
-    )
-    assert resp_attacker_login.status_code == 401
-
-    # 8. Victim's Google token works properly
-    resp_victim_access = client.get(
-        f"/api/transactions/{victim_email}",
-        headers={"Authorization": f"Bearer {victim_token}"},
-    )
-    assert resp_victim_access.status_code == 200
 
 
 def test_soft_delete_leak_audit_across_all_analytics(client, db, auth_headers):
@@ -780,11 +629,10 @@ def test_server_held_pending_transaction_ui_endpoints(client, db, auth_headers):
 def test_fail_closed_environment_and_secret_requirements():
     """
     Verifies that system default is production (fail-closed),
-    and production requires a strong SESSION_SECRET >= 32 chars.
+    and IS_DEV is properly set in test harness.
     """
-    # Verify IS_DEV in test environment
     assert main.IS_DEV is True
-    assert len(main.SESSION_SECRET) >= 32
+    assert bool(os.environ.get("FIREBASE_PROJECT_ID"))
 
 
 def test_concurrent_pending_confirm_race(client, db, auth_headers):
@@ -839,7 +687,7 @@ def test_agent_cannot_confirm_pending_expense():
 
 def test_firebase_audience_and_issuer_verification(client):
     """
-    P0-3 Regression: verify_firebase_id_token must strictly assert claims['aud'] == project_id
+    P0-3 Regression: verify_firebase_token_claims must strictly assert claims['aud'] == project_id
     and claims['iss'] == f'https://securetoken.google.com/{project_id}'.
     Rejects tokens from attacker's rogue Firebase projects.
     """
@@ -854,10 +702,11 @@ def test_firebase_audience_and_issuer_verification(client):
         "firebase": {"sign_in_provider": "google.com"},
     }
     with patch("os.getenv", side_effect=lambda k, d=None: project_id if k == "FIREBASE_PROJECT_ID" else (d if d is not None else "")):
-        with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_aud):
-            resp = client.post("/api/auth/login", json={"provider": "google", "id_token": "token_with_wrong_aud"})
-            assert resp.status_code == 401
-            assert "audience" in resp.json()["detail"].lower()
+        with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+            with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_aud):
+                resp = client.post("/api/auth/me", headers={"Authorization": "Bearer token_with_wrong_aud"})
+                assert resp.status_code == 401
+                assert "audience" in resp.json()["detail"].lower()
 
     # 2. Wrong iss
     fake_claims_wrong_iss = {
@@ -868,10 +717,11 @@ def test_firebase_audience_and_issuer_verification(client):
         "firebase": {"sign_in_provider": "google.com"},
     }
     with patch("os.getenv", side_effect=lambda k, d=None: project_id if k == "FIREBASE_PROJECT_ID" else (d if d is not None else "")):
-        with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_iss):
-            resp = client.post("/api/auth/login", json={"provider": "google", "id_token": "token_with_wrong_iss"})
-            assert resp.status_code == 401
-            assert "issuer" in resp.json()["detail"].lower()
+        with patch("main.admin_auth.verify_id_token", side_effect=Exception("Admin fallback")):
+            with patch("google.oauth2.id_token.verify_firebase_token", return_value=fake_claims_wrong_iss):
+                resp = client.post("/api/auth/me", headers={"Authorization": "Bearer token_with_wrong_iss"})
+                assert resp.status_code == 401
+                assert "issuer" in resp.json()["detail"].lower()
 
 
 def test_firebase_project_id_required_in_production(monkeypatch):
@@ -882,201 +732,9 @@ def test_firebase_project_id_required_in_production(monkeypatch):
     monkeypatch.setattr("main.IS_DEV", False)
     monkeypatch.setenv("FIREBASE_PROJECT_ID", "")
     with pytest.raises(RuntimeError) as exc_info:
-        main.verify_firebase_id_token("any_token")
+        main.verify_firebase_token_claims("any_token")
     assert "FIREBASE_PROJECT_ID" in str(exc_info.value)
 
-
-def test_phone_pre_hijack_takeover_and_data_cleanup(client, db):
-    """
-    P1-1 Regression: Attacker registers victim's phone number with a password and seeds transactions.
-    When victim authenticates via verified phone OTP:
-    - Attacker's password must be wiped
-    - Attacker's session token must be revoked (401)
-    - Pre-seeded attacker transactions must be soft-deleted and not visible to victim
-    - Account identity_verified must be set to True
-    """
-    victim_phone = "+923001234567"
-
-    # 1. Attacker registers victim's phone number with credentials
-    resp_reg = client.post(
-        "/api/auth/register",
-        json={"name": "Attacker", "email_or_phone": victim_phone, "password": "AttackerPass123!"},
-    )
-    assert resp_reg.status_code == 200
-    attacker_token = resp_reg.json()["token"]
-
-    # Attacker seeds a transaction
-    tx_attacker = Transaction(
-        user_id=victim_phone,
-        store_name="attacker evil store",
-        total_amount=5000.0,
-        transaction_date=get_pkt_now(),
-        payment_method="cash",
-    )
-    db.add(tx_attacker)
-    db.add(Budget(user_id=victim_phone, category="total", monthly_limit=50000.0))
-    db.commit()
-
-    # 2. Real victim signs in with verified phone OTP
-    project_id = "test-hisaab-ai-project"
-    verified_phone_claims = {
-        "phone_number": victim_phone,
-        "aud": project_id,
-        "iss": f"https://securetoken.google.com/{project_id}",
-        "firebase": {"sign_in_provider": "phone"},
-    }
-    with patch("main.verify_firebase_id_token", return_value=verified_phone_claims):
-        resp_otp = client.post(
-            "/api/auth/login",
-            json={"provider": "phone", "id_token": "valid_phone_otp_token"},
-        )
-        assert resp_otp.status_code == 200
-        victim_token = resp_otp.json()["token"]
-
-    # 3. Check DB state
-    db.expire_all()
-    account = db.query(UserAccount).filter(UserAccount.user_id == victim_phone).first()
-    assert account.identity_verified is True, "Account must be marked identity_verified=True"
-    assert account.password_hash is None, "Attacker password hash must be cleared"
-    assert account.auth_provider == "phone"
-
-    # 4. Attacker's token is revoked
-    resp_attacker_tx = client.get(
-        f"/api/transactions/{victim_phone}",
-        headers={"Authorization": f"Bearer {attacker_token}"},
-    )
-    assert resp_attacker_tx.status_code == 401
-
-    # 5. Attacker cannot log in with old password
-    resp_attacker_login = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": victim_phone, "password": "AttackerPass123!"},
-    )
-    assert resp_attacker_login.status_code == 401
-
-    # 6. Pre-existing transactions & budgets must be PRESERVED for the legitimate user
-    resp_victim_ledger = client.get(
-        f"/api/transactions/{victim_phone}",
-        headers={"Authorization": f"Bearer {victim_token}"},
-    )
-    assert resp_victim_ledger.status_code == 200
-    ledger_data = resp_victim_ledger.json()
-    assert ledger_data["monthly_total"] == 5000.0, "Pre-existing transactions must be preserved for verified user"
-    assert len(ledger_data["recent_transactions"]) == 1
-    assert ledger_data["recent_transactions"][0]["store_name"] == "attacker evil store"
-    assert len(ledger_data["budgets"]) == 1, "Pre-existing budgets must be preserved"
-
-
-def test_email_squat_reclaim(client, db):
-    """
-    Regression: Attacker squats victim's email address using password registration and creates transactions.
-    When the legitimate victim signs in with verified Google OAuth:
-    - Attacker password_hash is wiped (set to None)
-    - Attacker's active session token is immediately revoked (401)
-    - Attacker cannot log in with the old password (401)
-    - Legitimate user's token works and prior ledger data (transactions & budgets) is preserved
-    - Account identity_verified is marked True and provider is updated to 'google'
-    """
-    victim_email = "victim_squat@example.com"
-
-    # 1. Attacker squats victim's email with password registration
-    resp_reg = client.post(
-        "/api/auth/register",
-        json={"name": "Attacker Squatter", "email_or_phone": victim_email, "password": "EvilPassword123!"},
-    )
-    assert resp_reg.status_code == 200
-    attacker_token = resp_reg.json()["token"]
-
-    # Attacker seeds transactions & budgets
-    db.add(
-        Transaction(
-            user_id=victim_email,
-            store_name="grocery store",
-            total_amount=3500.0,
-            transaction_date=get_pkt_now(),
-            payment_method="cash",
-        )
-    )
-    db.add(Budget(user_id=victim_email, category="total", monthly_limit=40000.0))
-    db.commit()
-
-    # 2. Legitimate victim signs in with verified Google token
-    project_id = "test-hisaab-ai-project"
-    google_claims = {
-        "email": victim_email,
-        "email_verified": True,
-        "name": "Victim Owner",
-        "aud": project_id,
-        "iss": f"https://securetoken.google.com/{project_id}",
-        "firebase": {"sign_in_provider": "google.com"},
-    }
-    with patch("main.verify_firebase_id_token", return_value=google_claims):
-        resp_google = client.post(
-            "/api/auth/login",
-            json={"provider": "google", "id_token": "valid_google_token"},
-        )
-        assert resp_google.status_code == 200
-        victim_token = resp_google.json()["token"]
-
-    # 3. Assert DB state
-    db.expire_all()
-    account = db.query(UserAccount).filter(UserAccount.user_id == victim_email).first()
-    assert account.identity_verified is True
-    assert account.password_hash is None, "Password hash must be cleared upon verified Google claim"
-    assert account.auth_provider == "google"
-
-    # 4. Attacker token is revoked
-    resp_attacker_check = client.get(
-        f"/api/transactions/{victim_email}",
-        headers={"Authorization": f"Bearer {attacker_token}"},
-    )
-    assert resp_attacker_check.status_code == 401, "Attacker old session must be rejected with 401"
-
-    # 5. Attacker cannot log in with password
-    resp_attacker_pw = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": victim_email, "password": "EvilPassword123!"},
-    )
-    assert resp_attacker_pw.status_code == 401
-
-    # 6. Victim can access ledger and all data is preserved
-    resp_victim_ledger = client.get(
-        f"/api/transactions/{victim_email}",
-        headers={"Authorization": f"Bearer {victim_token}"},
-    )
-    assert resp_victim_ledger.status_code == 200
-    data = resp_victim_ledger.json()
-    assert data["monthly_total"] == 3500.0, "Transactions must be preserved for real user"
-    assert len(data["recent_transactions"]) == 1
-    assert len(data["budgets"]) == 1
-
-
-def test_rate_limit_per_account_lockout_across_ips(client, db):
-    """
-    Regression: A distributed brute-force attacker uses multiple IP addresses targeting a single account.
-    Even though each IP makes only 1 attempt, the per-account bucket must trigger 429 on the 11th attempt.
-    """
-    target_account = "victim_brute@example.com"
-    main.clear_failed_attempts(db, "global", "acct_login", target_account)
-
-    # Make 10 failed attempts from 10 distinct IP addresses
-    for i in range(10):
-        client_ip = f"10.200.1.{i + 1}"
-        main.clear_failed_attempts(db, client_ip, "login", target_account)
-        with patch("main.get_client_ip", return_value=client_ip):
-            resp = client.post(
-                "/api/auth/password-login",
-                json={"email_or_phone": target_account, "password": f"wrong_guess_{i}"},
-            )
-            assert resp.status_code == 401
-
-    # 11th attempt from an 11th new IP address must trigger HTTP 429 Too Many Requests
-    with patch("main.get_client_ip", return_value="10.200.1.99"):
-        resp_locked = client.post(
-            "/api/auth/password-login",
-            json={"email_or_phone": target_account, "password": "wrong_guess_11"},
-        )
-        assert resp_locked.status_code == 429, "Per-account lockout must trip across distributed IPs"
 
 
 def test_pending_confirm_single_transaction_rollback_restores_pending_row(client, db):
@@ -1112,13 +770,13 @@ def test_pending_confirm_single_transaction_rollback_restores_pending_row(client
     assert db.query(Transaction).filter(Transaction.user_id == user_id).count() == 0
 
 
-def test_expired_pending_transaction_cannot_be_claimed(client, db):
+def test_expired_pending_transaction_cannot_be_claimed(client, db, auth_headers):
     """
     Regression: Expired pending transactions (expires_at <= now) must NOT be claimed by the DELETE WHERE clause.
     Must return 409 Conflict.
     """
     user_id = "test_expired_claim_user@example.com"
-    db.add(UserAccount(user_id=user_id, auth_provider="guest", token_version=0))
+    db.add(UserAccount(user_id=user_id, auth_provider="google", token_version=0))
     now = get_pkt_now()
     pending = PendingTransaction(
         user_id=user_id,
@@ -1130,23 +788,23 @@ def test_expired_pending_transaction_cannot_be_claimed(client, db):
     db.add(pending)
     db.commit()
 
-    token = main.create_session_token(user_id, "guest")
+    headers = auth_headers(user_id)
     resp = client.post(
         "/api/transactions/pending/confirm",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     assert resp.status_code == 409
     assert "expired" in resp.json()["detail"].lower()
     assert db.query(Transaction).filter(Transaction.user_id == user_id).count() == 0
 
 
-def test_pending_buttons_restored_after_reload(client, db):
+def test_pending_buttons_restored_after_reload(client, db, auth_headers):
     """
     Regression: Active pending transaction is returned via GET /api/transactions/pending
     so the UI can restore the confirm/cancel action buttons when the user reloads the page.
     """
     user_id = "test_reload_user@example.com"
-    db.add(UserAccount(user_id=user_id, auth_provider="guest", token_version=0))
+    db.add(UserAccount(user_id=user_id, auth_provider="google", token_version=0))
     now = get_pkt_now()
     pending = PendingTransaction(
         user_id=user_id,
@@ -1159,10 +817,10 @@ def test_pending_buttons_restored_after_reload(client, db):
     db.add(pending)
     db.commit()
 
-    token = main.create_session_token(user_id, "guest")
+    headers = auth_headers(user_id)
     resp = client.get(
         "/api/transactions/pending",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -1170,98 +828,6 @@ def test_pending_buttons_restored_after_reload(client, db):
     assert data["pending"]["store_name"] == "Car Showroom"
     assert data["pending"]["total_amount"] == 12000000.0
     assert len(data["pending"]["items"]) == 1
-
-
-
-def test_rate_limit_x_forwarded_for_spoofing_prevented(client, db, monkeypatch):
-    """
-    P1-2 Regression: Attacker rotates X-Forwarded-For to bypass IP-based rate limiting.
-    When TRUSTED_PROXY is false (default), X-Forwarded-For must be ignored and the client
-    must be rate-limited after 5 failed login attempts.
-    """
-    monkeypatch.delenv("TRUSTED_PROXY", raising=False)
-    target_user = "test_spoof_user@example.com"
-
-    # Send 5 failed attempts with different spoofed X-Forwarded-For headers
-    for i in range(5):
-        resp = client.post(
-            "/api/auth/password-login",
-            json={"email_or_phone": target_user, "password": f"wrong_{i}"},
-            headers={"X-Forwarded-For": f"198.51.100.{i + 1}"},
-        )
-        assert resp.status_code == 401
-
-    # The 6th attempt from the same client must be blocked with HTTP 429 despite new spoofed header
-    resp_blocked = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": target_user, "password": "wrong_6"},
-        headers={"X-Forwarded-For": "198.51.100.99"},
-    )
-    assert resp_blocked.status_code == 429, "Spoofed X-Forwarded-For must not bypass rate limiting"
-
-
-def test_rate_limit_identifier_normalization(client, db):
-    """
-    P1-2 Regression: Guesses sent to 0300..., +92300..., 0300-... target the same account
-    and must share the same rate-limit bucket.
-    """
-    variants = [
-        "03001234567",
-        "+923001234567",
-        "0300-1234567",
-        "0300 1234567",
-        "+92 300 1234567",
-    ]
-
-    for variant in variants:
-        resp = client.post(
-            "/api/auth/password-login",
-            json={"email_or_phone": variant, "password": "wrong_password"},
-        )
-        assert resp.status_code == 401
-
-    # 6th attempt with another variant must be 429
-    resp_blocked = client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": "03001234567", "password": "wrong_again"},
-    )
-    assert resp_blocked.status_code == 429, "Normalized variants of phone number must share rate limit bucket"
-
-
-def test_login_attempts_table_is_pruned(client, db):
-    """
-    P1-2 Regression: login_attempts rows older than the retention window must be pruned.
-    """
-    old_time = get_pkt_now() - timedelta(hours=2)
-    # Insert old junk attempts
-    for i in range(10):
-        db.add(LoginAttempt(key=f"old_junk_{i}", attempted_at=old_time))
-    db.commit()
-
-    assert db.query(LoginAttempt).filter(LoginAttempt.attempted_at == old_time).count() == 10
-
-    # Making a login attempt triggers pruning
-    client.post(
-        "/api/auth/password-login",
-        json={"email_or_phone": "prune_test@example.com", "password": "wrong"},
-    )
-
-    # Old attempts must be pruned
-    assert db.query(LoginAttempt).filter(LoginAttempt.attempted_at == old_time).count() == 0
-
-
-def test_timing_oracle_dummy_hash_verification(client, db):
-    """
-    P1-2 Regression: Login attempts for non-existent accounts must execute PBKDF2 dummy hash
-    verification so latency does not leak user existence.
-    """
-    with patch("main.verify_and_check_rehash", wraps=main.verify_and_check_rehash) as mock_verify:
-        resp = client.post(
-            "/api/auth/password-login",
-            json={"email_or_phone": "nonexistent_account@example.com", "password": "anypassword"},
-        )
-        assert resp.status_code == 401
-        assert mock_verify.called, "verify_and_check_rehash must be called even for non-existent users"
 
 
 def test_security_headers_middleware(client):
@@ -1444,6 +1010,46 @@ def test_transcribe_endpoint_auth_and_validation(client, auth_headers, monkeypat
     data = resp_valid.json()
     assert "transcript" in data
     assert "Imtiaz" in data["transcript"]
+
+
+def test_whisper_transcription_ensures_urdu_script_not_devanagari(monkeypatch):
+    """
+    Verifies that when Whisper produces Hindi (Devanagari) or Gurmukhi text,
+    ensure_urdu_script intercepts it and converts it into authentic Pakistani Urdu script.
+    """
+    from agent import ensure_urdu_script, DEV_GUR_REGEX
+
+    devanagari_input = "अच्छा मेरा इस महीने का टोटल जो खर्च है वो कितना है?"
+    assert bool(DEV_GUR_REGEX.search(devanagari_input)) is True
+
+    # Mock the LLM to return standard Pakistani Urdu script
+    urdu_expected = "اچھا میرا اس مہینے کا ٹوٹل جو خرچ ہے وہ کتنا ہے؟"
+
+    class FakeLLM:
+        def invoke(self, prompt):
+            class Response:
+                content = urdu_expected
+            return Response()
+
+    monkeypatch.setattr("agent.get_chat_llm", lambda: FakeLLM())
+
+    result = ensure_urdu_script(devanagari_input)
+    assert result == urdu_expected
+    assert not bool(DEV_GUR_REGEX.search(result))
+
+    # Also verify that normal English/Urdu text passes through without invoking LLM
+    called = []
+    def fail_llm():
+        called.append(True)
+        return FakeLLM()
+    monkeypatch.setattr("agent.get_chat_llm", fail_llm)
+
+    clean_urdu = "الفتح سے 2500 کا سامان"
+    assert ensure_urdu_script(clean_urdu) == clean_urdu
+    clean_english = "Bought milk for 250 at Imtiaz"
+    assert ensure_urdu_script(clean_english) == clean_english
+    assert len(called) == 0
+
 
 
 

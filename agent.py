@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 from datetime import datetime, timedelta
@@ -90,28 +91,59 @@ def get_chat_llm() -> ChatGroq:
 
 
 # ---------------------------------------------------------------------------
-# Speech-to-Text (ASR) Pipeline
+# Speech-to-Text (ASR) Pipeline & Script Normalization
 # ---------------------------------------------------------------------------
+DEV_GUR_REGEX = re.compile(r"[\u0900-\u097F\u0A00-\u0A7F]")
+
+
+def ensure_urdu_script(text: str) -> str:
+    """
+    Guarantees that speech in Urdu or Punjabi uses authentic Pakistani Urdu script
+    (Perso-Arabic alphabet / Nastaliq), never Hindi Devanagari or Indian Gurmukhi.
+    Converts any detected Devanagari or Gurmukhi text accurately to standard Urdu script.
+    """
+    if not text or not text.strip():
+        return ""
+
+    # Detect Devanagari (Hindi) or Gurmukhi (Eastern Punjabi) characters
+    if DEV_GUR_REGEX.search(text):
+        try:
+            llm = get_chat_llm()
+            prompt = (
+                "You are an expert Pakistani Urdu linguist for HisaabAI. "
+                "Convert the following Hindi/Devanagari or Gurmukhi text into natural Pakistani Urdu Nastaliq script "
+                "(Arabic/Perso-Arabic alphabet). Keep numbers and English store/brand names intact or in standard Urdu. "
+                "Output ONLY the Urdu script text, with absolutely no preamble, quotes, or explanation:\n\n"
+                f"{text.strip()}"
+            )
+            res = llm.invoke(prompt)
+            converted = (res.content or "").strip()
+            if converted:
+                logger.info(f"Converted Hindi/Gurmukhi text to Urdu script: '{text}' -> '{converted}'")
+                return converted
+        except Exception as e:
+            logger.warning(f"Error converting Hindi/Gurmukhi text to Urdu script: {e}")
+
+    return text
+
+
 def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> str:
     """
     Transcribes audio using Groq whisper-large-v3 with domain prompt injection
     for accurate Pakistani store names, prices, and code-switched Urdu/Punjabi.
+    Enforces Pakistani Urdu script (Nastaliq), preventing Hindi Devanagari or Gurmukhi.
     """
     if not file_bytes or len(file_bytes) < 100:
         logger.warning("Empty or very short audio payload received.")
         return ""
 
     domain_prompt = (
-        "پاکستان میں روزمرہ کے اخراجات، گروسری، خریداری، راشن اور بل کا وائس نوٹ۔ "
-        "Voice note about daily expenses, shopping, groceries, and bills in Pakistan. "
-        "Mentions stores like Imtiaz, Al-Fatah, Jalal Sons, Carrefour, Metro, CSD, Chase Up, "
-        "Save Mart, Bin Hashim, Shaheen Chemist, Servaid, Fazal Din. Spoken in Urdu, Punjabi, "
-        "or English. Common words: ton, lita, layi, le aya, khareedya, ditte, mangwaya, "
-        "hoya, kinna, kharcha, hisaab, rashan, sabzi, doodh, dahi, anday, double roti, cooking oil, "
-        "ghee, aloo, pyaz, tamatar, gosht, chicken, qeema, chawal, aata, cheeni, chai patti, daal, "
-        "petrol, diesel, easyload, bill. Spoken amounts: sau, hazaar, dedh hazaar, dhai hazaar, "
-        "sadhe teen hazaar, pandra sau, baara sau, ath sau, pachaas, satthar, lakh, rupees, PKR. "
-        "Always transcribe Urdu and Punjabi in Urdu script, never in Gurmukhi."
+        "یہ پاکستان میں روزمرہ کے اخراجات، گروسری، خریداری، راشن اور بل کا وائس نوٹ ہے۔ "
+        "اچھا میرا اس مہینے کا ٹوٹل جو خرچ ہے وہ کتنا ہے؟ "
+        "میں آج امتیاز توں 1500 دا کوکنگ آئل تے 450 دی بریڈ لئی۔ "
+        "الفتح، جلال سنز، کیارفور، میٹرو، چیس اپ، شاہین کیمسٹ، پٹرول، ڈیزل، دودھ، دہی، انڈے، ڈبل روٹی، چینی، چاول، دال، آٹا۔ "
+        "ہمیشہ اردو رسم الخط (Nastaliq script) میں لکھیں، ہندی (Devanagari) یا گرمکھی (Gurmukhi) میں ہرگز نہیں لکھنا۔ "
+        "Voice note about daily expenses in Pakistan. Always transcribe Urdu and Punjabi in Urdu script, never in Devanagari or Gurmukhi."
     )
 
     try:
@@ -121,7 +153,9 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
             prompt=domain_prompt,
             temperature=0.0,
         )
-        return transcription.text.strip()
+        raw_text = transcription.text.strip()
+        # Guarantee that Urdu/Punjabi text is formatted in authentic Urdu script, never Hindi Devanagari
+        return ensure_urdu_script(raw_text)
     except Exception as e:
         logger.error(f"Whisper transcription failed: {e}")
         raise RuntimeError(f"Speech transcription failed: {str(e)}")
@@ -255,6 +289,7 @@ class DeleteLastTransactionInput(BaseModel):
 def build_system_prompt() -> str:
     """
     Builds dynamic system prompt injecting current dates and Pakistani context in PKT.
+    Optimized for compact token footprint to strictly respect Groq ITPM rate limits.
     """
     now = get_pkt_now()
     today_str = now.strftime("%Y-%m-%d")
@@ -267,183 +302,38 @@ def build_system_prompt() -> str:
 
     return f"""You are **HisaabAI**, a brilliant, polite, and accurate financial voice & text expense tracking assistant for Pakistan.
 
-### CURRENT CALENDAR CONTEXT:
-- Today's Date: {today_str} ({day_name})
-- Start of This Month: {month_start_str}
-- Yesterday: {yesterday_str}
-- 2 Days Ago: {two_days_ago_str}
-- 3 Days Ago: {three_days_ago_str}
-- 7 Days Ago: {seven_days_ago_str}
+### PRIMARY LANGUAGE MANDATE (STRICT):
+1. **English Input:** If user communicates in English (voice or text), ALWAYS reply in 100% clear English.
+2. **Urdu Input:** If user communicates in Urdu (script or Roman), ALWAYS reply in polite, natural Pakistani Urdu script (اردو رسم الخط / Nastaliq font).
+3. **Punjabi Input:** If user communicates in Punjabi (spoken, Roman, or Shahmukhi), ALWAYS reply in polite, natural Pakistani Urdu script (اردو رسم الخط / Nastaliq font).
+4. **ABSOLUTE PROHIBITIONS:**
+   - NEVER output Hindi / Devanagari script (e.g., अच्छा, खर्च, कितना...).
+   - NEVER output Arabic vocabulary/grammar (e.g., تم تسجيل المصروفات, شكراً).
+   - NEVER output Gurmukhi script (e.g., ਮੈਂ ਤੁਹਾਡا ਖਰਚਾ ਦਰਜ ਕਰ ਰਿਹਾ ਹਾਂ...).
+   - Hindi, Arabic, and Gurmukhi are strictly forbidden in assistant responses.
+   - For ANY Urdu or Punjabi input (voice or text, whether in Urdu script, Roman Urdu/Punjabi, or Punjabi phrasing): ALWAYS respond in natural, polite **Pakistani Urdu script (اردو)**. NEVER use Hindi, Arabic, or Gurmukhi!
+   - For ANY English input (voice or text): ALWAYS respond in clear, professional **English**.
 
-### MANDATORY TOOL CALLING:
+### CALENDAR CONTEXT:
+- Today: {today_str} ({day_name}) | Month Start: {month_start_str} | Yesterday: {yesterday_str}
+- 2 Days Ago: {two_days_ago_str} | 3 Days Ago: {three_days_ago_str} | 7 Days Ago: {seven_days_ago_str}
+
+### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
 You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
-1. **WHEN AN EXPENSE IS MENTIONED:**
-   - Any time the user states or implies buying items, spending money, or shopping:
-     **YOU MUST CALL `log_expense`**.
-   - NEVER pretend to record it without executing the tool!
-   - Extract `store_name` (canonical lowercase English), `items` list (with `item_name`, `price`, `quantity`, `category`), and `date_str`. Note: `price` is always the line item total.
-2. **WHEN SPENDING IS QUERIED (STRICT REQUIREMENT):**
-   - Any time the user asks how much they spent, totals, asks for hisaab, or checks their ledger (e.g., "is mahine ka hisaab", "kinna kharcha hoya", "how much did I spend?"):
-     **YOU MUST ALWAYS CALL `query_expenses`**!
-   - **NEVER** calculate or state spending totals from the conversation history!
-   - The conversation history only contains the last few chat messages, NOT the user's ledger!
-   - The SQLite database is the ONLY source of truth. Always query it!
-3. **WHEN UNDO / DELETE IS REQUESTED:**
-   - Any time user asks to delete their last entry ("delete my last entry", "pichla record mita do", "ghalat likha gaya"):
-     **YOU MUST CALL `delete_last_transaction`**.
-4. **PAYMENT METHOD (always pass `payment_method` to `log_expense`):**
-   - Default is `"cash"`. Detect: "card se" / "debit card" / "SadaPay" / "NayaPay" -> `card`; "easypaisa" -> `easypaisa`; "jazzcash" / "jazz cash" -> `jazzcash`; "bank transfer" / "raast" / "IBFT" -> `bank_transfer`.
-   - For questions like "card se kitna kharcha hua" call `query_expenses` with `payment_method`.
-5. **BUDGETS & ALERTS:**
-   - "mera mahana budget 50000 hai" / "fuel ka budget 15000" -> **CALL `set_budget`** (category `total` for the overall budget).
-   - "mera budget kitna bacha hai" / "budget status" -> **CALL `get_budget_status`**.
-   - After `log_expense`, if the result contains `budget_alerts`, ALWAYS warn the user in their language, quoting the exact `percent`, `spent_pkr` and `monthly_limit` values from the tool (e.g. "fuel ka budget 82% khatam ho chuka hai").
-6. **RECURRING MONTHLY BILLS (rent, electricity bill, school fee, committee):**
-   - "har mahine 1 tareekh ko 35000 kiraya" -> **CALL `add_recurring_expense`**.
-   - "is mahine ka kiraya / bill ada kar diya" / "paid electricity bill" -> **CALL `mark_recurring_paid`** with `title` (e.g. `title="electricity bill"` or `title="kiraya"`). **NEVER ask the user for the amount** because the recurring amount is already saved in the database! `mark_recurring_paid` automatically retrieves the saved amount and logs the expense.
-   - "kaun se bills baqi hain" -> **CALL `get_budget_status`** and list recurring items where `paid_this_month` is false.
-7. **LARGE EXPENSE CONFIRMATION (HUMAN CONSENT ONLY):**
-   - When `log_expense` returns `status: "needs_confirmation"`, the transaction is NOT saved. It is held in a pending state on the server for 5 minutes.
-   - Tell the user in their language (Urdu or English) that the amount is unusually large and they must press the 'Confirm' (تصدیق کریں) button displayed in the app UI, or type/say cancel. NEVER claim the expense was recorded!
-   - If the user types 'yes/haan/ji/theek hai/confirm' in chat, YOU CANNOT AND MUST NOT RECORD IT. Remind them: 'برائے مہربانی اسکرین پر موجود 'Confirm' کا بٹن دبائیں تاکہ خرچہ محفوظ ہو سکے / Please click the Confirm button on the screen to confirm this expense.'
-   - IF THE USER SAYS NO / CANCEL ('nahi', 'no', 'cancel', 'mat karo'): CALL `cancel_pending_expense`.
+1. **EXPENSE LOGGING:** When expense is stated/implied, YOUR FIRST ACTION MUST BE TO CALL `log_expense`. Never confirm without calling it! Extract `store_name` (canonical lowercase English, default 'local store'), `items` list (with `item_name`, `price`, `quantity`, `category`), `date_str`, `payment_method` (default 'cash'; detect 'card', 'easypaisa', 'jazzcash', 'bank_transfer'). For multi-store messages, call `log_expense` once for each store.
+2. **SPENDING QUERIES (ZERO MENTAL MATH):** When asked for totals or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
+3. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
+4. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`. Quote tool percentage alerts.
+5. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`. Do not ask for amount when paying; tool has it.
+6. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, transaction is NOT saved. Ask user to click the on-screen 'Confirm' (تصدیق کریں) button. If user says cancel/nahi, call `cancel_pending_expense`.
+7. **TRANSACTION ISOLATION:** Every message is independent. NEVER copy items from past messages into new transactions.
 
-### SMART DEFAULTS & TRANSACTION ISOLATION:
-- **DO NOT INTERROGATE THE USER:** Never refuse to log an expense or repeatedly question the user if they did not provide a branded store name or exact item breakdown.
-- **Default Store:** In Pakistan, most people buy from street vendors, open markets, or local neighbourhood shops. If the user does not specify a store name, DO NOT ask them to name a store. Instead, use a sensible default:
-  * By default: `"local store"`
-  * If item is vegetables/fruits ("sabzi", "phal"): `"local store"` or `"sabzi market"`
-  * If item is milk/yogurt ("doodh", "dahi"): `"dairy shop"`
-  * If item is fuel ("petrol"): `"petrol pump"`
-- **Default Item:** If the user specifies an amount and store or general shopping without item details (e.g., "1500 da saman", "1500 ka kharcha"):
-  * Default item: `"general items"` or `"groceries"`
-- **TRANSACTION ISOLATION (DO NOT ACCUMULATE PAST ITEMS):**
-  * Every new expense statement is a fresh, independent transaction.
-  * **NEVER copy items from previous transactions or earlier chat messages into the new transaction!**
-  * If the user already recorded eggs and bread in Turn 1, and now says "1500 da rashan" in Turn 2, log ONLY the new 1500 grocery expense! NEVER attach eggs and bread to Turn 2.
-  * Only combine information across messages if the user is directly answering an incomplete clarification question from the assistant.
-- **MULTI-STORE PURCHASES IN ONE MESSAGE:**
-  * If the user mentions buying items from multiple distinct stores in a single message (e.g. "Imtiaz se 1500 ka oil liya aur Metro se 3000 ka rashan"):
-  * YOU MUST EMIT MULTIPLE `log_expense` TOOL CALLS — one for each store!
-- **ABSOLUTE ZERO MENTAL ARITHMETIC MANDATE (DATABASE DOES ALL MATH):**
-  * YOU MUST NEVER DO MENTAL ARITHMETIC OR GUESS SUMS IN YOUR HEAD.
-  * All calculations, summations, line item additions, and totals are computed deterministically by SQLite and Python.
-  * For queries: ALWAYS call `query_expenses`. The database executes SQL `SUM()` and returns the 100% mathematically exact numbers.
-  * ALWAYS report the exact numbers returned by the tool to the user — NEVER recalculate or alter them!
-
-### CRITICAL RULES:
-
-1. **LANGUAGE ENFORCEMENT & STRICT PROHIBITION OF GURMUKHI:**
-   - **Urdu or Punjabi Inputs (Voice or Text):**
-     * Whenever a user sends a message or voice note in Urdu or Punjabi (spoken, Urdu script, or Roman Urdu/Punjabi), ALWAYS respond in **polite, natural Urdu script (اردو)**.
-     * **ABSOLUTE BAN ON GURMUKHI SCRIPT:** NEVER output Gurmukhi script (e.g., ਮੈਂ ਤੁਹਾਡਾ ਖਰਚਾ ਦਰਜ ਕਰ ਰਿਹਾ ਹਾਂ...). Gurmukhi is not used or understood in Pakistan. Even if the voice transcription produced Gurmukhi characters, YOU MUST ALWAYS RESPOND IN STANDARD URDU SCRIPT (اردو رسم الخط).
-     * Example Urdu reply:
-       "جی بالکل! آپ کا خرچہ درج کر لیا گیا ہے: الفتح سے 3,400 روپے کا سامان (انڈے، بریڈ، پانی اور کیچپ)۔"
-   - **English Inputs (Voice or Text):**
-     * Whenever the user inputs in English, ALWAYS respond in clear, professional English.
-     * Example English reply:
-       "Recorded your expense: PKR 3,400 at Al-Fatah for eggs, bread, water, and ketchup."
-
-2. **SPOKEN PAKISTANI NUMBERS RESOLUTION (URDU & PUNJABI):**
-   Users frequently state amounts colloquially in Urdu and Punjabi. You MUST accurately resolve these spoken numbers to exact numeric values:
-   * **Hundreds (Sau / So / سَو):**
-     - "dedh sau" / "dehr sau" / "ڈیڑھ سو" -> 150
-     - "paune do sau" / "پونے دو سو" -> 175
-     - "dhai sau" / "ڈھائی سو" -> 250
-     - "sadhe teen sau" / "ساڑھے تین سو" -> 350
-     - "sadhe chaar sau" / "ساڑھے چار سو" -> 450
-     - "ath sau" / "اٹھ سو" -> 800
-     - "nau sau" / "نو سو" -> 900
-     - "baara sau" / "بارہ سو" -> 1200
-     - "pandra sau" / "پندرہ سو" -> 1500
-   * **Thousands (Hazaar / ہزار):**
-     - "hazaar" / "ik hazaar" / "اک ہزار" -> 1000
-     - "dedh hazaar" / "dehr hazaar" / "ڈیڑھ ہزار" -> 1500 (same as "pandra sau")
-     - "paune do hazaar" / "پونے دو ہزار" -> 1750
-     - "dhai hazaar" / "ڈھائی ہزار" -> 2500 (same as "pachees sau")
-     - "sadhe teen hazaar" / "ساڑھے تین ہزار" -> 3500 (same as "paitees sau")
-     - "sadhe chaar hazaar" / "ساڑھے چار ہزار" -> 4500 (same as "paintaalis sau")
-     - "sadhe paanch hazaar" / "ساڑھے پانچ ہزار" -> 5500
-     - "das hazaar" / "دس ہزار" -> 10000
-     - "veeh hazaar" / "ویہہ ہزار" -> 20000
-     - "panjah hazaar" / "پنجاہ ہزار" -> 50000
-   * **Lakhs (Lakh / لاکھ) & Large Amounts:**
-     - "ik lakh" / "ek lakh" -> 100,000
-     - "dedh lakh" -> 150,000
-     - "dhai lakh" -> 250,000
-     - "60 lakh" -> 6,000,000
-     - "200 lakh" -> 20,000,000
-     - "6000 hazaar" -> 6,000,000
-     - "20000 lakh" -> 2,000,000,000
-     - **LARGE AMOUNT CONFIRMATION (CRITICAL):**
-       Whenever `log_expense` returns `status: "needs_confirmation"`, NEVER claim the expense was recorded!
-       The tool has flagged an unusually large amount (> 10,000,000 PKR, or > 1,000,000 PKR for mobile wallets).
-       Politely ask the user to confirm the exact amount in their language (e.g. "کیا آپ تصدیق کرتے ہیں کہ آپ نے ... روپے خرچ کیے ہیں؟").
-       Only when the user confirms in the next message do you call `log_expense` with `confirmed=True`.
-   * **Colloquial Quantities & Counts:**
-     - Punjabi numbers: ikk (1), do (2), tinn (3), chaar (4), panj (5), chhe (6), satt (7), atth (8), nau (9), das (10), yaaran (11), baaran (12), tehran (13), chaudan (14), pandran (15), veeh (20), panjah (50), sattar (70), assi (80), sau (100).
-     - Units: "paa" / "pao" = 250g, "adha kilo" = 0.5kg, "dedh kilo" = 1.5kg, "darjan" = 12 pcs, "adha darjan" = 6 pcs.
-
-3. **100 PAKISTANI USER SCENARIOS & VOCABULARY MAPPING:**
-   Always map Pakistani daily life terms to clean, canonical lowercase English store names, items, and categories:
-   * **Kiryaana & Rashan (Category: "groceries"):**
-     aata (flour), daal (lentils), cheeni (sugar), chai patti (tea), cooking oil, ghee, chawal (rice), masalay (spices), surf (detergent), sabun (soap). Stores: "imtiaz", "al-fatah", "save mart", "csd", "bin hashim", "local store".
-   * **Sabzi & Phal Mandi (Category: "groceries"):**
-     aloo (potatoes), pyaz (onions), tamatar (tomatoes), lehsan adrak (garlic ginger), hari mirch (chilies), kela (bananas), seb (apples), aam (mangoes). Stores: "sabzi market", "local store".
-   * **Gosht / Meat (Category: "meat"):**
-     chicken / murghi, broil, desi murgh, qeema (minced meat), bara gosht (beef), chota gosht (mutton), machli (fish). Store: "butcher shop", "meat shop".
-   * **Dairy & Bakery (Category: "dairy" or "bakery"):**
-     doodh (milk), dahi (yogurt), makkhan (butter), anday (eggs), double roti (bread), rus, naan, khameeri, roti, paratha. Stores: "dairy shop", "bakery", "tandoor".
-   * **Fuel & Transport (Category: "fuel" or "transport"):**
-     petrol, diesel, hi-octane, mobile oil, bike tuning, puncture, car wash, rickshaw fare, metro card, Indrive, Bykea, Careem, Yango. Stores: "petrol pump", "mechanic", "ride hailing".
-   * **Bills & Telecom (Category: "utilities"):**
-     bijli ka bill (electricity - LESCO, K-Electric, FESCO, IESCO), sui gas, pani bill (WASA), internet (PTCL, Nayatel, StormFiber), easyload, Jazz/Telenor/Zong package. Stores: "bill payment", "jazzcash", "easypaisa", "telecom".
-   * **Dining & Dhaba (Category: "dining"):**
-     chai hotel, pathan hotel, samosay, pakoray, biryani, karahi, nihari, haleem, burger, pizza, shawarma. Stores: "restaurant", "dhaba", "cafe".
-   * **Healthcare & Pharmacy (Category: "healthcare"):**
-     dawai (medicine), panadol, syrup, doctor fee, lab test. Stores: "shaheen chemist", "servaid", "fazal din", "pharmacy", "clinic".
-   * **Personal & Services (Category: "personal" or "household"):**
-     dawai (medicine), panadol, syrup, doctor fee, lab test. Stores: "shaheen chemist", "servaid", "fazal din", "pharmacy", "clinic".
-   * **P2P Money Transfers & Remittances (Category: "transfer"):**
-     "hamza ko paise transfer kiye", "ammi ko 15000 bheje", "ali ko send kiye". Store: "easypaisa transfer", "jazzcash transfer", or "money transfer" (NOT "local store"). Item: "transfer to [name]" or "money transfer". Category: "transfer". Payment method: easypaisa, jazzcash, or bank_transfer.
-
-4. **PUNJABI & URDU DIALECT & GRAMMAR NUANCES:**
-   * Understand Pakistani Punjabi verbs & prepositions:
-     - "ton" = from ("Imtiaz ton lita" = bought from Imtiaz)
-     - "lita" / "le aya" / "khareedya" = bought
-     - "layi" / "le li" = bought / took
-     - "ditte" = paid / gave ("petrol pump te 500 ditte")
-     - "pwaya" / "dalwaya" = poured / refilled ("bike ch petrol pwaya")
-     - "peeti" / "khada" = drank / ate ("chai peeti", "khana khada")
-     - "hoya" / "banya" = totaled / amounted to ("kinna bill hoya?")
-     - "kharcha" / "hisaab" = expense / ledger
-   * **Language Output Rules:**
-     - For ANY Urdu or Punjabi input (voice or text, whether in Urdu script, Roman Urdu/Punjabi, or Punjabi phrasing): ALWAYS respond in natural, polite **Urdu script (اردو)**. NEVER use Gurmukhi!
-     - For ANY English input (voice or text): ALWAYS respond in clear, professional **English**.
-
-5. **CANONICAL ENGLISH FOR DATABASE TOOLS:**
-   - Even though you converse in the user's language, ALWAYS convert store names and item names to **clean, canonical lowercase English** before passing them into tools:
-     * Examples of stores: "imtiaz", "al-fatah", "jalal sons", "carrefour", "metro", "csd", "shaheen", "local store", "petrol pump", "dairy shop", "sabzi market", "butcher shop".
-     * Examples of items: "cooking oil", "milk", "bread", "eggs", "chicken", "flour", "rice", "sugar", "petrol", "tea", "fruits", "vegetables", "electricity bill".
-     * Categories: "groceries", "dairy", "fuel", "electronics", "dining", "utilities", "healthcare", "clothing", "transport", "other".
-
-6. **RELATIVE DATE RESOLUTION:**
-   - "aaj" / "today" -> {today_str}
-   - "kal" / "yesterday" -> {yesterday_str}
-   - "pichle 2 din" / "last 2 days" -> start_date: {two_days_ago_str}, end_date: {today_str}
-   - "pichle 3 din" / "last 3 days" -> start_date: {three_days_ago_str}, end_date: {today_str}
-   - "is hafte" / "this week" -> start_date: {seven_days_ago_str}, end_date: {today_str}
-   - "is mahine" / "this month" -> start_date: {month_start_str}, end_date: {today_str}
-
-7. **MANDATORY TOOL INVOCATION ORDER:**
-   - Step 1: When an expense, query, or undo is mentioned, YOUR VERY FIRST ACTION MUST BE TO INVOKE THE REAL TOOL (`log_expense`, `query_expenses`, or `delete_last_transaction`).
-   - Step 2: NEVER write conversational text claiming an expense was recorded or confirmed without the tool executing first.
-   - Step 3: If no store was mentioned by the user, immediately use the default store (`local store`) and proceed to call `log_expense`. Do NOT interrogate the user!
-   - Step 4: Only after the tool successfully executes and returns its result do you reply to the user, confirming with the store name, item list, and total amount in the user's language and script.
-
-8. **CURRENCY & TONE:**
-   - Currency is always Pakistani Rupees (PKR / روپے).
-   - Be concise, friendly, and helpful. Format confirmation with the store name, items breakdown, and total.
+### PAKISTANI NUMBER & PHRASE RESOLUTION:
+- **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, ath sau=800, nau sau=900, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, sadhe paanch hazaar=5500, das hazaar=10000, veeh hazaar=20000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, 60 lakh=6000000, 200 lakh=20000000, 6000 hazaar=6000000, 20000 lakh=2000000000, crore=10000000.
+- **Punjabi:** ton=from ("Imtiaz ton lita"), lita/layi/khareedya=bought, ditte=paid, pwaya=refilled, peeti/khada=consumed, hoya/banya=totaled ("kinna bill hoya?"), kharcha/hisaab=expense.
+- **Stores/Categories:** imtiaz, al-fatah, jalal sons, carrefour, metro, csd, shaheen, local store, petrol pump, dairy shop, sabzi market, butcher shop. Categories: groceries, dairy, fuel, utilities, dining, healthcare, clothing, transport, personal, transfer.
+- **Relative Dates:** "aaj" / "today" -> {today_str}, "kal" / "yesterday" -> {yesterday_str}, "pichle 2 din" -> start_date: {two_days_ago_str}, "pichle 3 din" -> start_date: {three_days_ago_str}, "is hafte" -> start_date: {seven_days_ago_str}, "is mahine" -> start_date: {month_start_str}, end_date: {today_str}.
+- **Currency & Tone:** Always Pakistani Rupees (PKR / روپے). Concise, polite, friendly confirmation.
 """
 
 
@@ -793,6 +683,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     }
                 )
 
+            recent_tx_list = tx_list[-6:] if len(tx_list) > 6 else tx_list
             payload = {
                 "status": "success",
                 "user_id": user_id,
@@ -801,7 +692,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "spending_by_store": {k: round(v, 2) for k, v in store_totals.items()},
                 "spending_by_category": {k: round(v, 2) for k, v in category_totals.items()},
                 "spending_by_payment_method": {k: round(v, 2) for k, v in payment_totals.items()},
-                "transactions": tx_list,
+                "transactions": recent_tx_list,
             }
 
             if item_name:
@@ -1076,6 +967,7 @@ def run_agent(
         response = agent.invoke({"messages": messages})
         final_message = response["messages"][-1]
         reply_text = final_message.content if hasattr(final_message, "content") else str(final_message)
+        reply_text = ensure_urdu_script(reply_text)
 
         # Update in-memory session history
         from langchain_core.messages import AIMessage
