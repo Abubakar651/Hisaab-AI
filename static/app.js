@@ -111,6 +111,11 @@ tailwind.config = {
       elements.chatPane = document.getElementById('chat-pane');
       elements.dashboardPane = document.getElementById('dashboard-pane');
       elements.toastContainer = document.getElementById('toast-container');
+      elements.voiceWaveCanvas = document.getElementById('voice-wave-canvas');
+      elements.desktopViewSwitcher = document.getElementById('desktop-view-switcher');
+      elements.btnViewChat = document.getElementById('btn-view-chat');
+      elements.btnViewSplit = document.getElementById('btn-view-split');
+      elements.btnViewLedger = document.getElementById('btn-view-ledger');
       elements.micModal = document.getElementById('mic-permission-modal');
       elements.closeMicModalBtn = document.getElementById('close-mic-modal-btn');
       elements.dismissMicModalBtn = document.getElementById('dismiss-mic-modal-btn');
@@ -254,6 +259,33 @@ tailwind.config = {
       // Mobile Tabs
       elements.tabChat.addEventListener('click', () => setMobileTab('chat'));
       elements.tabDashboard.addEventListener('click', () => setMobileTab('dashboard'));
+
+      // Desktop View Switcher (Chat / Split / Ledger)
+      function setDesktopView(mode) {
+        state.desktopView = mode;
+        const workspace = document.querySelector('.app-workspace');
+        if (!workspace) return;
+        workspace.classList.remove('view-chat-only', 'view-ledger-only');
+        if (elements.btnViewChat) elements.btnViewChat.classList.remove('active');
+        if (elements.btnViewSplit) elements.btnViewSplit.classList.remove('active');
+        if (elements.btnViewLedger) elements.btnViewLedger.classList.remove('active');
+
+        if (mode === 'chat') {
+          workspace.classList.add('view-chat-only');
+          if (elements.btnViewChat) elements.btnViewChat.classList.add('active');
+        } else if (mode === 'ledger') {
+          workspace.classList.add('view-ledger-only');
+          if (elements.btnViewLedger) elements.btnViewLedger.classList.add('active');
+        } else {
+          if (elements.btnViewSplit) elements.btnViewSplit.classList.add('active');
+        }
+        if (charts.trend) charts.trend.resize();
+        if (charts.category) charts.category.resize();
+      }
+
+      if (elements.btnViewChat) elements.btnViewChat.addEventListener('click', () => setDesktopView('chat'));
+      if (elements.btnViewSplit) elements.btnViewSplit.addEventListener('click', () => setDesktopView('split'));
+      if (elements.btnViewLedger) elements.btnViewLedger.addEventListener('click', () => setDesktopView('ledger'));
     }
 
     // Update Account UI in Header
@@ -711,8 +743,11 @@ tailwind.config = {
       const message = elements.messageInput.value.trim();
       if (!message) return;
 
-      // Add user message to UI
-      appendUserMessage(message, null);
+      const wasVoice = !!state.pendingVoiceNote;
+      state.pendingVoiceNote = false;
+
+      // Add user message to UI (tag with 'Voice note, transcribed' if originated from mic)
+      appendUserMessage(message, wasVoice ? 'Voice note, transcribed' : null);
       elements.messageInput.value = '';
       elements.messageInput.style.height = 'auto';
 
@@ -816,12 +851,114 @@ tailwind.config = {
 
         state.mediaRecorder.onstop = async () => {
           stream.getTracks().forEach(track => track.stop());
+
+          // Clean up Web Audio Visualizer
+          if (state.animFrameId) {
+            cancelAnimationFrame(state.animFrameId);
+            state.animFrameId = null;
+          }
+          if (state.audioCtx && state.audioCtx.state !== 'closed') {
+            try { state.audioCtx.close(); } catch (e) { }
+            state.audioCtx = null;
+          }
+          if (elements.voiceWaveCanvas) {
+            const ctx = elements.voiceWaveCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, elements.voiceWaveCanvas.width, elements.voiceWaveCanvas.height);
+          }
+
           if (state.audioChunks.length > 0 && state.shouldSendAudio) {
             const audioBlob = new Blob(state.audioChunks, { type: state.mediaRecorder.mimeType || 'audio/webm' });
-            appendUserMessage("🎤 [Voice Note Uploaded]", "Transcribing voice with Groq Whisper...");
-            await sendChatRequest({ audioBlob });
+
+            // Speech-to-Text Paste-to-Composer Review Flow
+            const origPlaceholder = elements.messageInput.placeholder;
+            elements.messageInput.placeholder = "Transcribing voice note with Groq Whisper...";
+            elements.messageInput.disabled = true;
+            showToast("Transcribing voice note...", "info");
+
+            try {
+              const formData = new FormData();
+              formData.append('audio', audioBlob, 'voice_recording.webm');
+              const res = await authFetch('/api/transcribe', {
+                method: 'POST',
+                body: formData,
+              });
+
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({ detail: 'Transcription failed' }));
+                throw new Error(errData.detail || 'Failed to transcribe audio');
+              }
+
+              const data = await res.json();
+              if (data.transcript && data.transcript.trim()) {
+                elements.messageInput.value = data.transcript.trim();
+                elements.messageInput.style.height = 'auto';
+                elements.messageInput.style.height = Math.min(elements.messageInput.scrollHeight, 120) + 'px';
+                state.pendingVoiceNote = true;
+                showToast("Voice note transcribed! Review or edit before sending.", "success");
+              } else {
+                showToast("No speech recognized. Please speak closer to your mic.", "warning");
+              }
+            } catch (err) {
+              console.error("Transcription error:", err);
+              showToast(err.message || "Failed to transcribe voice note.", "error");
+            } finally {
+              elements.messageInput.disabled = false;
+              elements.messageInput.placeholder = origPlaceholder;
+              elements.messageInput.focus();
+            }
           }
         };
+
+        // Live Audio Waveform Visualizer via Web Audio API
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            const audioCtx = new AudioContextClass();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            state.audioCtx = audioCtx;
+            state.analyser = analyser;
+
+            const canvas = elements.voiceWaveCanvas;
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              const bufferLength = analyser.frequencyBinCount;
+              const dataArray = new Uint8Array(bufferLength);
+
+              function renderWave() {
+                if (!state.isRecording) return;
+                state.animFrameId = requestAnimationFrame(renderWave);
+                analyser.getByteTimeDomainData(dataArray);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.lineWidth = 2.2;
+                ctx.strokeStyle = '#d4a95a'; // Brass gold curve
+                ctx.beginPath();
+
+                const sliceWidth = canvas.width / bufferLength;
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                  const v = dataArray[i] / 128.0;
+                  const y = (v * canvas.height) / 2;
+                  if (i === 0) {
+                    ctx.moveTo(x, y);
+                  } else {
+                    ctx.lineTo(x, y);
+                  }
+                  x += sliceWidth;
+                }
+                ctx.lineTo(canvas.width, canvas.height / 2);
+                ctx.stroke();
+              }
+              renderWave();
+            }
+          }
+        } catch (webaudioErr) {
+          console.warn('Web Audio visualizer could not be initialized:', webaudioErr);
+        }
 
         state.shouldSendAudio = true;
         state.mediaRecorder.start(250);
@@ -829,9 +966,8 @@ tailwind.config = {
 
         // UI Updates for Recording
         elements.recordingBanner.classList.remove('hidden');
-        elements.micBtn.classList.add('bg-rose-600', 'text-white', 'border-rose-500', 'animate-pulse');
-        elements.micBtn.classList.remove('bg-surface-800', 'text-slate-300');
-        elements.recordingSeconds = 0;
+        elements.micBtn.classList.add('rec');
+        state.recordingSeconds = 0;
         updateRecordingTimer();
         state.recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
 
@@ -854,10 +990,22 @@ tailwind.config = {
         state.mediaRecorder.stop();
       }
 
+      if (state.animFrameId) {
+        cancelAnimationFrame(state.animFrameId);
+        state.animFrameId = null;
+      }
+      if (state.audioCtx && state.audioCtx.state !== 'closed') {
+        try { state.audioCtx.close(); } catch (e) { }
+        state.audioCtx = null;
+      }
+      if (elements.voiceWaveCanvas) {
+        const ctx = elements.voiceWaveCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, elements.voiceWaveCanvas.width, elements.voiceWaveCanvas.height);
+      }
+
       clearInterval(state.recordingTimerInterval);
       elements.recordingBanner.classList.add('hidden');
-      elements.micBtn.classList.remove('bg-rose-600', 'text-white', 'border-rose-500', 'animate-pulse');
-      elements.micBtn.classList.add('bg-surface-800', 'text-slate-300');
+      elements.micBtn.classList.remove('rec');
     }
 
     function cancelRecording() {
@@ -988,26 +1136,13 @@ tailwind.config = {
           const p = data.pending;
           const banner = document.createElement('div');
           banner.id = 'pending-expense-banner';
+          banner.className = 'm hold';
           banner.innerHTML = `
-            <div class="pending-card-title flex items-center gap-2">
-              <i data-lucide="alert-triangle" class="w-4 h-4 text-brass"></i>
-              <span>بڑے خرچے کی تصدیق درکار ہے / Large Expense Confirmation</span>
-            </div>
-            <div class="pending-card-meta">
-              <strong>${escapeHtml(p.store_name)}</strong> · <span class="font-num tabular text-brass font-bold">PKR ${formatMoney(p.total_amount)}</span> (${escapeHtml(p.payment_method)})
-            </div>
-            <div class="pending-card-note">
-              یہ رقم سرور پر محفوظ ہے اور تصدیق کا انتظار ہے۔ کیا آپ اس خرچے کو درج کرنا چاہتے ہیں؟
-            </div>
-            <div class="pending-card-actions">
-              <button id="btn-confirm-pending">
-                <i data-lucide="check" class="w-4 h-4"></i>
-                <span>تصدیق کریں (Confirm)</span>
-              </button>
-              <button id="btn-cancel-pending">
-                <i data-lucide="x" class="w-4 h-4"></i>
-                <span>کینسل کریں (Cancel)</span>
-              </button>
+            <strong>Rs ${formatMoney(p.total_amount)} is unusually large.</strong>
+            <p style="color:var(--mut);margin-top:2px">Nothing is saved yet. Confirm to record this expense${p.store_name ? ` (${escapeHtml(p.store_name)} · ${escapeHtml(p.payment_method)})` : ''}.</p>
+            <div class="acts">
+              <button id="btn-confirm-pending" class="btn go">Confirm expense</button>
+              <button id="btn-cancel-pending" class="btn no">Cancel</button>
             </div>
           `;
           elements.messagesContainer.appendChild(banner);

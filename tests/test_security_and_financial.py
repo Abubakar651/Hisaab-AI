@@ -1395,6 +1395,58 @@ def test_no_inline_scripts_or_on_handlers_in_html():
     assert len(on_handlers) == 0, f"Found inline on* handlers in index.html: {on_handlers}"
 
 
+def test_transcribe_endpoint_auth_and_validation(client, auth_headers, monkeypatch):
+    """
+    Tests /api/transcribe endpoint:
+    - 401 without auth token
+    - 400 with invalid MIME type or extension
+    - 413 with oversized audio payload (> 5MB)
+    - 200 with transcript string when valid audio is submitted
+    """
+    user_id = "transcribe_test_user"
+    headers = auth_headers(user_id)
+
+    # 1. 401 without token
+    resp_no_auth = client.post("/api/transcribe")
+    assert resp_no_auth.status_code == 401
+
+    # 2. 400 with invalid audio extension
+    fake_text_file = ("script.py", b"print('hello')", "text/x-python")
+    resp_invalid = client.post(
+        "/api/transcribe",
+        headers=headers,
+        files={"audio": fake_text_file},
+    )
+    assert resp_invalid.status_code == 400
+    assert "invalid audio file" in resp_invalid.json()["detail"].lower()
+
+    # 3. 413 with file exceeding 5MB
+    oversized = ("huge.webm", b"0" * (5 * 1024 * 1024 + 10), "audio/webm")
+    resp_oversized = client.post(
+        "/api/transcribe",
+        headers=headers,
+        files={"audio": oversized},
+    )
+    assert resp_oversized.status_code == 413
+
+    # 4. 200 with mocked transcribe_audio
+    monkeypatch.setattr(
+        "main.transcribe_audio",
+        lambda audio_bytes, filename: "Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi",
+    )
+    valid_audio = ("test_note.webm", b"RIFF" + b"\x00" * 200, "audio/webm")
+    resp_valid = client.post(
+        "/api/transcribe",
+        headers=headers,
+        files={"audio": valid_audio},
+    )
+    assert resp_valid.status_code == 200
+    data = resp_valid.json()
+    assert "transcript" in data
+    assert "Imtiaz" in data["transcript"]
+
+
+
 
 
 

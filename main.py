@@ -588,6 +588,58 @@ async def chat_endpoint(
         )
 
 
+@app.post("/api/transcribe")
+async def transcribe_endpoint(
+    audio: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Accepts an audio recording, verifies MIME/extension and file size,
+    and returns its transcription via Whisper without executing transaction logic.
+    Enforces authentication via session token.
+    """
+    if not audio.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing audio file filename.",
+        )
+
+    ext = os.path.splitext(audio.filename.lower())[1]
+    ct = (audio.content_type or "").lower()
+    if not (ct.startswith("audio/") or ext in VALID_AUDIO_EXTENSIONS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid audio file format. Only audio files are allowed.",
+        )
+
+    try:
+        audio_bytes = await audio.read()
+        if len(audio_bytes) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=getattr(status, "HTTP_413_CONTENT_TOO_LARGE", 413),
+                detail="Audio file exceeds maximum allowed size (5 MB).",
+            )
+
+        if len(audio_bytes) < 100:
+            return {"transcript": ""}
+
+        transcript_text = await run_in_threadpool(
+            transcribe_audio,
+            audio_bytes,
+            filename=audio.filename or "recording.webm",
+        )
+        return {"transcript": transcript_text.strip() if transcript_text else ""}
+    except HTTPException:
+        raise
+    except Exception as e:
+        req_id = str(uuid.uuid4())
+        logger.error(f"Error reading or transcribing audio [request_id={req_id}]: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Audio transcription error. Request ID: {req_id}",
+        )
+
+
 @app.post("/api/chat/clear")
 async def clear_chat_history(
     user_id: Optional[str] = Form(None),

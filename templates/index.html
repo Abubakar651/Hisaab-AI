@@ -233,6 +233,22 @@
       </div>
     </a>
 
+    <!-- Desktop View Mode Switcher (visible on desktop >=980px) -->
+    <div id="desktop-view-switcher" class="view-switcher-bar">
+      <button id="btn-view-chat" class="view-pill-btn" title="Focus Chat">
+        <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+        <span>Chat</span>
+      </button>
+      <button id="btn-view-split" class="view-pill-btn active" title="Split View">
+        <i data-lucide="columns-2" class="w-3.5 h-3.5"></i>
+        <span>Split</span>
+      </button>
+      <button id="btn-view-ledger" class="view-pill-btn" title="Focus Live Ledger">
+        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+        <span>Ledger</span>
+      </button>
+    </div>
+
     <!-- User Account & Auth Button -->
     <div class="app-header-right">
       <!-- Hidden inputs for compatibility -->
@@ -312,28 +328,18 @@
 
       <!-- Suggestion Chips Bar -->
       <div class="chat-suggestions-box">
-        <button class="prompt-chip" data-prompt="Main aaj Imtiaz ton 1500 da cooking oil te 450 di bread layi">
-          🛒 Punjabi: Imtiaz 1500 oil, 450 bread
-        </button>
-        <button class="prompt-chip font-ur" data-prompt="آج میں نے الفتح سے 3200 روپے کا گروسری کا سامان خریدا">
-          🇵🇰 اردو: الفتح گروسری 3200
-        </button>
-        <button class="prompt-chip" data-prompt="Mera is mahine Imtiaz te kinna kharcha hoya?">
-          🔍 Query: Imtiaz total this month?
-        </button>
-        <button class="prompt-chip" data-prompt="What did I spend in the last 3 days?">
-          📅 Query: Last 3 days spending
-        </button>
-        <button class="prompt-chip" data-prompt="Delete my last entry">
-          🗑️ Undo last entry
-        </button>
+        <button class="prompt-chip" data-prompt="Is mahine ka kharcha">Is mahine ka kharcha</button>
+        <button class="prompt-chip" data-prompt="What did I spend in the last 3 days?">Last 3 days</button>
+        <button class="prompt-chip" data-prompt="Mera is mahine ka budget set karo">Set a budget</button>
+        <button class="prompt-chip" data-prompt="Delete my last entry">Undo last entry</button>
       </div>
 
-      <!-- Voice Recording Status Banner -->
+      <!-- Voice Recording Status Banner with Live Wave Visualizer -->
       <div id="recording-banner" class="hidden px-5 py-2.5 bg-bad/15 border-t border-bad/30 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-bad animate-pulse"></span>
-          <span class="text-xs font-semibold text-bad">Recording voice note in Urdu/Punjabi/English...</span>
+          <span class="text-xs font-semibold text-bad">Recording...</span>
+          <canvas id="voice-wave-canvas" width="160" height="28" class="voice-wave-canvas"></canvas>
           <span id="recording-timer" class="recording-timer font-num tabular">00:00</span>
         </div>
         <button id="cancel-recording-btn" class="recording-cancel-btn">Cancel</button>
@@ -343,7 +349,7 @@
       <div class="chat-composer-box">
         <form id="chat-form" class="composer-input-row">
           <textarea id="message-input" rows="1"
-            placeholder="Type your expense or ask a question in Urdu, Punjabi, English..."
+            placeholder="Type in English, Urdu or Roman Urdu"
             class="composer-input"></textarea>
 
           <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" title="Record Voice Note">
