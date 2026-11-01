@@ -172,9 +172,16 @@ def daily_trend(db: Session, user_id: str, days: int = 30) -> List[Dict]:
     """Per-day spending for the last `days` days (zero-filled so the chart has no gaps)."""
     today = get_pkt_now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = today - timedelta(days=days - 1)
+
+    bind = db.get_bind()
+    if bind and "postgres" in getattr(bind.dialect, "name", ""):
+        day_expr = func.to_char(Transaction.transaction_date, "YYYY-MM-DD")
+    else:
+        day_expr = func.strftime("%Y-%m-%d", Transaction.transaction_date)
+
     rows = (
         db.query(
-            func.strftime("%Y-%m-%d", Transaction.transaction_date).label("day"),
+            day_expr.label("day"),
             func.sum(Transaction.total_amount).label("total"),
         )
         .filter(

@@ -30,6 +30,8 @@ def get_pkt_now() -> datetime:
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./expenses.db")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # For SQLite, check_same_thread=False allows FastAPI multi-threaded requests
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
