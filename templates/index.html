@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <title>HisaabAI — Voice & Text Expense Ledger</title>
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
@@ -245,11 +245,11 @@
 
     <!-- Desktop View Mode Switcher (visible on desktop >=980px) -->
     <div id="desktop-view-switcher" class="view-switcher-bar">
-      <button id="btn-view-chat" class="view-pill-btn" title="Focus Chat">
+      <button id="btn-view-chat" class="view-pill-btn active" title="Focus Chat">
         <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
         <span>Chat</span>
       </button>
-      <button id="btn-view-split" class="view-pill-btn active" title="Split View">
+      <button id="btn-view-split" class="view-pill-btn" title="Split View">
         <i data-lucide="columns-2" class="w-3.5 h-3.5"></i>
         <span>Split</span>
       </button>
@@ -292,7 +292,7 @@
   </header>
 
   <!-- Two-Column Workspace Layout -->
-  <main class="app-workspace">
+  <main class="app-workspace view-chat-only">
 
     <!-- ========================================================================= -->
     <!-- LEFT COLUMN: Chat & Voice Interface (1fr on var(--s1)) -->
@@ -377,7 +377,7 @@
     <!-- ========================================================================= -->
     <!-- RIGHT COLUMN: Live Ledger & Analytics (1.12fr on var(--ink)) -->
     <!-- ========================================================================= -->
-    <section id="dashboard-pane" class="pane-ledger">
+    <section id="dashboard-pane" class="pane-ledger hidden">
 
       <!-- Ledger Hero Card -->
       <div class="ledger-hero-card">

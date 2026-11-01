@@ -139,6 +139,10 @@ tailwind.config = {
       bindEvents();
       bindAnalyticsForms();
       bindAuthEvents();
+      initViewportResizing();
+      setMobileTab('chat');
+      setDesktopView('chat');
+      scrollToBottom();
       if (state.userId) {
         fetchDashboard();
       }
@@ -226,28 +230,6 @@ tailwind.config = {
       elements.tabDashboard.addEventListener('click', () => setMobileTab('dashboard'));
 
       // Desktop View Switcher (Chat / Split / Ledger)
-      function setDesktopView(mode) {
-        state.desktopView = mode;
-        const workspace = document.querySelector('.app-workspace');
-        if (!workspace) return;
-        workspace.classList.remove('view-chat-only', 'view-ledger-only');
-        if (elements.btnViewChat) elements.btnViewChat.classList.remove('active');
-        if (elements.btnViewSplit) elements.btnViewSplit.classList.remove('active');
-        if (elements.btnViewLedger) elements.btnViewLedger.classList.remove('active');
-
-        if (mode === 'chat') {
-          workspace.classList.add('view-chat-only');
-          if (elements.btnViewChat) elements.btnViewChat.classList.add('active');
-        } else if (mode === 'ledger') {
-          workspace.classList.add('view-ledger-only');
-          if (elements.btnViewLedger) elements.btnViewLedger.classList.add('active');
-        } else {
-          if (elements.btnViewSplit) elements.btnViewSplit.classList.add('active');
-        }
-        if (charts.trend) charts.trend.resize();
-        if (charts.category) charts.category.resize();
-      }
-
       if (elements.btnViewChat) elements.btnViewChat.addEventListener('click', () => setDesktopView('chat'));
       if (elements.btnViewSplit) elements.btnViewSplit.addEventListener('click', () => setDesktopView('split'));
       if (elements.btnViewLedger) elements.btnViewLedger.addEventListener('click', () => setDesktopView('ledger'));
@@ -324,6 +306,42 @@ tailwind.config = {
           }
         });
       }
+    }
+
+    // Dynamic Viewport Height & Keyboard Resizing (iOS visualViewport support)
+    function initViewportResizing() {
+      if (window.visualViewport) {
+        const handleViewportChange = () => {
+          const vh = window.visualViewport.height;
+          document.documentElement.style.setProperty('--app-viewport-height', `${vh}px`);
+        };
+        window.visualViewport.addEventListener('resize', handleViewportChange);
+        window.visualViewport.addEventListener('scroll', handleViewportChange);
+        handleViewportChange();
+      }
+    }
+
+    // Desktop View Switcher (Chat / Split / Ledger)
+    function setDesktopView(mode) {
+      state.desktopView = mode;
+      const workspace = document.querySelector('.app-workspace');
+      if (!workspace) return;
+      workspace.classList.remove('view-chat-only', 'view-ledger-only');
+      if (elements.btnViewChat) elements.btnViewChat.classList.remove('active');
+      if (elements.btnViewSplit) elements.btnViewSplit.classList.remove('active');
+      if (elements.btnViewLedger) elements.btnViewLedger.classList.remove('active');
+
+      if (mode === 'chat') {
+        workspace.classList.add('view-chat-only');
+        if (elements.btnViewChat) elements.btnViewChat.classList.add('active');
+      } else if (mode === 'ledger') {
+        workspace.classList.add('view-ledger-only');
+        if (elements.btnViewLedger) elements.btnViewLedger.classList.add('active');
+      } else {
+        if (elements.btnViewSplit) elements.btnViewSplit.classList.add('active');
+      }
+      if (charts.trend) charts.trend.resize();
+      if (charts.category) charts.category.resize();
     }
 
     // Mobile Tab Switching
@@ -756,7 +774,11 @@ tailwind.config = {
     }
 
     function scrollToBottom() {
-      elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+      requestAnimationFrame(() => {
+        if (elements.messagesContainer) {
+          elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+        }
+      });
     }
 
     async function checkAndRenderPendingConfirmation() {

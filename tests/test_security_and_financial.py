@@ -1146,6 +1146,45 @@ def test_cloud_run_healthz_endpoint(client):
     assert resp.json() == {"status": "ok", "app": "hisaab-ai"}
 
 
+def test_default_view_matches_html_initial_state(client):
+    """
+    Verifies default view contract in templates/index.html to eliminate layout flash:
+    1. Exactly one desktop view pill button has the 'active' class (btn-view-chat).
+    2. The main.app-workspace class matches the active view ('view-chat-only').
+    3. Mobile tab-bar has #tab-chat active, and #dashboard-pane has class 'hidden'.
+    4. Viewport meta includes 'interactive-widget=resizes-content' for software keyboards.
+    """
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+
+    import re
+
+    # 1. Desktop View Switcher: find all buttons with view-pill-btn
+    pills = re.findall(r'<button[^>]*id=["\'](btn-view-[^"\']+)["\'][^>]*class=["\']([^"\']+)["\']', html)
+    assert len(pills) == 3, f"Expected 3 view pills, found: {pills}"
+
+    active_pills = [pid for pid, pcls in pills if "active" in pcls.split()]
+    assert len(active_pills) == 1, f"Expected exactly one active view pill, found: {active_pills}"
+    assert active_pills[0] == "btn-view-chat", f"Default desktop view pill must be btn-view-chat, found: {active_pills[0]}"
+
+    # 2. Main workspace class must match the active view
+    workspace_match = re.search(r'<main[^>]*class=["\']([^"\']+)["\']', html)
+    assert workspace_match, "Could not find <main class=...> element"
+    workspace_classes = workspace_match.group(1).split()
+    assert "app-workspace" in workspace_classes
+    assert "view-chat-only" in workspace_classes, f"Expected view-chat-only on main, found: {workspace_classes}"
+
+    # 3. Mobile tab-bar: tab-chat must be active and dashboard hidden
+    assert 'id="tab-chat" class="mobile-tab-btn active"' in html
+    assert 'id="tab-dashboard" class="mobile-tab-btn"' in html
+    assert 'id="dashboard-pane" class="pane-ledger hidden"' in html
+
+    # 4. Viewport meta
+    assert 'interactive-widget=resizes-content' in html
+
+
+
 
 
 
