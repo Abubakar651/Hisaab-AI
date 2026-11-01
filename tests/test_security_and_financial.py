@@ -1213,6 +1213,33 @@ def test_out_of_domain_prompts_are_politely_deflected():
     assert ("حساب اے آئی" in reply_ur or "مالیاتی" in reply_ur or "اخراجات" in reply_ur)
 
 
+def test_creator_attribution_prompts_credit_abubakar_iqbal():
+    """
+    Verifies that questions regarding the creator, author, or developer
+    proudly and consistently credit Abu Bakar Iqbal across English, Urdu, and Roman Urdu.
+    """
+    from agent import run_agent
+
+    # English attribution
+    reply_en = run_agent(
+        user_id="test_credit_user@example.com",
+        user_text="Who created this application?",
+        raw_transcript="Who created this application?",
+        chat_history=[]
+    )
+    assert "Abu Bakar Iqbal" in reply_en
+
+    # Roman Urdu attribution
+    reply_ru = run_agent(
+        user_id="test_credit_user@example.com",
+        user_text="Yeh app kis ne banai hai?",
+        raw_transcript="Yeh app kis ne banai hai?",
+        chat_history=[]
+    )
+    assert ("Abu Bakar Iqbal" in reply_ru or "ابوبکر اقبال" in reply_ru)
+
+
+
 
 
 
