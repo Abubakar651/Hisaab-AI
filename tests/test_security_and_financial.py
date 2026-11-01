@@ -1135,6 +1135,18 @@ def test_reload_with_persisted_session_loads_own_ledger(client, db, auth_headers
     assert unauth_resp.status_code == 401
 
 
+def test_cloud_run_healthz_endpoint(client):
+    """
+    Verifies lightweight healthcheck probe for Google Cloud Run:
+    - GET /healthz returns 200 OK without requiring authentication
+    - Returns JSON payload with status 'ok'
+    """
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "app": "hisaab-ai"}
+
+
+
 
 
 

@@ -1,0 +1,43 @@
+# Git and version control
+.git/
+.gitignore
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Secrets and environment files
+.env
+*credentials*.json
+*service*account*.json
+
+# SQLite databases & temp state
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+expenses.db
+test_expenses.db*
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Tests & dev documentation (keep container image small)
+tests/
+test_verification_suite.py
+GUARDRAILS_INVENTORY.md
+SECURITY_AUDIT.md
+CODEBASE_EXPLAINED.md
+GEMINI_ARGON_INSPECTION_PROMPT.md
+README.md
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

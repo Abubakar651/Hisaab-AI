@@ -413,6 +413,15 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Health / Liveness Probe (Google Cloud Run Readiness)
+# ---------------------------------------------------------------------------
+@app.get("/healthz")
+async def healthz():
+    """Lightweight health check endpoint for Cloud Run container probes."""
+    return {"status": "ok", "app": "hisaab-ai"}
+
+
+# ---------------------------------------------------------------------------
 # Frontend Root Route
 # ---------------------------------------------------------------------------
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
@@ -1124,7 +1133,7 @@ async def delete_transaction(
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.getenv("APP_HOST", "127.0.0.1")
-    port = int(os.getenv("APP_PORT", "8000"))
+    host = os.getenv("APP_HOST", "0.0.0.0" if not IS_DEV else "127.0.0.1")
+    port = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
     reload = IS_DEV
     uvicorn.run("main:app", host=host, port=port, reload=reload)
