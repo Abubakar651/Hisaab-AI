@@ -1239,6 +1239,62 @@ def test_creator_attribution_prompts_credit_abubakar_iqbal():
     assert ("Abu Bakar Iqbal" in reply_ru or "ابوبکر اقبال" in reply_ru)
 
 
+def test_custom_budget_creation_and_analytics_matching(client, db, auth_headers):
+    """
+    Verifies that a user can create a custom budget (e.g. 'gym'),
+    and analytics properly tracks expenses where either category or item_name matches.
+    """
+    uid = "test_custom_budget_user"
+    headers = auth_headers(uid)
+
+    # 1. Post custom budget 'gym' with limit 8000
+    res_b = client.post(
+        "/api/budgets",
+        data={"user_id": uid, "category": "gym", "monthly_limit": "8000"},
+        headers=headers
+    )
+    assert res_b.status_code == 200, res_b.text
+    budgets = res_b.json().get("budgets", [])
+    gym_b = next((b for b in budgets if b["category"] == "gym"), None)
+    assert gym_b is not None
+    assert gym_b["monthly_limit"] == 8000.0
+    budget_id = gym_b["id"]
+
+    # 2. Add an expense with item_name containing 'gym'
+    tx = Transaction(
+        user_id=uid,
+        total_amount=4000.0,
+        store_name="Gold Gym",
+        payment_method="cash",
+        transaction_date=get_pkt_now()
+    )
+    db.add(tx)
+    db.flush()
+    db.add(TransactionItem(
+        transaction_id=tx.id,
+        item_name="Monthly Gym Membership Fee",
+        category="other",
+        price=4000.0,
+        quantity=1.0
+    ))
+    db.commit()
+
+    # 3. Retrieve budget status
+    res_get = client.get(f"/api/budgets/{uid}", headers=headers)
+    assert res_get.status_code == 200
+    get_budgets = res_get.json().get("budgets", [])
+    gym_updated = next((b for b in get_budgets if b["category"] == "gym"), None)
+    assert gym_updated is not None
+    assert gym_updated["spent_pkr"] == 4000.0
+    assert gym_updated["remaining_pkr"] == 4000.0
+    assert gym_updated["percent"] == 50.0
+
+    # 4. Cleanup/delete budget
+    res_del = client.delete(f"/api/budgets/{uid}/{budget_id}", headers=headers)
+    assert res_del.status_code == 200
+
+
+
 
 
 

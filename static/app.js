@@ -1016,24 +1016,46 @@ tailwind.config = {
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
       if (!budgets.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic font-ur">کوئی بجٹ مقرر نہیں ہے۔ نیچے شامل کریں یا چیٹ میں لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>`;
+        box.innerHTML = `<span class="budget-empty-hint font-ur">کوئی بجٹ مقرر نہیں ہے۔ نیچے شامل کریں یا چیٹ میں لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>`;
         return;
       }
       box.innerHTML = '';
+      const categoryLabels = {
+        total: 'کل بجٹ (Overall)',
+        groceries: 'راشن و گروسری (Groceries)',
+        dairy: 'ڈیری و بیکری (Dairy)',
+        fuel: 'فیول و پیٹرول (Fuel)',
+        dining: 'کھانا پینا (Dining)',
+        utilities: 'یوٹیلیٹی بلز (Utilities)',
+        healthcare: 'ادویات و صحت (Healthcare)',
+        clothing: 'کپڑے و شاپنگ (Clothing)',
+        rent: 'مکان کا کرایہ (Rent)',
+        education: 'تعلیم و اسکول فیس (Education)',
+        other: 'دیگر (Other)'
+      };
       budgets.forEach(b => {
         const pct = Math.min(b.percent, 100);
         const barColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
         const txtColor = b.level === 'over' ? 'var(--bad)' : b.level === 'warning' ? 'var(--warn)' : 'var(--ok)';
-        const label = b.category === 'total' ? 'کل بجٹ (Overall)' : b.category;
+        const catKey = (b.category || '').toLowerCase();
+        const isPreset = categoryLabels.hasOwnProperty(catKey);
+        const label = categoryLabels[catKey] || b.category;
+        const customBadge = (!isPreset && catKey !== 'total')
+          ? `<span class="budget-custom-badge">Custom</span>`
+          : '';
+
         const row = document.createElement('div');
         row.className = 'budget-item-box';
         row.innerHTML = `
           <div class="budget-item-header">
-            <span class="font-medium text-tx capitalize font-ur">${escapeHtml(label)}</span>
+            <span class="budget-title font-ur">
+              <span class="capitalize">${escapeHtml(label)}</span>
+              ${customBadge}
+            </span>
             <span class="flex items-center gap-2">
-              <span class="font-num tabular" style="color:${txtColor}">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
+              <span class="budget-numbers tabular" style="color:${txtColor}">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
               <button class="delete-budget-btn btn-icon-del" data-id="${b.id}" title="Remove budget">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                <i data-lucide="x" class="w-4 h-4"></i>
               </button>
             </span>
           </div>
@@ -1041,9 +1063,9 @@ tailwind.config = {
             <div class="budget-fill-bar" style="width:${pct}%; background-color:${barColor};"></div>
           </div>
           ${b.level === 'over'
-            ? `<p class="text-xs mt-1 font-ur tabular" style="color:var(--bad)">بجٹ سے PKR ${formatMoney(Math.abs(b.remaining_pkr))} زیادہ خرچ ہو گئے</p>`
+            ? `<p class="budget-alert-text font-ur tabular" style="color:var(--bad)">بجٹ سے PKR ${formatMoney(Math.abs(b.remaining_pkr))} زیادہ خرچ ہو گئے</p>`
             : b.level === 'warning'
-              ? `<p class="text-xs mt-1 font-ur tabular" style="color:var(--warn)">اس مہینے صرف PKR ${formatMoney(b.remaining_pkr)} باقی ہیں</p>`
+              ? `<p class="budget-alert-text font-ur tabular" style="color:var(--warn)">اس مہینے صرف PKR ${formatMoney(b.remaining_pkr)} باقی ہیں</p>`
               : ''}
         `;
         box.appendChild(row);
@@ -1237,15 +1259,53 @@ tailwind.config = {
     }
 
     function bindAnalyticsForms() {
+      const budgetCategorySelect = document.getElementById('budget-category');
+      const budgetCustomInput = document.getElementById('budget-custom-name');
+      if (budgetCategorySelect && budgetCustomInput) {
+        budgetCategorySelect.addEventListener('change', () => {
+          if (budgetCategorySelect.value === 'custom') {
+            budgetCustomInput.classList.remove('hidden');
+            budgetCustomInput.focus();
+            budgetCustomInput.required = true;
+          } else {
+            budgetCustomInput.classList.add('hidden');
+            budgetCustomInput.value = '';
+            budgetCustomInput.required = false;
+          }
+        });
+      }
+
       document.getElementById('budget-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const selVal = document.getElementById('budget-category').value;
+        const customInput = document.getElementById('budget-custom-name');
+        const customVal = customInput ? customInput.value.trim() : '';
+        let cat = selVal;
+        if (selVal === 'custom') {
+          if (!customVal) {
+            showToast('براہ کرم کسٹم بجٹ کا نام درج کریں (Please enter a custom budget name)', 'error');
+            if (customInput) customInput.focus();
+            return;
+          }
+          cat = customVal;
+        }
         const fd = new FormData();
         fd.append('user_id', state.userId);
-        fd.append('category', document.getElementById('budget-category').value);
+        fd.append('category', cat);
         fd.append('monthly_limit', document.getElementById('budget-limit').value);
         const res = await authFetch('/api/budgets', { method: 'POST', body: fd });
-        if (res.ok) { document.getElementById('budget-limit').value = ''; showToast('Budget saved', 'success'); }
-        else showToast((await res.json().catch(() => ({}))).detail || 'Could not save budget', 'error');
+        if (res.ok) {
+          document.getElementById('budget-limit').value = '';
+          if (customInput) {
+            customInput.value = '';
+            customInput.classList.add('hidden');
+            customInput.required = false;
+          }
+          if (budgetCategorySelect) budgetCategorySelect.value = 'total';
+          showToast('Budget saved', 'success');
+        } else {
+          showToast((await res.json().catch(() => ({}))).detail || 'Could not save budget', 'error');
+        }
         fetchDashboard();
       });
       document.getElementById('recurring-form').addEventListener('submit', async (e) => {

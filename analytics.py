@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, get_pkt_now, PKT_TZ
@@ -251,7 +251,10 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
                     Transaction.user_id == user_id,
                     Transaction.transaction_date >= start,
                     Transaction.deleted_at.is_(None),
-                    TransactionItem.category.ilike(b.category),
+                    or_(
+                        TransactionItem.category.ilike(b.category),
+                        TransactionItem.item_name.ilike(f"%{b.category}%"),
+                    ),
                 )
                 .scalar()
             )

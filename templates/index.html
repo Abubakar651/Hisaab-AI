@@ -407,23 +407,30 @@
       <section class="ledger-section">
         <h2 class="ledger-section-title font-ur">ماہانہ بجٹ</h2>
         <div id="budgets-container" class="space-y-2 font-ur">
-          <span class="text-xs text-mut italic font-ur">کوئی بجٹ سیٹ نہیں ہے۔ نیچے بجٹ شامل کریں یا لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>
+          <span class="budget-empty-hint font-ur">کوئی بجٹ سیٹ نہیں ہے۔ نیچے بجٹ شامل کریں یا لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>
         </div>
-        <form id="budget-form" class="mt-4 flex flex-wrap items-center gap-3">
-          <select id="budget-category" class="input-base font-ur flex-1 min-w-[170px]">
-            <option value="total">کل بجٹ (Overall)</option>
-            <option value="groceries">راشن و گروسری (Groceries)</option>
-            <option value="dairy">ڈیری و بیکری (Dairy)</option>
-            <option value="fuel">فیول و پیٹرول (Fuel)</option>
-            <option value="dining">کھانا پینا (Dining)</option>
-            <option value="utilities">یوٹیلیٹی بلز (Utilities)</option>
-            <option value="healthcare">ادویات و صحت (Healthcare)</option>
-            <option value="clothing">کپڑے و شاپنگ (Clothing)</option>
-            <option value="other">دیگر (Other)</option>
-          </select>
+        <form id="budget-form" class="mt-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
+          <div class="flex-1 min-w-[200px] flex flex-col gap-2">
+            <select id="budget-category" class="input-base font-ur budget-input-base">
+              <option value="total">کل بجٹ (Overall)</option>
+              <option value="groceries">راشن و گروسری (Groceries)</option>
+              <option value="dairy">ڈیری و بیکری (Dairy)</option>
+              <option value="fuel">فیول و پیٹرول (Fuel)</option>
+              <option value="dining">کھانا پینا (Dining)</option>
+              <option value="utilities">یوٹیلیٹی بلز (Utilities)</option>
+              <option value="healthcare">ادویات و صحت (Healthcare)</option>
+              <option value="clothing">کپڑے و شاپنگ (Clothing)</option>
+              <option value="rent">مکان کا کرایہ (Rent)</option>
+              <option value="education">تعلیم و اسکول فیس (Education)</option>
+              <option value="custom">✍️ اپنی مرضی کا بجٹ (Custom Name...)</option>
+            </select>
+            <input id="budget-custom-name" type="text" maxlength="60"
+              placeholder="بجٹ کا کسٹم نام لکھیں (مثلاً جم، سفر، مرمت)"
+              class="input-base font-ur budget-input-base hidden">
+          </div>
           <input id="budget-limit" type="number" min="1" step="1" placeholder="بجٹ رقم (PKR)" required
-            class="input-base font-ur flex-1 min-w-[140px]">
-          <button type="submit" class="btn-primary font-ur">محفوظ کریں</button>
+            class="input-base font-ur budget-input-base flex-1 min-w-[140px]">
+          <button type="submit" class="btn-primary font-ur budget-input-base shrink-0">محفوظ کریں</button>
         </form>
       </section>
 
