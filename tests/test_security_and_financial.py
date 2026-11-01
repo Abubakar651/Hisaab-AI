@@ -1184,6 +1184,36 @@ def test_default_view_matches_html_initial_state(client):
     assert 'interactive-widget=resizes-content' in html
 
 
+def test_out_of_domain_prompts_are_politely_deflected():
+    """
+    Verifies the Domain Scope Guardrail:
+    Non-financial prompts (coding, recipes, general trivia, poetry) must be politely
+    deflected back to personal finance, expenses, and budgeting.
+    """
+    from agent import run_agent
+
+    # Test out-of-domain prompt in English
+    reply_en = run_agent(
+        user_id="test_guardrail_user@example.com",
+        user_text="Write a Python script to sort a list using quicksort",
+        raw_transcript="Write a Python script to sort a list using quicksort",
+        chat_history=[]
+    )
+    assert "HisaabAI" in reply_en
+    assert ("expense" in reply_en.lower() or "budget" in reply_en.lower() or "finances" in reply_en.lower())
+    assert "def quicksort" not in reply_en
+
+    # Test out-of-domain prompt in Urdu
+    reply_ur = run_agent(
+        user_id="test_guardrail_user@example.com",
+        user_text="مجھے چکن بریانی بنانے کی ترکیب بتائیں",
+        raw_transcript="مجھے چکن بریانی بنانے کی ترکیب بتائیں",
+        chat_history=[]
+    )
+    assert ("حساب اے آئی" in reply_ur or "مالیاتی" in reply_ur or "اخراجات" in reply_ur)
+
+
+
 
 
 
