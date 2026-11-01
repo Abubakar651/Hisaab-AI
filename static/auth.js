@@ -52,6 +52,7 @@
         box.classList.add('hidden');
         box.textContent = '';
       } else {
+        box.classList.remove('hidden');
         box.textContent = message;
         box.className = type === 'info' || type === 'success'
           ? 'p-2.5 rounded-lg border border-brass/40 bg-brass/10 text-tx text-xs mb-3 leading-relaxed'
