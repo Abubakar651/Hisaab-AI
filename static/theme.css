@@ -1116,19 +1116,53 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0;
+  padding: 14px 0;
   border-bottom: 1px dashed var(--rule);
+  gap: 12px;
+}
+
+.bill-main {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .bill-title {
   font-weight: 500;
   font-size: 13pt;
   color: var(--tx);
+  line-height: 1.4;
 }
 
 .bill-sub {
   font-size: 13pt;
   color: var(--mut);
+  line-height: 1.4;
+}
+
+.bill-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 639px) {
+  .bill-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 0;
+  }
+  .bill-main {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .bill-actions {
+    justify-content: flex-end;
+    gap: 8px;
+  }
 }
 
 .bill-empty-hint {

@@ -1211,11 +1211,11 @@ tailwind.config = {
         const row = document.createElement('div');
         row.className = 'bill-row';
         row.innerHTML = `
-          <div class="min-w-0">
+          <div class="bill-main">
             <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
             <div class="bill-sub font-ui tabular">Due Day: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
           </div>
-          <div class="flex items-center gap-2 shrink-0">
+          <div class="bill-actions">
             ${badge}
             ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> Mark as Paid</button>`}
             <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
