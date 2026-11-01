@@ -164,7 +164,7 @@ def ensure_urdu_script(text: str) -> str:
             res = llm.invoke(prompt)
             converted = (res.content or "").strip()
             if converted:
-                logger.info(f"Converted Hindi/Gurmukhi text to Urdu script: '{text}' -> '{converted}'")
+                logger.info("Converted Hindi/Gurmukhi text to Urdu script successfully")
                 return converted
         except Exception as e:
             logger.warning(f"Error converting Hindi/Gurmukhi text to Urdu script: {e}")
@@ -172,23 +172,25 @@ def ensure_urdu_script(text: str) -> str:
     return text
 
 
+ARABIC_SCRIPT_REGEX = re.compile(r"[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]")
+REGIONAL_LANGS = {"ur", "pa", "hi", "sd", "ps", "fa", "ar"}
+
+
 def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> str:
     """
     Transcribes audio using Groq whisper-large-v3 with domain prompt injection
     for accurate Pakistani store names, prices, and code-switched Urdu/Punjabi.
-    Enforces Pakistani Urdu script (Nastaliq), preventing Hindi Devanagari or Gurmukhi.
+    Enforces Pakistani Urdu script (Nastaliq), preventing Hindi Devanagari, Gurmukhi, or Latin transliteration.
     """
     if not file_bytes or len(file_bytes) < 100:
         logger.warning("Empty or very short audio payload received.")
         return ""
 
+    # Vocabulary-only domain prompt (no instruction sentences that degrade ASR)
     domain_prompt = (
-        "یہ پاکستان میں روزمرہ کے اخراجات، گروسری، خریداری، راشن اور بل کا وائس نوٹ ہے۔ "
-        "اچھا میرا اس مہینے کا ٹوٹل جو خرچ ہے وہ کتنا ہے؟ "
-        "میں آج امتیاز توں 1500 دا کوکنگ آئل تے 450 دی بریڈ لئی۔ "
-        "الفتح، جلال سنز، کیارفور، میٹرو، چیس اپ، شاہین کیمسٹ، پٹرول، ڈیزل، دودھ، دہی، انڈے، ڈبل روٹی، چینی، چاول، دال، آٹا۔ "
-        "ہمیشہ اردو رسم الخط (Nastaliq script) میں لکھیں، ہندی (Devanagari) یا گرمکھی (Gurmukhi) میں ہرگز نہیں لکھنا۔ "
-        "Voice note about daily expenses in Pakistan. Always transcribe Urdu and Punjabi in Urdu script, never in Devanagari or Gurmukhi."
+        "امتیاز، الفتح، جلال سنز، کیارفور، میٹرو، چیس اپ، شاہین کیمسٹ، "
+        "پٹرول، ڈیزل، دودھ، دہی، انڈے، ڈبل روٹی، چینی، چاول، دال، آٹا، "
+        "راشن، کریانہ، گوشت، سبزی، پھل، بل، بجلی، گیس، پانی، فیس، کرایہ، PKR، روپے"
     )
 
     try:
@@ -198,9 +200,32 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
             model="whisper-large-v3",
             prompt=domain_prompt,
             temperature=0.0,
+            response_format="verbose_json",
         )
-        raw_text = transcription.text.strip()
-        # Guarantee that Urdu/Punjabi text is formatted in authentic Urdu script, never Hindi Devanagari
+        raw_text = getattr(transcription, "text", "") or (transcription.get("text", "") if isinstance(transcription, dict) else "")
+        raw_text = raw_text.strip()
+        detected_lang = getattr(transcription, "language", "") or (transcription.get("language", "") if isinstance(transcription, dict) else "")
+
+        # If spoken Urdu/Punjabi/regional dialect was detected but transcribed in non-Arabic script (e.g. Latin transliteration or Devanagari),
+        # perform at most ONE retry with explicit language="ur".
+        if detected_lang in REGIONAL_LANGS and not bool(ARABIC_SCRIPT_REGEX.search(raw_text)):
+            try:
+                retry_transcription = client.audio.transcriptions.create(
+                    file=(filename, file_bytes),
+                    model="whisper-large-v3",
+                    prompt=domain_prompt,
+                    temperature=0.0,
+                    language="ur",
+                    response_format="verbose_json",
+                )
+                retry_text = getattr(retry_transcription, "text", "") or (retry_transcription.get("text", "") if isinstance(retry_transcription, dict) else "")
+                if retry_text and retry_text.strip():
+                    raw_text = retry_text.strip()
+            except Exception as retry_err:
+                # On 429 or any retry error, safely fall back to the first transcript
+                logger.warning(f"Whisper Urdu retry failed, using initial transcript: {retry_err}")
+
+        # Final guarantee that Urdu/Punjabi text is formatted in authentic Urdu script, never Hindi Devanagari
         return ensure_urdu_script(raw_text)
     except Exception as e:
         logger.error(f"Whisper transcription failed: {e}")

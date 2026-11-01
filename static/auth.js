@@ -252,8 +252,8 @@
     const activeEl = document.getElementById('active-user-display');
 
     if (letterEl) letterEl.textContent = '?';
-    if (nameEl) nameEl.textContent = 'Sign In';
-    if (activeEl) activeEl.textContent = 'Guest';
+    if (nameEl) nameEl.textContent = window.t ? window.t('header.sign_in') : 'Sign In';
+    if (activeEl) activeEl.textContent = window.t ? window.t('header.guest') : 'Guest';
 
     // Show modal if needed
     const modal = document.getElementById('auth-modal');

@@ -87,6 +87,11 @@ body {
 .app-header .font-num {
   font-family: var(--num) !important;
 }
+html[lang="ur"] .app-header .view-pill-btn span,
+html[lang="ur"] .app-header .dropdown-item-btn span,
+html[lang="ur"] .app-header .user-pill-name {
+  font-family: var(--ur), var(--ui) !important;
+}
 
 .hidden {
   display: none !important;
@@ -138,9 +143,19 @@ select.font-ur {
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a95a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 12px center;
   background-size: 16px 16px;
+}
+
+html[dir="rtl"] select.font-ur {
+  background-position: left 12px center;
+  padding-left: 36px !important;
+  padding-right: 14px !important;
+}
+
+html[dir="ltr"] select.font-ur {
+  background-position: right 12px center;
   padding-right: 36px !important;
+  padding-left: 14px !important;
 }
 
 select.font-ur option {
@@ -361,6 +376,44 @@ select:focus-visible,
   position: relative;
 }
 
+/* Language Toggle Pill */
+.lang-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 99px;
+  background-color: var(--s1);
+  border: 1px solid var(--rule);
+  color: var(--tx);
+  font-family: var(--ui), sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  min-height: 40px;
+}
+
+.lang-toggle-pill:hover {
+  border-color: var(--brass);
+  background-color: var(--s2);
+  color: var(--brass);
+}
+
+.lang-toggle-pill:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+html[lang="ur"] .lang-toggle-label {
+  font-family: var(--ui), sans-serif;
+}
+
+html[lang="en"] .lang-toggle-label {
+  font-family: var(--ur), serif;
+}
+
 /* User Account Pill */
 .user-pill {
   display: flex;
@@ -578,7 +631,8 @@ select:focus-visible,
 /* Chat Bubbles */
 .bubble-user {
   max-width: 82%;
-  margin-left: auto;
+  margin-inline-start: auto;
+  margin-inline-end: 0;
   background-color: #2a2418;
   border: 1px solid #4a3d22;
   border-radius: 14px;
@@ -592,7 +646,8 @@ select:focus-visible,
 
 .bubble-assistant {
   max-width: 88%;
-  margin-right: auto;
+  margin-inline-end: auto;
+  margin-inline-start: 0;
   background-color: var(--s2);
   border: 1px solid var(--rule);
   border-radius: 14px;
@@ -678,7 +733,7 @@ select:focus-visible,
 .composer-input {
   flex: 1;
   min-height: 46px;
-  max-height: 120px;
+  max-height: 240px;
   background-color: var(--s2);
   border: 1px solid var(--rule);
   border-radius: 12px;
@@ -688,7 +743,15 @@ select:focus-visible,
   font-size: 14.5px;
   resize: none;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, height 0.18s ease;
+  overflow-y: hidden;
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-input {
+    transition: border-color 0.15s, height 0s !important;
+  }
 }
 
 .composer-input::placeholder {

@@ -114,6 +114,21 @@ tailwind.config = {
       }
     }
 
+    function autosizeComposer(el) {
+      if (!el) return;
+      const max = Math.min(window.innerHeight * 0.4, 240);
+      const prev = el.offsetHeight || 46;
+      el.style.transition = 'none';
+      el.style.height = 'auto';
+      const scrollH = el.scrollHeight;
+      const target = Math.max(46, Math.min(scrollH, max));
+      el.style.height = prev + 'px';
+      el.offsetHeight; // force reflow
+      el.style.transition = '';
+      el.style.height = target + 'px';
+      el.style.overflowY = scrollH > max ? 'auto' : 'hidden';
+    }
+
     // Initialize UI
     function initApp() {
       initElements();
@@ -123,9 +138,18 @@ tailwind.config = {
 
       // Auto-resize textarea and auto-detect Nastaleeq script
       elements.messageInput.addEventListener('input', function () {
-        this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+        autosizeComposer(this);
         syncInputScriptDirection();
+      });
+
+      elements.messageInput.addEventListener('focus', function () {
+        autosizeComposer(this);
+      });
+
+      elements.messageInput.addEventListener('blur', function () {
+        if (!this.value.trim()) {
+          this.style.height = '46px';
+        }
       });
 
       // Enter key sends message (Shift+Enter for new line)
@@ -146,6 +170,18 @@ tailwind.config = {
       if (state.userId) {
         fetchDashboard();
       }
+
+      if (window.HisaabI18n) {
+        HisaabI18n.onLanguageChange(() => {
+          if (state.lastDashboardData) {
+            renderDashboard(state.lastDashboardData);
+          }
+          if (window.Chart) {
+            Chart.defaults.plugins.tooltip.rtl = (HisaabI18n.getLanguage() === 'ur');
+          }
+        });
+      }
+
       lucide.createIcons();
     }
 
@@ -374,7 +410,7 @@ tailwind.config = {
       // Add user message to UI (tag with 'Voice note, transcribed' if originated from mic)
       appendUserMessage(message, wasVoice ? 'Voice note, transcribed' : null);
       elements.messageInput.value = '';
-      elements.messageInput.style.height = 'auto';
+      autosizeComposer(elements.messageInput);
       syncInputScriptDirection();
 
       // Send to API
@@ -517,20 +553,19 @@ tailwind.config = {
               const data = await res.json();
               if (data.transcript && data.transcript.trim()) {
                 elements.messageInput.value = data.transcript.trim();
-                elements.messageInput.style.height = 'auto';
-                elements.messageInput.style.height = Math.min(elements.messageInput.scrollHeight, 140) + 'px';
+                autosizeComposer(elements.messageInput);
                 syncInputScriptDirection();
                 state.pendingVoiceNote = true;
-                showToast("🎤 آواز چیٹ باکس میں تحریر ہو گئی! جائزہ لیں اور Send دبائیں۔", "success");
+                showToast(t("toast.speech_transcribed"), "success");
               } else {
-                showToast("کوئی آواز ریکارڈ نہیں ہوئی۔ مائیک کے قریب بولیں۔", "warning");
+                showToast(t("toast.no_speech"), "warning");
               }
             } catch (err) {
               console.error("Transcription error:", err);
-              showToast(err.message || "آواز تحریر کرنے میں مسئلہ پیش آیا۔", "error");
+              showToast(err.message || t("toast.stt_failed"), "error");
             } finally {
               elements.messageInput.disabled = false;
-              elements.messageInput.placeholder = origPlaceholder;
+              elements.messageInput.placeholder = t("chat.placeholder");
               elements.messageInput.focus();
             }
           }
@@ -868,10 +903,11 @@ tailwind.config = {
     }
 
     function renderDashboard(data) {
+      state.lastDashboardData = data;
       // 1. KPI Cards / Hero
       elements.kpiMonthlyTotal.textContent = `${formatMoney(data.monthly_total || 0)}`;
       elements.kpiVisitCount.textContent = data.monthly_count || 0;
-      elements.kpiTopStore.textContent = data.top_store || 'درج نہیں';
+      elements.kpiTopStore.textContent = data.top_store || t('ledger.not_recorded');
 
       const heroBar = document.querySelector('.ledger-hero-bar');
       if (heroBar) {
@@ -909,15 +945,15 @@ tailwind.config = {
           elements.storeBreakdownContainer.appendChild(pill);
         });
       } else {
-        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-mut italic font-ur">ابھی تک کوئی دکان ریکارڈ میں نہیں۔</span>`;
+        elements.storeBreakdownContainer.innerHTML = `<span class="text-xs text-mut italic font-ur">${t('ledger.stores_empty')}</span>`;
       }
 
       // 3. Transactions List
       const txs = data.recent_transactions || [];
       if (txs.length === 0) {
-        elements.txCountBadge.textContent = 'اس مہینے کا کوئی خرچہ درج نہیں ہے';
+        elements.txCountBadge.textContent = t('ledger.no_tx_this_month');
       } else {
-        elements.txCountBadge.textContent = `${txs.length} ریکارڈز`;
+        elements.txCountBadge.textContent = t('ledger.tx_count', { count: txs.length });
       }
       elements.transactionsList.innerHTML = '';
 
@@ -925,7 +961,7 @@ tailwind.config = {
         elements.transactionsList.innerHTML = `
           <div class="text-center py-10 text-mut text-xs font-ur">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-            ابھی تک کوئی خرچہ ریکارڈ نہیں ہوا۔<br>چیٹ میں اپنا پہلا خرچہ بولیں یا لکھیں!
+            ${t('ledger.recent_tx_empty')}
           </div>
         `;
         lucide.createIcons();
@@ -1016,22 +1052,22 @@ tailwind.config = {
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
       if (!budgets.length) {
-        box.innerHTML = `<span class="budget-empty-hint font-ur">کوئی بجٹ مقرر نہیں ہے۔ نیچے شامل کریں یا چیٹ میں لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>`;
+        box.innerHTML = `<span class="budget-empty-hint font-ur">${t('ledger.budgets_empty')}</span>`;
         return;
       }
       box.innerHTML = '';
       const categoryLabels = {
-        total: 'کل بجٹ (Overall)',
-        groceries: 'راشن و گروسری (Groceries)',
-        dairy: 'ڈیری و بیکری (Dairy)',
-        fuel: 'فیول و پیٹرول (Fuel)',
-        dining: 'کھانا پینا (Dining)',
-        utilities: 'یوٹیلیٹی بلز (Utilities)',
-        healthcare: 'ادویات و صحت (Healthcare)',
-        clothing: 'کپڑے و شاپنگ (Clothing)',
-        rent: 'مکان کا کرایہ (Rent)',
-        education: 'تعلیم و اسکول فیس (Education)',
-        other: 'دیگر (Other)'
+        total: t('budget.overall'),
+        groceries: t('budget.groceries'),
+        dairy: t('budget.dairy'),
+        fuel: t('budget.fuel'),
+        dining: t('budget.dining'),
+        utilities: t('budget.utilities'),
+        healthcare: t('budget.healthcare'),
+        clothing: t('budget.clothing'),
+        rent: t('budget.rent'),
+        education: t('budget.education'),
+        other: t('budget.other')
       };
       budgets.forEach(b => {
         const pct = Math.min(b.percent, 100);
@@ -1054,7 +1090,7 @@ tailwind.config = {
             </span>
             <span class="flex items-center gap-2">
               <span class="budget-numbers tabular" style="color:${txtColor}">PKR ${formatMoney(b.spent_pkr)} / ${formatMoney(b.monthly_limit)} (${b.percent}%)</span>
-              <button class="delete-budget-btn btn-icon-del" data-id="${b.id}" title="Remove budget">
+              <button class="delete-budget-btn btn-icon-del" data-id="${b.id}" title="${t('btn.remove', 'Remove')}">
                 <i data-lucide="x" class="w-4 h-4"></i>
               </button>
             </span>
@@ -1063,9 +1099,9 @@ tailwind.config = {
             <div class="budget-fill-bar" style="width:${pct}%; background-color:${barColor};"></div>
           </div>
           ${b.level === 'over'
-            ? `<p class="budget-alert-text font-ur tabular" style="color:var(--bad)">بجٹ سے PKR ${formatMoney(Math.abs(b.remaining_pkr))} زیادہ خرچ ہو گئے</p>`
+            ? `<p class="budget-alert-text font-ur tabular" style="color:var(--bad)">${t('budget.over_by', { amount: formatMoney(Math.abs(b.remaining_pkr)) })}</p>`
             : b.level === 'warning'
-              ? `<p class="budget-alert-text font-ur tabular" style="color:var(--warn)">اس مہینے صرف PKR ${formatMoney(b.remaining_pkr)} باقی ہیں</p>`
+              ? `<p class="budget-alert-text font-ur tabular" style="color:var(--warn)">${t('budget.remaining', { amount: formatMoney(b.remaining_pkr) })}</p>`
               : ''}
         `;
         box.appendChild(row);
@@ -1189,7 +1225,7 @@ tailwind.config = {
     function renderPaymentSplit(rows) {
       const box = document.getElementById('payment-split-container');
       if (!rows.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic font-ur">ادائیگی کا کوئی ڈیٹا درج نہیں ہے۔</span>`;
+        box.innerHTML = `<span class="text-xs text-mut italic font-ur">${t('ledger.payment_split_empty')}</span>`;
         return;
       }
       const total = rows.reduce((s, r) => s + r.total_pkr, 0) || 1;
@@ -1205,8 +1241,8 @@ tailwind.config = {
             <div class="split-fill-digital" style="width: ${digitalPct}%;"></div>
           </div>
           <div class="flex items-center justify-between text-xs mt-1.5 font-ur tabular">
-            <span class="text-brass">نقد (Cash): ${cashPct}% (PKR ${formatMoney(cash)})</span>
-            <span class="text-ok">ڈیجیٹل (Digital): ${digitalPct}% (PKR ${formatMoney(digital)})</span>
+            <span class="text-brass">${t('ledger.cash')}: ${cashPct}% (PKR ${formatMoney(cash)})</span>
+            <span class="text-ok">${t('ledger.digital')}: ${digitalPct}% (PKR ${formatMoney(digital)})</span>
           </div>
         </div>
         ${rows.map(r => `
@@ -1220,27 +1256,27 @@ tailwind.config = {
     function renderRecurring(items) {
       const box = document.getElementById('recurring-container');
       if (!items.length) {
-        box.innerHTML = `<span class="bill-empty-hint font-ur">کوئی ماہانہ بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>`;
+        box.innerHTML = `<span class="bill-empty-hint font-ur">${t('ledger.recurring_empty')}</span>`;
         return;
       }
       box.innerHTML = '';
       items.forEach(r => {
         const badge = r.paid_this_month
-          ? `<span class="bill-status-pill pill-paid">Paid</span>`
+          ? `<span class="bill-status-pill pill-paid">${t('bill.paid', 'Paid')}</span>`
           : r.overdue
-            ? `<span class="bill-status-pill pill-unpaid">Unpaid</span>`
-            : `<span class="bill-status-pill pill-pending">Pending</span>`;
+            ? `<span class="bill-status-pill pill-unpaid">${t('bill.unpaid', 'Unpaid')}</span>`
+            : `<span class="bill-status-pill pill-pending">${t('bill.pending', 'Pending')}</span>`;
         const row = document.createElement('div');
         row.className = 'bill-row';
         row.innerHTML = `
           <div class="bill-main">
             <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
-            <div class="bill-sub font-ui tabular">Due Day: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-sub font-ui tabular">${t('bill.due_day', 'Due Day')}: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
           </div>
           <div class="bill-actions">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> Mark as Paid</button>`}
-            <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> ${t('btn.mark_paid', 'Mark as Paid')}</button>`}
+            <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="${t('btn.remove', 'Remove')}"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
           </div>
         `;
         box.appendChild(row);
@@ -1248,7 +1284,7 @@ tailwind.config = {
       box.querySelectorAll('.pay-rec-btn').forEach(btn => btn.addEventListener('click', async () => {
         const res = await authFetch(`/api/recurring/${encodeURIComponent(state.userId)}/${btn.dataset.id}/pay`, { method: 'POST' });
         const out = await res.json().catch(() => ({}));
-        showToast(out.message || 'Done', res.ok ? 'success' : 'error');
+        showToast(out.message || t('toast.recurring_saved'), res.ok ? 'success' : 'error');
         fetchDashboard();
       }));
       box.querySelectorAll('.del-rec-btn').forEach(btn => btn.addEventListener('click', async () => {
