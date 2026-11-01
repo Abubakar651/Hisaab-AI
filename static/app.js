@@ -1198,27 +1198,27 @@ tailwind.config = {
     function renderRecurring(items) {
       const box = document.getElementById('recurring-container');
       if (!items.length) {
-        box.innerHTML = `<span class="text-xs text-mut italic font-ur">کوئی ماہانہ بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>`;
+        box.innerHTML = `<span class="bill-empty-hint font-ur">کوئی ماہانہ بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>`;
         return;
       }
       box.innerHTML = '';
       items.forEach(r => {
         const badge = r.paid_this_month
-          ? `<span class="px-2 py-0.5 rounded-full bg-ok/15 text-ok border border-ok/30 text-[10px] font-semibold font-ur">ادا شدہ</span>`
+          ? `<span class="bill-status-pill pill-paid">Paid</span>`
           : r.overdue
-            ? `<span class="px-2 py-0.5 rounded-full bg-bad/15 text-bad border border-bad/30 text-[10px] font-semibold font-ur">واجب الادا</span>`
-            : `<span class="px-2 py-0.5 rounded-full bg-warn/15 text-warn border border-warn/30 text-[10px] font-semibold font-ur">زیر التواء</span>`;
+            ? `<span class="bill-status-pill pill-unpaid">Unpaid</span>`
+            : `<span class="bill-status-pill pill-pending">Pending</span>`;
         const row = document.createElement('div');
         row.className = 'bill-row';
         row.innerHTML = `
           <div class="min-w-0">
             <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
-            <div class="bill-sub font-ur tabular">تاریخ ادائیگی: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-sub font-ui tabular">Due Day: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid font-ur" data-id="${r.id}"><i data-lucide="check" class="w-3 h-3"></i> ادا شدہ نشان لگائیں</button>`}
-            <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> Mark as Paid</button>`}
+            <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
           </div>
         `;
         box.appendChild(row);
