@@ -1098,6 +1098,44 @@ def test_display_name_is_sanitized(client, db, auth_headers):
     assert "scriptalert(xss)/script" in stored_name
 
 
+def test_reload_with_persisted_session_loads_own_ledger(client, db, auth_headers):
+    """
+    Simulates client page reload with a persisted Firebase session:
+    1. Persisted token is sent to POST /api/auth/me -> returns user identity matching token.email.
+    2. The client passes user.email to GET /api/transactions/{email} -> succeeds with 200 and loads own ledger.
+    3. Attempting to access another user's ledger (e.g. legacy 'bakar' or 'guest') with this token fails with 403 Forbidden.
+    4. Unauthenticated client (no token) attempting to access ledger fails with 401 Unauthorized.
+    """
+    user_email = "non_bakar_user_99@example.com"
+    headers = auth_headers(user_email, provider="google.com", email_verified=True)
+
+    # Step 1: Rehydrate user profile on reload
+    me_resp = client.post("/api/auth/me", headers=headers)
+    assert me_resp.status_code == 200
+    me_data = me_resp.json()
+    assert me_data.get("status") == "success"
+    assert "user" in me_data
+    authenticated_email = me_data["user"]["email"]
+    assert authenticated_email == user_email
+    assert authenticated_email != "bakar"
+
+    # Step 2: Fetch own ledger using authenticated email -> 200 OK
+    ledger_resp = client.get(f"/api/transactions/{authenticated_email}", headers=headers)
+    assert ledger_resp.status_code == 200
+
+    # Step 3: Attempting to access legacy 'bakar' or 'guest' returns 403 Forbidden
+    bakar_resp = client.get("/api/transactions/bakar", headers=headers)
+    assert bakar_resp.status_code == 403
+
+    guest_resp = client.get("/api/transactions/guest", headers=headers)
+    assert guest_resp.status_code == 403
+
+    # Step 4: Unauthenticated request (no token) returns 401
+    unauth_resp = client.get(f"/api/transactions/{user_email}")
+    assert unauth_resp.status_code == 401
+
+
+
 
 
 
