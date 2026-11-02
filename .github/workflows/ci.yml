@@ -73,3 +73,42 @@ jobs:
       - name: Run Subsystem Verification Suite
         run: |
           python test_verification_suite.py
+
+  deploy:
+    name: Deploy to AWS EC2 (Production)
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Package Release & Upload to S3
+        run: |
+          git archive --format=tar.gz HEAD -o /tmp/main-release.tar.gz
+          aws s3 cp /tmp/main-release.tar.gz s3://hisaab-ai-deploy-562680394100/main-release.tar.gz
+
+      - name: Trigger Remote Deployment via AWS SSM
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids i-0c853339e5118d2cd \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["bash /opt/hisaab/deploy.sh"]' \
+            --region us-east-1 \
+            --query "Command.CommandId" \
+            --output text)
+          echo "Triggered deployment Command: $COMMAND_ID"
+          echo "Waiting for AWS SSM execution to complete..."
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id i-0c853339e5118d2cd \
+            --region us-east-1
+          echo "Deployment to AWS EC2 successfully completed!"
+
