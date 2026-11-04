@@ -545,13 +545,17 @@ html[lang="en"] .lang-toggle-label {
   font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   min-height: 44px;
 }
 
 .user-pill:hover {
   border-color: var(--brass);
   background-color: var(--s2);
+}
+
+.user-pill:active {
+  transform: scale(0.98);
 }
 
 .user-avatar-circle {
@@ -585,10 +589,21 @@ html[lang="en"] .lang-toggle-label {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  transform-origin: top right;
+  transform: scale(1) translateY(0);
+  opacity: 1;
+  visibility: visible;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .account-dropdown-menu.hidden {
-  display: none !important;
+  display: flex !important;
+  transform: scale(0.95) translateY(-6px) !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .dropdown-header-box {
@@ -609,15 +624,19 @@ html[lang="en"] .lang-toggle-label {
   color: var(--tx);
   font-size: 13px;
   font-weight: 500;
-  text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  text-decoration: none;
   min-height: 44px;
 }
 
 .dropdown-item-btn:hover {
   background-color: var(--s2);
   color: var(--brass);
+}
+
+.dropdown-item-btn:active {
+  transform: scale(0.98);
 }
 
 .dropdown-item-btn.text-bad:hover {
@@ -1569,10 +1588,17 @@ html[lang="en"] .lang-toggle-label {
   padding: 16px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal-overlay.hidden {
-  display: none !important;
+  display: flex !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .modal-panel-420 {
@@ -1590,6 +1616,45 @@ html[lang="en"] .lang-toggle-label {
   padding: 24px;
   position: relative;
   color: var(--tx);
+  transform: scale(1) translateY(0);
+  opacity: 1;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-overlay.hidden .modal-panel-420 {
+  transform: scale(0.95) translateY(12px) !important;
+  opacity: 0 !important;
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--mut);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 0;
+  z-index: 10;
+}
+
+.modal-close-btn:hover {
+  color: var(--tx);
+  background-color: var(--s2);
+  border-color: var(--rule);
+  transform: rotate(90deg);
+}
+
+.modal-close-btn:active {
+  transform: scale(0.92);
 }
 
 .modal-title {
@@ -1622,7 +1687,7 @@ html[lang="en"] .lang-toggle-label {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -1630,10 +1695,63 @@ html[lang="en"] .lang-toggle-label {
   gap: 6px;
 }
 
-.modal-tab-btn.active,
-.modal-tab-btn:hover {
+.modal-tab-btn.active {
   color: var(--brass);
   border-bottom-color: var(--brass);
+}
+
+.modal-tab-btn:hover:not(.active) {
+  color: var(--tx);
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+#auth-name-field {
+  max-height: 85px;
+  opacity: 1;
+  transform: translateY(0);
+  overflow: hidden;
+  transition: max-height 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease,
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              margin-bottom 0.25s ease;
+  margin-bottom: 0.75rem;
+}
+
+#auth-name-field.hidden {
+  display: block !important;
+  max-height: 0 !important;
+  opacity: 0 !important;
+  transform: translateY(-6px) !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-width: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+#auth-error-box {
+  transition: max-height 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease,
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              margin-bottom 0.25s ease;
+  max-height: 120px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#auth-error-box.hidden {
+  display: block !important;
+  max-height: 0 !important;
+  opacity: 0 !important;
+  transform: translateY(-4px) !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-width: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
 }
 
 #auth-email-form {
@@ -1698,11 +1816,15 @@ html[lang="en"] .lang-toggle-label {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: background-color 0.15s;
+  transition: background-color 0.2s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
 .btn-primary-brass:hover {
   background-color: var(--brass-dark);
+}
+
+.btn-primary-brass:active {
+  transform: scale(0.985);
 }
 
 .btn-outlined-s2 {
@@ -1719,12 +1841,16 @@ html[lang="en"] .lang-toggle-label {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-outlined-s2:hover {
   border-color: var(--brass);
-  color: var(--brass);
+  color: var(--tx);
+}
+
+.btn-outlined-s2:active {
+  transform: scale(0.985);
 }
 
 .text-error-bad {
