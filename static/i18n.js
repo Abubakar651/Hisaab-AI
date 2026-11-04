@@ -120,7 +120,7 @@
       'confirm.btn_no': 'منسوخ کریں (Cancel)',
 
       // Modals (Auth & Mic)
-      'auth.title': 'سائن ان HisaabAI',
+      'auth.title': 'لاگ ان HisaabAI',
       'auth.subtitle': 'کثیر لسانی آواز اور تحریر کا کھاتہ',
       'auth.desc': 'اپنے اخراجات کو محفوظ رکھنے اور کسی بھی ڈیوائس پر سنک کرنے کے لیے لاگ ان کریں یا نیا اکاؤنٹ بنائیں۔',
       'auth.tab_signin': 'لاگ ان',
@@ -168,7 +168,7 @@
       'header.title': 'HisaabAI',
       'header.chat': 'Chat',
       'header.split': 'Split',
-      'header.ledger': 'Live Ledger',
+      'header.ledger': 'Ledger',
       'header.sign_in': 'Sign In',
       'header.guest': 'Guest',
       'header.not_signed_in': 'Not signed in',
@@ -279,7 +279,7 @@
       'auth.password': 'Password',
       'auth.password_placeholder': 'Minimum 8 characters',
       'auth.forgot_password': 'Forgot password?',
-      'auth.or': 'or',
+      'auth.or': 'OR',
       'auth.google': 'Continue with Google',
       'auth.notice': 'Encrypted & Isolated • Google Firebase Authentication',
       'auth.verify_title': 'Verify Your Email Address',

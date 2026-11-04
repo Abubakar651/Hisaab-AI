@@ -286,6 +286,51 @@ html[lang="en"] .btn-primary.font-ur {
   line-height: 1.4 !important;
 }
 
+html[lang="en"] .prompt-chip {
+  font-family: var(--ui) !important;
+  font-size: 13.5px !important;
+  line-height: 1.4 !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  padding: 6px 14px !important;
+}
+
+html[lang="en"] .chat-clear-btn {
+  font-family: var(--ui) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="en"] .chat-welcome-title {
+  font-family: var(--ui) !important;
+  font-size: 17px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="en"] .chat-tip-text {
+  font-family: var(--ui) !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+html[lang="ur"] .chat-clear-btn {
+  font-family: var(--ur) !important;
+  font-size: 14.5px !important;
+  line-height: 2 !important;
+}
+
+html[lang="ur"] .chat-welcome-title {
+  font-family: var(--ur) !important;
+  font-size: 18px !important;
+  line-height: 2.2 !important;
+}
+
+html[lang="ur"] .chat-tip-text {
+  font-family: var(--ur) !important;
+  font-size: 14px !important;
+  line-height: 2 !important;
+}
+
 html[lang="ur"] .composer-input.font-ur,
 html[lang="ur"] .composer-input.font-nastaleeq,
 .composer-input[dir="rtl"] {
@@ -459,7 +504,9 @@ select:focus-visible,
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
-  min-height: 40px;
+  min-height: 38px;
+  height: 38px;
+  box-sizing: border-box;
 }
 
 .lang-toggle-pill:hover {
@@ -474,11 +521,15 @@ select:focus-visible,
 }
 
 html[lang="ur"] .lang-toggle-label {
-  font-family: var(--ui), sans-serif;
+  font-family: var(--ui), sans-serif !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
 }
 
 html[lang="en"] .lang-toggle-label {
-  font-family: var(--ur), serif;
+  font-family: var(--ur), serif !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
 }
 
 /* User Account Pill */

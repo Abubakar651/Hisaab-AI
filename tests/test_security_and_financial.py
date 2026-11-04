@@ -1239,7 +1239,9 @@ def test_creator_attribution_prompts_credit_abubakar_iqbal():
     )
     if _is_llm_api_unavailable(reply_en):
         pytest.skip("Groq/LLM API credentials unavailable or rate-limited in CI runner")
-    assert "Abu Bakar Iqbal" in reply_en
+    import re
+    norm_en = re.sub(r'[\s\u2000-\u200f\u202f]+', ' ', reply_en)
+    assert "Abu Bakar Iqbal" in norm_en
 
     # Roman Urdu attribution
     reply_ru = run_agent(
@@ -1250,7 +1252,8 @@ def test_creator_attribution_prompts_credit_abubakar_iqbal():
     )
     if _is_llm_api_unavailable(reply_ru):
         pytest.skip("Groq/LLM API credentials unavailable or rate-limited in CI runner")
-    assert ("Abu Bakar Iqbal" in reply_ru or "ابوبکر اقبال" in reply_ru)
+    norm_ru = re.sub(r'[\s\u2000-\u200f\u202f]+', ' ', reply_ru)
+    assert ("Abu Bakar Iqbal" in norm_ru or "ابوبکر اقبال" in norm_ru)
 
 
 def test_custom_budget_creation_and_analytics_matching(client, db, auth_headers):
