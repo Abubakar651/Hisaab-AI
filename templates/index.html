@@ -286,12 +286,19 @@
         <span class="lang-toggle-label-short">ENG</span>
       </button>
 
-      <button id="account-btn" class="user-pill" title="Account Settings">
+      <!-- Unauthenticated State: Direct Sign-In CTA (No chevron, opens modal directly) -->
+      <button id="signin-header-btn" class="header-signin-btn" role="button" aria-label="Sign In" title="Sign In to HisaabAI">
+        <i data-lucide="user" class="w-4 h-4 text-brass"></i>
+        <span class="hidden sm:inline font-semibold text-xs" data-i18n="header.sign_in">Sign In</span>
+      </button>
+
+      <!-- Authenticated State: User Account Pill (revealed only after sign-in) -->
+      <button id="account-btn" class="user-pill hidden" title="Account Settings" aria-haspopup="true" aria-expanded="false">
         <div id="user-avatar" class="user-avatar-circle">
           <span id="avatar-letter">?</span>
         </div>
         <div class="user-pill-info">
-          <div id="user-display-name" class="user-pill-name" data-i18n="header.sign_in">Sign In</div>
+          <div id="user-display-name" class="user-pill-name">User</div>
           <span id="user-provider-badge" class="hidden"></span>
         </div>
         <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-mut ml-0.5"></i>

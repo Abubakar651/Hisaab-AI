@@ -267,12 +267,14 @@
 
   // Handle sign-out
   function handleUserSignedOut() {
-    const nameEl = document.getElementById('user-display-name');
-    const letterEl = document.getElementById('avatar-letter');
+    const signinBtn = document.getElementById('signin-header-btn');
+    const accountBtn = document.getElementById('account-btn');
+    const accountDropdown = document.getElementById('account-dropdown');
     const activeEl = document.getElementById('active-user-display');
 
-    if (letterEl) letterEl.textContent = '?';
-    if (nameEl) nameEl.textContent = window.t ? window.t('header.sign_in') : 'Sign In';
+    if (signinBtn) signinBtn.classList.remove('hidden');
+    if (accountBtn) accountBtn.classList.add('hidden');
+    if (accountDropdown) accountDropdown.classList.add('hidden');
     if (activeEl) activeEl.textContent = window.t ? window.t('header.guest') : 'Guest';
 
     // Show modal if needed
@@ -286,12 +288,18 @@
     const email = user.email || '';
     const initial = (name.charAt(0) || 'U').toUpperCase();
 
+    const signinBtn = document.getElementById('signin-header-btn');
+    const accountBtn = document.getElementById('account-btn');
     const nameEl = document.getElementById('user-display-name');
     const letterEl = document.getElementById('avatar-letter');
     const avatarEl = document.getElementById('user-avatar');
     const dropdownName = document.getElementById('dropdown-name');
     const dropdownSub = document.getElementById('dropdown-sub');
     const activeUserDisplay = document.getElementById('active-user-display');
+
+    // Switch buttons: hide generic "Sign In", reveal user account pill
+    if (signinBtn) signinBtn.classList.add('hidden');
+    if (accountBtn) accountBtn.classList.remove('hidden');
 
     if (nameEl) nameEl.textContent = name;
     if (dropdownName) dropdownName.textContent = name;
@@ -664,6 +672,14 @@
     const openBtn = document.getElementById('open-auth-modal-btn');
     const closeBtn = document.getElementById('close-auth-modal-btn');
     const modal = document.getElementById('auth-modal');
+
+    const signinHeaderBtn = document.getElementById('signin-header-btn');
+    if (signinHeaderBtn && modal) {
+      signinHeaderBtn.addEventListener('click', () => {
+        hideVerifyEmailPanel();
+        modal.classList.remove('hidden');
+      });
+    }
 
     if (openBtn && modal) {
       openBtn.addEventListener('click', () => {

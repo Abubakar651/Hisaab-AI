@@ -331,6 +331,14 @@ tailwind.config = {
     function bindAuthEvents() {
       const accountBtn = document.getElementById("account-btn");
       const accountDropdown = document.getElementById("account-dropdown");
+      const signinHeaderBtn = document.getElementById("signin-header-btn");
+
+      if (signinHeaderBtn) {
+        signinHeaderBtn.addEventListener("click", () => {
+          const authModal = document.getElementById("auth-modal");
+          if (authModal) authModal.classList.remove("hidden");
+        });
+      }
 
       if (accountBtn && accountDropdown) {
         accountBtn.addEventListener("click", (e) => {
