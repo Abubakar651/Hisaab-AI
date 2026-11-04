@@ -366,8 +366,17 @@
     // Update Language Toggle button
     const toggleBtn = document.getElementById('lang-toggle-btn');
     if (toggleBtn) {
-      const labelSpan = toggleBtn.querySelector('.lang-toggle-label') || toggleBtn;
-      labelSpan.textContent = t('lang_toggle.label');
+      const fullSpan = toggleBtn.querySelector('.lang-toggle-label-full');
+      const shortSpan = toggleBtn.querySelector('.lang-toggle-label-short');
+      const labelSpan = toggleBtn.querySelector('.lang-toggle-label');
+
+      const fullText = t('lang_toggle.label');
+      const shortText = lang === 'en' ? 'اردو' : 'ENG';
+
+      if (fullSpan) fullSpan.textContent = fullText;
+      if (shortSpan) shortSpan.textContent = shortText;
+      if (labelSpan && !fullSpan) labelSpan.textContent = fullText;
+
       toggleBtn.setAttribute('title', t('lang_toggle.title'));
       toggleBtn.setAttribute('aria-pressed', lang === 'en' ? 'true' : 'false');
     }

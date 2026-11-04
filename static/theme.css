@@ -47,6 +47,29 @@
   color-scheme: dark;
 }
 
+html.light {
+  --ink: #f4f7f8;      /* light clean page background */
+  --s1: #ffffff;       /* white panel surface */
+  --s2: #eaeff2;       /* raised surface, assistant bubbles, inputs, tracks */
+  --rule: #cfd8dc;     /* borders and dividers */
+  --tx: #101c1f;       /* crisp readable text */
+  --mut: #546e7a;      /* secondary muted text */
+  --brass: #a9751e;    /* rich high-contrast amber gold */
+  --brass-dark: #8c5d14;
+  --ok: #15803d;       /* green paid / ok */
+  --warn: #b45309;     /* amber warning */
+  --bad: #b91c1c;      /* error / delete / over-budget */
+  color-scheme: light;
+}
+
+html.light .app-header {
+  background-color: #ffffff;
+}
+
+html.light .modal-overlay {
+  background-color: rgba(16, 28, 31, 0.55);
+}
+
 /* Reset & Box Sizing */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -488,6 +511,32 @@ select:focus-visible,
   position: relative;
 }
 
+/* Circular Header Icon Button (Theme toggle & mobile controls) */
+.header-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: var(--s1);
+  border: 1px solid var(--rule);
+  color: var(--brass);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.header-icon-btn:hover {
+  border-color: var(--brass);
+  background-color: var(--s2);
+}
+
+.header-icon-btn:active {
+  transform: scale(0.92);
+}
+
 /* Language Toggle Pill */
 .lang-toggle-pill {
   display: inline-flex;
@@ -513,6 +562,21 @@ select:focus-visible,
   border-color: var(--brass);
   background-color: var(--s2);
   color: var(--brass);
+}
+
+.lang-toggle-label-short {
+  display: inline;
+}
+.lang-toggle-label-full {
+  display: none;
+}
+@media (min-width: 640px) {
+  .lang-toggle-label-short {
+    display: none !important;
+  }
+  .lang-toggle-label-full {
+    display: inline !important;
+  }
 }
 
 .lang-toggle-pill:focus-visible {
@@ -1934,5 +1998,72 @@ html[lang="en"] .lang-toggle-label {
   .mobile-tab-btn.active,
   .mobile-tab-btn:hover {
     color: var(--brass);
+  }
+}
+
+/* ==========================================================================
+   Mobile Header Space Optimization (<640px)
+   ========================================================================== */
+@media (max-width: 639px) {
+  .app-header {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .app-header-right {
+    gap: 8px !important;
+  }
+
+  .app-logo {
+    gap: 7px !important;
+  }
+
+  .app-logo-icon {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+  }
+
+  .app-logo-text {
+    font-size: 17.5px !important;
+  }
+
+  /* Account Capsule collapses into a sleek circular avatar button */
+  .user-pill {
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .user-pill .user-pill-info,
+  .user-pill [data-lucide="chevron-down"] {
+    display: none !important;
+  }
+
+  .user-avatar-circle {
+    width: 30px !important;
+    height: 30px !important;
+    border-width: 1px !important;
+    margin: 0 !important;
+  }
+
+  /* Compact Language Toggle Pill */
+  .lang-toggle-pill {
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 9px !important;
+    font-size: 12px !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .header-icon-btn {
+    width: 34px !important;
+    height: 34px !important;
   }
 }

@@ -163,6 +163,7 @@ tailwind.config = {
       bindEvents();
       bindAnalyticsForms();
       bindAuthEvents();
+      initTheme();
       initViewportResizing();
       setMobileTab('chat');
       setDesktopView('chat');
@@ -348,6 +349,48 @@ tailwind.config = {
             accountDropdown.classList.add("hidden");
           }
         });
+      }
+    }
+
+    // Color Theme (Light / Dark mode toggle)
+    function initTheme() {
+      const themeBtn = document.getElementById('theme-toggle-btn');
+      let savedTheme = 'dark';
+      try {
+        savedTheme = localStorage.getItem('hisaab_theme') || 'dark';
+      } catch (_) {}
+      applyTheme(savedTheme);
+
+      if (themeBtn) {
+        themeBtn.addEventListener('click', () => {
+          const isDark = document.documentElement.classList.contains('dark');
+          const newTheme = isDark ? 'light' : 'dark';
+          applyTheme(newTheme);
+          try {
+            localStorage.setItem('hisaab_theme', newTheme);
+          } catch (_) {}
+        });
+      }
+
+      function applyTheme(theme) {
+        const sunIcon = document.querySelector('.theme-icon-sun');
+        const moonIcon = document.querySelector('.theme-icon-moon');
+        if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          if (sunIcon) sunIcon.classList.add('hidden');
+          if (moonIcon) moonIcon.classList.remove('hidden');
+          if (themeBtn) themeBtn.setAttribute('title', 'Switch to Dark Mode');
+        } else {
+          document.documentElement.classList.remove('light');
+          document.documentElement.classList.add('dark');
+          if (sunIcon) sunIcon.classList.remove('hidden');
+          if (moonIcon) moonIcon.classList.add('hidden');
+          if (themeBtn) themeBtn.setAttribute('title', 'Switch to Light Mode');
+        }
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
       }
     }
 
