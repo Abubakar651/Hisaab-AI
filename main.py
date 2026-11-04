@@ -58,6 +58,18 @@ import analytics
 
 load_dotenv()
 
+# ---------------------------------------------------------------------------
+# Sentry Telemetry & Error Tracking
+# ---------------------------------------------------------------------------
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=1.0,
+        environment=os.getenv("APP_ENV", "production"),
+    )
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -419,6 +431,13 @@ def verify_user_access(requested_user_id: str, authenticated_user_id: str):
 async def healthz():
     """Lightweight health check endpoint for Cloud Run container probes."""
     return {"status": "ok", "app": "hisaab-ai"}
+
+
+@app.get("/sentry-debug")
+async def trigger_sentry_debug():
+    """Diagnostic endpoint to verify Sentry error telemetry."""
+    division_by_zero = 1 / 0
+    return {"message": division_by_zero}
 
 
 # ---------------------------------------------------------------------------

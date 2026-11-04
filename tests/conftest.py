@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 os.environ["APP_ENV"] = "test"
 os.environ["FIREBASE_PROJECT_ID"] = "test-hisaab-ai-project"
 os.environ["DATABASE_URL"] = "sqlite:///./test_expenses.db"
+os.environ["SENTRY_DSN"] = ""
 
 import database
 from database import Base, get_db
