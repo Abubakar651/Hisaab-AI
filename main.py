@@ -433,13 +433,6 @@ async def healthz():
     return {"status": "ok", "app": "hisaab-ai"}
 
 
-@app.get("/sentry-debug")
-async def trigger_sentry_debug():
-    """Diagnostic endpoint to verify Sentry error telemetry."""
-    division_by_zero = 1 / 0
-    return {"message": division_by_zero}
-
-
 # ---------------------------------------------------------------------------
 # Frontend Root Route
 # ---------------------------------------------------------------------------
