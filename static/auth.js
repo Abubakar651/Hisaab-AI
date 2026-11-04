@@ -116,21 +116,41 @@
   function setAuthMode(mode) {
     authMode = mode;
     setAuthMessage('');
+    hideVerifyEmailPanel();
     const tabSignin = document.getElementById('auth-tab-signin');
     const tabSignup = document.getElementById('auth-tab-signup');
     const submitBtn = document.getElementById('auth-submit-btn');
     const forgotBtn = document.getElementById('auth-forgot-btn');
+    const nameField = document.getElementById('auth-name-field');
+    const nameInput = document.getElementById('auth-name');
+    const passwordInput = document.getElementById('auth-password');
+
+    const signinText = window.t ? window.t('auth.tab_signin') : 'Sign In';
+    const signupText = window.t ? window.t('auth.tab_signup') : 'Create Account';
 
     if (mode === 'signup') {
       if (tabSignin) tabSignin.classList.remove('active');
       if (tabSignup) tabSignup.classList.add('active');
-      if (submitBtn) submitBtn.innerHTML = '<span>Create Account</span>';
+      if (submitBtn) submitBtn.innerHTML = `<span>${signupText}</span>`;
       if (forgotBtn) forgotBtn.classList.add('hidden');
+      if (nameField) nameField.classList.remove('hidden');
+      if (nameInput) {
+        nameInput.required = true;
+        nameInput.setAttribute('aria-required', 'true');
+        nameInput.focus();
+      }
+      if (passwordInput) passwordInput.setAttribute('autocomplete', 'new-password');
     } else {
       if (tabSignup) tabSignup.classList.remove('active');
       if (tabSignin) tabSignin.classList.add('active');
-      if (submitBtn) submitBtn.innerHTML = '<span>Sign In</span>';
+      if (submitBtn) submitBtn.innerHTML = `<span>${signinText}</span>`;
       if (forgotBtn) forgotBtn.classList.remove('hidden');
+      if (nameField) nameField.classList.add('hidden');
+      if (nameInput) {
+        nameInput.required = false;
+        nameInput.removeAttribute('aria-required');
+      }
+      if (passwordInput) passwordInput.setAttribute('autocomplete', 'current-password');
     }
   }
 
@@ -315,19 +335,29 @@
       return;
     }
 
+    const nameInput = document.getElementById('auth-name');
     const emailInput = document.getElementById('auth-email');
     const passwordInput = document.getElementById('auth-password');
     const submitBtn = document.getElementById('auth-submit-btn');
 
+    const name = (nameInput ? nameInput.value : '').trim();
     const email = (emailInput ? emailInput.value : '').trim();
     const password = passwordInput ? passwordInput.value : '';
 
+    if (authMode === 'signup' && !name) {
+      setAuthMessage('Please enter your full name.', 'error');
+      if (nameInput) nameInput.focus();
+      return;
+    }
+
     if (!email) {
       setAuthMessage('Please enter your email address.', 'error');
+      if (emailInput) emailInput.focus();
       return;
     }
     if (password.length < 8) {
       setAuthMessage('Password must be at least 8 characters long.', 'error');
+      if (passwordInput) passwordInput.focus();
       return;
     }
 
@@ -337,10 +367,28 @@
       if (authMode === 'signup') {
         const cred = await firebaseAuth.createUserWithEmailAndPassword(email, password);
         currentUser = cred.user;
-        await cred.user.sendEmailVerification();
-        showVerifyEmailPanel(email);
-        startResendCooldown();
-        if (window.showToast) window.showToast('Account created! Please check your email for the verification link.', 'success');
+        if (name && cred.user.updateProfile) {
+          try {
+            await cred.user.updateProfile({ displayName: name });
+          } catch (profileErr) {
+            console.warn('Failed to update displayName on sign-up:', profileErr);
+          }
+        }
+        try {
+          await cred.user.sendEmailVerification();
+        } catch (verErr) {
+          console.warn('Failed to send verification email:', verErr);
+        }
+
+        // Auto-shift to Sign In tab per user specification
+        setAuthMode('signin');
+        if (passwordInput) passwordInput.value = '';
+        if (emailInput) emailInput.value = email;
+        const msg = `Account created for ${name || email}! A verification link was sent to your email. Please sign in below.`;
+        setAuthMessage(msg, 'success');
+        if (window.showToast) {
+          window.showToast('Account created! Please sign in with your credentials.', 'success');
+        }
       } else {
         const cred = await firebaseAuth.signInWithEmailAndPassword(email, password);
         currentUser = cred.user;
@@ -348,7 +396,15 @@
           showVerifyEmailPanel(email);
           return;
         }
-        if (window.showToast) window.showToast('Successfully signed in!', 'success');
+
+        // Explicitly sync profile and dismiss modal immediately
+        await handleUserSignedIn(cred.user);
+        const modal = document.getElementById('auth-modal');
+        if (modal) modal.classList.add('hidden');
+        if (passwordInput) passwordInput.value = '';
+        if (window.showToast) {
+          window.showToast('Successfully signed in!', 'success');
+        }
       }
     } catch (err) {
       console.error('Email authentication error:', err);
@@ -405,7 +461,13 @@
     try {
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      await firebaseAuth.signInWithPopup(provider);
+      const res = await firebaseAuth.signInWithPopup(provider);
+      if (res && res.user) {
+        currentUser = res.user;
+        await handleUserSignedIn(res.user);
+        const modal = document.getElementById('auth-modal');
+        if (modal) modal.classList.add('hidden');
+      }
       if (window.showToast) window.showToast('Successfully signed in!', 'success');
     } catch (err) {
       console.error('Google Sign-In failed:', err);
@@ -604,10 +666,64 @@
     const modal = document.getElementById('auth-modal');
 
     if (openBtn && modal) {
-      openBtn.addEventListener('click', () => modal.classList.remove('hidden'));
+      openBtn.addEventListener('click', () => {
+        hideVerifyEmailPanel();
+        modal.classList.remove('hidden');
+      });
     }
     if (closeBtn && modal) {
       closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+    }
+
+    // Light Dismiss (click backdrop overlay to dismiss dialogs)
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.add('hidden');
+        }
+      });
+    }
+
+    const micModal = document.getElementById('mic-permission-modal');
+    if (micModal) {
+      micModal.addEventListener('click', (e) => {
+        if (e.target === micModal) {
+          micModal.classList.add('hidden');
+        }
+      });
+    }
+
+    // Dismiss open dialogs & menus on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        if (modal && !modal.classList.contains('hidden')) {
+          modal.classList.add('hidden');
+        }
+        if (micModal && !micModal.classList.contains('hidden')) {
+          micModal.classList.add('hidden');
+        }
+        const accountDropdown = document.getElementById('account-dropdown');
+        if (accountDropdown && !accountDropdown.classList.contains('hidden')) {
+          accountDropdown.classList.add('hidden');
+        }
+      }
+    });
+
+    // Password visibility toggle (eye icon)
+    const togglePasswordBtn = document.getElementById('toggle-password-btn');
+    const passwordInput = document.getElementById('auth-password');
+    const passwordEyeIcon = document.getElementById('password-eye-icon');
+    if (togglePasswordBtn && passwordInput) {
+      togglePasswordBtn.addEventListener('click', () => {
+        const isPassword = passwordInput.getAttribute('type') === 'password';
+        passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+        if (passwordEyeIcon) {
+          passwordEyeIcon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+          if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+          }
+        }
+      });
     }
   });
 })();

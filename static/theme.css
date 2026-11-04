@@ -1636,6 +1636,28 @@ html[lang="en"] .lang-toggle-label {
   border-bottom-color: var(--brass);
 }
 
+#auth-email-form {
+  direction: ltr !important;
+}
+
+#auth-email,
+#auth-password {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+#toggle-password-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.15s ease;
+}
+
+#toggle-password-btn:hover {
+  color: var(--tx) !important;
+}
+
 .form-label {
   display: block;
   font-size: 12.5px;

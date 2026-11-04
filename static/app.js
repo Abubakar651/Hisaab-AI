@@ -334,6 +334,13 @@ tailwind.config = {
       if (accountBtn && accountDropdown) {
         accountBtn.addEventListener("click", (e) => {
           e.stopPropagation();
+          const authUser = window.HisaabAuth && typeof window.HisaabAuth.getUser === "function" ? window.HisaabAuth.getUser() : null;
+          if (!authUser) {
+            const authModal = document.getElementById("auth-modal");
+            if (authModal) authModal.classList.remove("hidden");
+            accountDropdown.classList.add("hidden");
+            return;
+          }
           accountDropdown.classList.toggle("hidden");
         });
         document.addEventListener("click", (e) => {
