@@ -323,6 +323,12 @@
 
   function readStoredLanguage() {
     try {
+      if (typeof window !== 'undefined' && window.location && window.location.search) {
+        const urlParam = new URLSearchParams(window.location.search).get('lang');
+        if (urlParam === 'en' || urlParam === 'ur') {
+          return urlParam;
+        }
+      }
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored === 'en' || stored === 'ur') {
         return stored;
@@ -368,14 +374,9 @@
     if (toggleBtn) {
       const fullSpan = toggleBtn.querySelector('.lang-toggle-label-full');
       const shortSpan = toggleBtn.querySelector('.lang-toggle-label-short');
-      const labelSpan = toggleBtn.querySelector('.lang-toggle-label');
 
-      const fullText = t('lang_toggle.label');
-      const shortText = lang === 'en' ? 'اردو' : 'ENG';
-
-      if (fullSpan) fullSpan.textContent = fullText;
-      if (shortSpan) shortSpan.textContent = shortText;
-      if (labelSpan && !fullSpan) labelSpan.textContent = fullText;
+      if (fullSpan) fullSpan.textContent = t('lang_toggle.label');
+      if (shortSpan) shortSpan.textContent = lang === 'en' ? 'اردو' : 'ENG';
 
       toggleBtn.setAttribute('title', t('lang_toggle.title'));
       toggleBtn.setAttribute('aria-pressed', lang === 'en' ? 'true' : 'false');

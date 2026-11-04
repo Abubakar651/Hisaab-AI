@@ -106,8 +106,7 @@ body {
 .view-pill-btn span,
 .user-pill,
 .user-pill-name,
-.lang-toggle-pill,
-.lang-toggle-label {
+.lang-toggle-pill {
   font-family: var(--ui) !important;
   direction: ltr !important;
 }
@@ -595,36 +594,58 @@ select:focus-visible,
   color: var(--brass);
 }
 
-.lang-toggle-label-short {
-  display: inline;
+.lang-code-en {
+  font-family: var(--ui), sans-serif !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  transition: color 0.15s ease;
+  line-height: 1;
 }
-.lang-toggle-label-full {
-  display: none;
+
+.lang-code-sep {
+  color: var(--mut);
+  opacity: 0.55;
+  font-size: 11px;
+  margin: 0 1px;
+  user-select: none;
+  font-family: var(--ui), sans-serif;
+  line-height: 1;
 }
-@media (min-width: 640px) {
-  .lang-toggle-label-short {
-    display: none !important;
-  }
-  .lang-toggle-label-full {
-    display: inline !important;
-  }
+
+.lang-code-ur {
+  font-family: var(--ur), serif !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+  transition: color 0.15s ease;
+  position: relative;
+  top: -1px;
+}
+
+/* Dynamic Active Highlight */
+html[lang="ur"] .lang-code-ur {
+  color: var(--brass) !important;
+  font-weight: bold !important;
+}
+
+html[lang="ur"] .lang-code-en {
+  color: var(--mut);
+  opacity: 0.75;
+}
+
+html[lang="en"] .lang-code-en {
+  color: var(--brass) !important;
+  font-weight: 800 !important;
+}
+
+html[lang="en"] .lang-code-ur {
+  color: var(--mut);
+  opacity: 0.75;
 }
 
 .lang-toggle-pill:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 2px;
-}
-
-html[lang="ur"] .lang-toggle-label {
-  font-family: var(--ui), sans-serif !important;
-  font-size: 13px !important;
-  line-height: 1 !important;
-}
-
-html[lang="en"] .lang-toggle-label {
-  font-family: var(--ur), serif !important;
-  font-size: 14px !important;
-  line-height: 1 !important;
 }
 
 /* User Account Pill */

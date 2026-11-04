@@ -276,10 +276,6 @@
     if (accountBtn) accountBtn.classList.add('hidden');
     if (accountDropdown) accountDropdown.classList.add('hidden');
     if (activeEl) activeEl.textContent = window.t ? window.t('header.guest') : 'Guest';
-
-    // Show modal if needed
-    const modal = document.getElementById('auth-modal');
-    if (modal) modal.classList.remove('hidden');
   }
 
   // Update header and dropdown UI
