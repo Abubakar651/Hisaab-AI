@@ -705,7 +705,7 @@ async def get_user_transactions(
     """
     Returns the user's monthly spending total, store-wise breakdown,
     and recent transactions for the live ledger dashboard.
-    Strictly isolated: does not merge with any other user or WhatsApp ledger.
+    Strictly isolated: does not merge with any other user.
     """
     verify_user_access(user_id, current_user)
     clean_user_id = current_user
@@ -1036,75 +1036,6 @@ async def pwa_service_worker():
         media_type="application/javascript",
         headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
     )
-
-
-# ---------------------------------------------------------------------------
-# WhatsApp Webhook (Isolated wa: namespace)
-# ---------------------------------------------------------------------------
-def _twiml(message: str) -> Response:
-    from xml.sax.saxutils import escape
-
-    body = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(message)}</Message></Response>'
-    return Response(content=body, media_type="application/xml")
-
-
-def _valid_twilio_signature(url: str, params: Dict[str, str], signature: str, token: str) -> bool:
-    payload = url + "".join(f"{k}{params[k]}" for k in sorted(params))
-    digest = hmac.new(token.encode(), payload.encode(), hashlib.sha1).digest()
-    expected = base64.b64encode(digest).decode()
-    return hmac.compare_digest(expected, signature or "")
-
-
-@app.post("/api/whatsapp")
-async def whatsapp_webhook(request: Request):
-    token = os.getenv("TWILIO_AUTH_TOKEN")
-    if not token:
-        raise HTTPException(status_code=503, detail="WhatsApp integration is not configured.")
-
-    form = await request.form()
-    params = {k: str(v) for k, v in form.items()}
-
-    validate_sig = os.getenv("WHATSAPP_VALIDATE_SIGNATURE", "true").lower() != "false"
-    if not validate_sig and not IS_DEV:
-        # Signature bypass is strictly prohibited outside development
-        validate_sig = True
-
-    if validate_sig:
-        base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-        url = f"{base}/api/whatsapp" if base else str(request.url)
-        if not _valid_twilio_signature(url, params, request.headers.get("X-Twilio-Signature", ""), token):
-            raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
-
-    sender = params.get("From", "").replace("whatsapp:", "").strip()
-    if not sender:
-        raise HTTPException(status_code=400, detail="Missing sender.")
-
-    body_text = (params.get("Body") or "").strip()
-    transcript: Optional[str] = None
-
-    if int(params.get("NumMedia", "0") or 0) > 0 and params.get("MediaContentType0", "").startswith("audio"):
-        sid = os.getenv("TWILIO_ACCOUNT_SID", "")
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-                resp = await client.get(params["MediaUrl0"], auth=(sid, token))
-                resp.raise_for_status()
-            transcript = await run_in_threadpool(transcribe_audio, resp.content, "whatsapp_voice.ogg")
-        except Exception as e:
-            logger.error(f"WhatsApp voice download/transcription failed: {e}")
-            return _twiml("Voice note samajh nahi aaya, dobara bhejein ya likh kar bataen. / Could not process the voice note.")
-
-    text = transcript or body_text
-    if not text:
-        return _twiml("Please send a text or a voice note. / ٹیکسٹ یا وائس نوٹ بھیجیں۔")
-
-    try:
-        reply = await run_in_threadpool(run_agent, user_id=f"wa:{sender}", user_text=text, raw_transcript=text)
-    except Exception as e:
-        logger.error(f"WhatsApp agent error for {sender}: {e}")
-        return _twiml("Server busy, please retry in a moment. / ابھی مصروف ہے، دوبارہ کوشش کریں۔")
-
-    reply = reply.replace("**", "*")
-    return _twiml(reply[:1500])
 
 
 # ---------------------------------------------------------------------------

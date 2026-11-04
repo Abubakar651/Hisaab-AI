@@ -267,13 +267,17 @@ def run_tests():
     results["6_pwa"] = "PASSED"
 
     # -------------------------------------------------------------
-    # FEATURE 7: WhatsApp Webhook Endpoint
+    # FEATURE 7: Core System Health & Telemetry Routes
     # -------------------------------------------------------------
-    print("\n[TEST 7] Testing WhatsApp Webhook Route...")
-    wa_res_unconfigured = client.post("/api/whatsapp", data={"From": "whatsapp:+923001234567", "Body": "test"})
-    assert wa_res_unconfigured.status_code in (503, 403, 200)
-    print(f"  -> WhatsApp endpoint guards verified (Status code: {wa_res_unconfigured.status_code}).")
-    results["7_whatsapp_webhook"] = "PASSED"
+    print("\n[TEST 7] Testing Core System Health & Telemetry Routes...")
+    health_res = client.get("/healthz")
+    assert health_res.status_code == 200
+    assert health_res.json()["status"] == "ok"
+    # Ensure decommissioned endpoints are not mounted
+    wa_res = client.post("/api/whatsapp", data={"From": "+923001234567", "Body": "test"})
+    assert wa_res.status_code == 404
+    print("  -> Healthz verified (200 OK), decommissioned routes return 404.")
+    results["7_system_health"] = "PASSED"
 
     # Clean up test rows
     cleanup()

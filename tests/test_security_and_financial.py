@@ -354,33 +354,33 @@ def test_category_totals_and_line_item_math_consistency(db):
     assert total_breakdown == 450.0
 
 
-def test_whatsapp_namespace_isolation(client, db, auth_headers):
-    """wa: ledger must be isolated from the plain phone user."""
-    plain_phone = "+923001234567"
-    wa_phone = "wa:+923001234567"
+def test_user_namespace_isolation(client, db, auth_headers):
+    """Prefixed user namespaces must be strictly isolated from plain user accounts."""
+    user_plain = "user_alpha"
+    user_isolated = "tenant:user_alpha"
 
-    # Add transaction for plain phone
+    # Add transaction for plain user
     tx_plain = Transaction(
-        user_id=plain_phone,
+        user_id=user_plain,
         store_name="Store Plain",
         total_amount=500.0,
         transaction_date=get_pkt_now(),
         payment_method="cash",
     )
-    # Add transaction for wa: phone
-    tx_wa = Transaction(
-        user_id=wa_phone,
-        store_name="Store WhatsApp",
+    # Add transaction for isolated user
+    tx_isolated = Transaction(
+        user_id=user_isolated,
+        store_name="Store Isolated",
         total_amount=900.0,
         transaction_date=get_pkt_now(),
         payment_method="cash",
     )
-    db.add_all([tx_plain, tx_wa])
+    db.add_all([tx_plain, tx_isolated])
     db.commit()
 
-    # Query plain phone ledger
-    headers_plain = auth_headers(plain_phone)
-    resp = client.get(f"/api/transactions/{plain_phone}", headers=headers_plain)
+    # Query plain user ledger
+    headers_plain = auth_headers(user_plain)
+    resp = client.get(f"/api/transactions/{user_plain}", headers=headers_plain)
     assert resp.status_code == 200
     data = resp.json()
     assert data["monthly_total"] == 500.0
