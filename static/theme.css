@@ -73,24 +73,47 @@ body {
   overscroll-behavior: none;
 }
 
-/* Header retains clean Figtree English font without language change */
+/* Header retains clean Figtree English font and LTR layout permanently */
 .app-header,
-.app-header button,
-.app-header span,
-.app-header div,
-.app-header a,
+.app-header *,
 .header-brand-title,
 .header-brand-subtitle,
-.view-nav-btn {
+.view-nav-btn,
+.view-pill-btn,
+.view-pill-btn span,
+.user-pill,
+.user-pill-name,
+.lang-toggle-pill,
+.lang-toggle-label {
   font-family: var(--ui) !important;
+  direction: ltr !important;
 }
 .app-header .font-num {
   font-family: var(--num) !important;
 }
-html[lang="ur"] .app-header .view-pill-btn span,
-html[lang="ur"] .app-header .dropdown-item-btn span,
-html[lang="ur"] .app-header .user-pill-name {
-  font-family: var(--ur), var(--ui) !important;
+
+/* UI Stability: Lock interactive controls so buttons never flip or shift */
+.app-header,
+.app-header-right,
+.view-switcher-bar,
+.composer-input-row,
+.mobile-tab-bar,
+.modal-tab-row,
+.chat-chips-scroll,
+.ledger-hero-facts,
+.dropdown-item-btn {
+  direction: ltr !important;
+}
+
+/* Ensure buttons keep centered text and stable layout */
+button,
+.btn-primary,
+.composer-btn-circle,
+.mobile-tab-btn,
+.view-pill-btn,
+.prompt-chip {
+  text-align: center !important;
+  direction: ltr !important;
 }
 
 .hidden {
@@ -213,14 +236,58 @@ select.font-ur option {
   font-variant-numeric: tabular-nums;
 }
 
-.font-ur,
-.font-nastaleeq,
+html[lang="ur"] .font-ur,
+html[lang="ur"] .font-nastaleeq,
 [lang="ur"] {
   font-family: var(--ur) !important;
 }
 
-.composer-input.font-ur,
-.composer-input.font-nastaleeq,
+html[lang="en"] .font-ur,
+html[lang="en"] .font-nastaleeq {
+  font-family: var(--ui) !important;
+  line-height: normal !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+html[lang="en"] .composer-input.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 15px !important;
+  line-height: 1.5 !important;
+  direction: ltr !important;
+  text-align: left !important;
+  word-spacing: normal !important;
+  letter-spacing: normal !important;
+}
+
+html[lang="en"] .ledger-section-title.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+  letter-spacing: -0.01em !important;
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+html[lang="en"] .ledger-hero-label.font-ur,
+html[lang="en"] .ledger-hero-facts.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+html[lang="en"] .btn-primary.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="ur"] .composer-input.font-ur,
+html[lang="ur"] .composer-input.font-nastaleeq,
 .composer-input[dir="rtl"] {
   font-family: var(--ur) !important;
   font-size: 21.5px !important;

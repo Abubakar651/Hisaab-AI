@@ -14,17 +14,17 @@
 
   const DICTIONARIES = {
     ur: {
-      // Header & Navigation
-      'header.title': 'حساب اے آئی',
-      'header.chat': 'چیٹ',
-      'header.split': 'تقسیم',
-      'header.ledger': 'لائیو کھاتہ',
-      'header.sign_in': 'لاگ ان',
-      'header.guest': 'مہمان',
-      'header.not_signed_in': 'لاگ ان نہیں',
-      'header.export_csv': 'ڈاؤن لوڈ CSV',
-      'header.switch_account': 'اکاؤنٹ تبدیل کریں',
-      'header.sign_out': 'لاگ آؤٹ',
+      // Header & Navigation (Always in English per design requirement)
+      'header.title': 'HisaabAI',
+      'header.chat': 'Chat',
+      'header.split': 'Split',
+      'header.ledger': 'Ledger',
+      'header.sign_in': 'Sign In',
+      'header.guest': 'Guest',
+      'header.not_signed_in': 'Not signed in',
+      'header.export_csv': 'Export CSV',
+      'header.switch_account': 'Switch Account',
+      'header.sign_out': 'Sign Out',
       'lang_toggle.label': 'English',
       'lang_toggle.title': 'Switch to English / انگریزی زبان منتخب کریں',
 
@@ -354,9 +354,10 @@
     writeStoredLanguage(lang);
 
     // Update root document lang and direction
+    // NOTE: UI button positions remain fixed in LTR layout; only text translates and styles
     const root = document.documentElement;
     root.setAttribute('lang', lang);
-    root.setAttribute('dir', lang === 'ur' ? 'rtl' : 'ltr');
+    root.setAttribute('dir', 'ltr');
 
     // Update Language Toggle button
     const toggleBtn = document.getElementById('lang-toggle-btn');
