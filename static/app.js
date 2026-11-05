@@ -197,16 +197,20 @@ tailwind.config = {
           const wc = document.getElementById('welcome-card');
           if (wc) wc.classList.add('hidden');
           appendUserMessage('اس مہینے کا خرچہ');
-          appendAssistantMessage(`اس ماہ کا مکمل خرچ (01-05 نومبر 2026):
+          appendAssistantMessage(`اس ماہ کا مکمل خرچ (نومبر 2026):
 
 | تاریخ | دکان | رقم (PKR) | ادائیگی |
 |---|---|---|---|
-| 2026-11-05 | اکبری منڈی | 12,500 | نقد |
-| 2026-11-05 | کاؤنٹر بکری | 8,400 | نقد |
-| 2026-11-05 | آن لائن آرڈر | 2,200 | ایزی پیسہ |
-| 2026-11-04 | لوکل اسٹور | 1,500 | بینک ٹرانسفر |
+| 2026-11-04 | لوکل اسٹور | 1,000 | نقد |
+| 2026-11-04 | ڈاکٹر | 1,000 | نقد |
+| 2026-11-04 | لوکل اسٹور | 300 | نقد |
+| 2026-11-04 | بینک ٹرانسفر | 350 | بینک ٹرانسفر |
+| 2026-11-03 | لوکل اسٹور | 600 | نقد |
+| 2026-11-03 | لوکل اسٹور | 200 | نقد |
+| 2026-11-03 | لوکل اسٹور | 4,300 | نقد |
+| 2026-11-03 | لوکل اسٹور | 1,000 | بینک ٹرانسفر |
 
-کل خریداری: 4 | مجموعی رقم: **PKR 24,600**`);
+کل خریداری: 8 | مجموعی رقم: **PKR 8,750**`);
         }
         if (params.get('modal') === 'auth' || params.get('modal') === 'signup') {
           const authModal = document.getElementById('auth-modal');
@@ -224,54 +228,7 @@ tailwind.config = {
               display_name: 'Abu Bakar Iqbal',
               auth_provider: 'google'
             });
-            renderDashboard({
-              user_id: 'abubakariqbal651@gmail.com',
-              monthly_total: 12500,
-              monthly_count: 3,
-              top_store: 'اکبری منڈی (Akbari Mandi)',
-              store_breakdown: [
-                { store_name: 'Akbari Mandi', total_pkr: 12500, visit_count: 1 },
-                { store_name: 'Counter Sale', total_pkr: 8400, visit_count: 1 },
-              ],
-              category_breakdown: [
-                { category: 'groceries', total_pkr: 12500, percent: 100 },
-              ],
-              daily_trend: [
-                { date: '2026-11-03', total_pkr: 4000 },
-                { date: '2026-11-04', total_pkr: 8500 },
-                { date: '2026-11-05', total_pkr: 12500 },
-              ],
-              payment_split: [
-                { method: 'cash', total_pkr: 12500 },
-              ],
-              budgets: [
-                { id: 1, category: 'total', monthly_limit: 60000, spent_pkr: 12500, remaining_pkr: 47500, percent: 21, level: 'normal' },
-                { id: 2, category: 'groceries', monthly_limit: 25000, spent_pkr: 12500, remaining_pkr: 12500, percent: 50, level: 'normal' }
-              ],
-              recurring: [
-                { id: 1, title: 'دکان کا کرایہ', amount: 25000, due_day: 5, category: 'rent', paid_this_month: false, overdue: false }
-              ],
-              galla: {
-                today_sales_pkr: 10600,
-                today_expenses_pkr: 12500,
-                today_net_pkr: -1900,
-                today_cash_sales_pkr: 8400,
-                today_digital_sales_pkr: 2200,
-              },
-              udhaar: {
-                total_receivable_pkr: 2500,
-                total_payable_pkr: 15000,
-                open_entries: [
-                  { id: 1, person_name: 'حاجی طارق کریانہ', direction: 'receivable', amount: 3500, paid_amount: 1000, remaining_pkr: 2500, notes: 'چینی اور گھی', phone_number: '03001234567' },
-                  { id: 2, person_name: 'ملتان ہول سیل ڈیلر', direction: 'payable', amount: 15000, paid_amount: 0, remaining_pkr: 15000, notes: 'آٹا 10 بوریاں', phone_number: '03219876543' }
-                ]
-              },
-              recent_transactions: [
-                { id: 103, tx_type: 'sale', store_name: 'آن لائن بکری (EasyPaisa)', total_amount: 2200, payment_method: 'easypaisa', transaction_date: '2026-11-05 18:00', items: [{ item_name: 'بسکٹ اور چائے', price: 2200, quantity: 1 }] },
-                { id: 102, tx_type: 'sale', store_name: 'کاؤنٹر بکری (Daily Sale)', total_amount: 8400, payment_method: 'cash', transaction_date: '2026-11-05 17:30', items: [{ item_name: 'آٹا 2 بوریاں', price: 5400, quantity: 2 }, { item_name: 'گھی 1 ٹن', price: 3000, quantity: 1 }] },
-                { id: 101, tx_type: 'expense', store_name: 'اکبری منڈی (Akbari Mandi)', total_amount: 12500, payment_method: 'cash', transaction_date: '2026-11-05 16:00', items: [{ item_name: 'چینی 50 کلو بورا', price: 7500, quantity: 1 }, { item_name: 'دال چنا 25 کلو', price: 5000, quantity: 1 }] }
-              ]
-            });
+            fetchDashboard();
             const sBtn = document.getElementById('signin-header-btn');
             const aBtn = document.getElementById('account-btn');
             if (sBtn) sBtn.classList.add('hidden');
