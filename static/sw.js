@@ -1,9 +1,9 @@
 /* HisaabAI service worker.
  * - App shell (HTML + CSS + JS + icons) is cached so the app opens instantly / offline.
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
- * Upgrades from hisaabai-shell-v1 to hisaabai-shell-v3 to ensure immediate script updates.
+ * Upgrades from hisaabai-shell-v1 and hisaabai-shell-v12 to hisaabai-shell-v15 to ensure immediate script updates.
  */
-const CACHE = 'hisaabai-shell-v12';
+const CACHE = 'hisaabai-shell-v15';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -28,7 +28,7 @@ self.addEventListener('message', (event) => {
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(SHELL))
+      .then((c) => Promise.all(SHELL.map((url) => fetch(url, { cache: 'reload' }).then((res) => res.ok ? c.put(url, res) : null).catch(() => null))))
       .then(() => self.skipWaiting())
   );
 });
@@ -52,7 +52,7 @@ self.addEventListener('fetch', (event) => {
   // Network-first for the page so updates show up; fall back to cache when offline.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put('/', copy));
@@ -66,7 +66,7 @@ self.addEventListener('fetch', (event) => {
   // Network-first for script and style assets so frontend updates apply immediately
   if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();

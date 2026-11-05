@@ -657,11 +657,51 @@ html[lang="en"] .welcome-sub-text {
   text-align: left !important;
 }
 
-.welcome-examples-list span[lang="ur"] {
+.welcome-examples-list span[lang="ur"],
+.welcome-rtl-quote {
   font-family: var(--ur) !important;
   font-size: 18px !important;
   line-height: 1.95 !important;
+  direction: rtl !important;
+  unicode-bidi: isolate !important;
   display: inline;
+}
+
+.welcome-ltr-quote {
+  font-family: var(--ui) !important;
+  font-size: 14.5px !important;
+  line-height: 1.5 !important;
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  display: inline-block;
+}
+
+@media (max-width: 639px) {
+  .chat-messages-container {
+    padding: 12px 14px !important;
+    gap: 12px !important;
+  }
+  .welcome-bubble {
+    padding: 12px 14px !important;
+    max-width: 100% !important;
+  }
+  html[lang="ur"] .chat-welcome-title {
+    font-size: 18px !important;
+    line-height: 1.75 !important;
+  }
+  html[lang="ur"] .welcome-examples-list li,
+  html[lang="ur"] .welcome-sub-text,
+  .welcome-examples-list span[lang="ur"],
+  .welcome-rtl-quote {
+    font-size: 16.5px !important;
+    line-height: 1.8 !important;
+  }
+  .welcome-examples-list {
+    margin-top: 6px !important;
+  }
+  .welcome-examples-list > li + li {
+    margin-top: 4px !important;
+  }
 }
 
 /* Chat Bubbles (User & Assistant) */
@@ -777,15 +817,18 @@ html[lang="ur"] #google-signin-btn span {
   line-height: 1.4 !important;
 }
 
-/* Keyboard Focus Ring */
+/* Keyboard Focus Ring (Avoid double focus border on inputs that already style :focus) */
 a:focus-visible,
 button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[tabindex]:focus-visible {
+[tabindex]:not(input):not(textarea):not(select):focus-visible {
   outline: 2px solid var(--brass) !important;
   outline-offset: 2px !important;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none !important;
 }
 
 /* Motion & Pulse (Respects prefers-reduced-motion) */
@@ -2571,5 +2614,38 @@ html[lang="en"] .lang-code-ur {
     justify-content: center !important;
     gap: 0 !important;
     flex-shrink: 0 !important;
+  }
+
+  .chat-subheader-bar {
+    padding: 0 12px !important;
+  }
+
+  #active-user-display {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-clear-btn {
+    padding: 0 8px !important;
+  }
+
+  .pane-ledger {
+    padding: 18px 16px 36px !important;
+  }
+
+  .ledger-hero-card {
+    margin-bottom: 20px !important;
+  }
+
+  .ledger-hero-number {
+    font-size: 42px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .ledger-section {
+    padding-top: 18px !important;
+    margin-bottom: 18px !important;
   }
 }

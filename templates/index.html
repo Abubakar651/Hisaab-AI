@@ -336,14 +336,14 @@
     <section id="chat-pane" class="pane-chat">
 
       <!-- Chat Header -->
-      <div class="chat-subheader-bar px-5 py-2.5 border-b border-rule flex items-center justify-between bg-s1">
-        <div class="flex items-center gap-2">
+      <div class="chat-subheader-bar px-5 py-2.5 border-b border-rule flex items-center justify-between gap-2 bg-s1">
+        <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
           <span class="w-2 h-2 rounded-full bg-brass animate-pulse shrink-0"></span>
-          <span class="chat-session-label text-mut font-ur flex items-center gap-1.5">
-            <span data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display" class="font-bold text-tx font-mono">—</span>
+          <span class="chat-session-label text-mut font-ur flex items-center gap-1.5 min-w-0 overflow-hidden">
+            <span class="shrink-0" data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display" class="font-bold text-tx font-mono truncate">—</span>
           </span>
         </div>
-        <button id="clear-chat-btn" class="chat-clear-btn text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
+        <button id="clear-chat-btn" class="chat-clear-btn shrink-0 text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
           data-i18n-title="chat.clear_screen" title="اسکرین صاف کریں">
           <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass shrink-0"></i> <span data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
         </button>
@@ -360,10 +360,10 @@
           </div>
           <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
           <ul class="welcome-examples-list list-disc mt-2.5 space-y-2 text-tx font-ur text-base">
-            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" class="font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
-            <li><strong data-i18n="chat.welcome_pa">پنجابی:</strong> <span lang="ur" class="font-nastaleeq text-brass" data-i18n="chat.welcome_pa_eg">"1500 دا پٹرول ڈلوایا تے 450 دا سامان لیا"</span></li>
-            <li><strong class="font-ui" data-i18n="chat.welcome_en">English:</strong> <span dir="ltr" class="font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
-            <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="text-brass" data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
+            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" dir="rtl" class="welcome-rtl-quote font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
+            <li><strong data-i18n="chat.welcome_pa">پنجابی:</strong> <span lang="ur" dir="rtl" class="welcome-rtl-quote font-nastaleeq text-brass" data-i18n="chat.welcome_pa_eg">"1500 دا پٹرول ڈلوایا تے 450 دا سامان لیا"</span></li>
+            <li><strong class="font-ur" data-i18n="chat.welcome_en">انگریزی:</strong> <span dir="ltr" class="welcome-ltr-quote font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
+            <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="welcome-ask-quote text-brass" data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
           </ul>
         </div>
 
@@ -476,8 +476,8 @@
       <!-- Where It Went (Category Doughnut) -->
       <section class="ledger-section">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.where_it_went">کہاں کتنا خرچ ہوا</h2>
-        <div id="category-empty" class="text-xs text-mut italic hidden font-ur text-sm py-3" data-i18n="ledger.no_category_spend">اس مہینے کا کوئی خرچہ درج نہیں ہے۔</div>
-        <div class="category-analytics-row">
+        <div id="category-empty" class="text-xs text-mut italic font-ur text-sm py-2" data-i18n="ledger.no_category_spend">اس مہینے کا کوئی خرچہ درج نہیں ہے۔</div>
+        <div class="category-analytics-row hidden">
           <div class="category-chart-wrap">
             <canvas id="category-chart"></canvas>
           </div>

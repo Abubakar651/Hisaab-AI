@@ -267,6 +267,11 @@
 
   // Handle sign-out
   function handleUserSignedOut() {
+    try {
+      if (new URLSearchParams(window.location.search).get('preview_signed_in') === '1') {
+        return;
+      }
+    } catch (_) {}
     const signinBtn = document.getElementById('signin-header-btn');
     const accountBtn = document.getElementById('account-btn');
     const accountDropdown = document.getElementById('account-dropdown');

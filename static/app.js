@@ -180,9 +180,43 @@ tailwind.config = {
       initViewportResizing();
       setMobileTab('chat');
       setDesktopView('chat');
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('tab') === 'ledger') {
+          setMobileTab('dashboard');
+          setDesktopView('ledger');
+        }
+        if (params.get('modal') === 'auth' || params.get('modal') === 'signup') {
+          const authModal = document.getElementById('auth-modal');
+          if (authModal) authModal.classList.remove('hidden');
+          if (params.get('modal') === 'signup') {
+            const signupTab = document.getElementById('auth-tab-signup');
+            if (signupTab) setTimeout(() => signupTab.click(), 50);
+          }
+        }
+        if (params.get('preview_signed_in') === '1') {
+          setTimeout(() => {
+            updateAccountUI({
+              user_id: 'abubakariqbal651@gmail.com',
+              email: 'abubakariqbal651@gmail.com',
+              display_name: 'Abu Bakar Iqbal',
+              auth_provider: 'google'
+            });
+            const sBtn = document.getElementById('signin-header-btn');
+            const aBtn = document.getElementById('account-btn');
+            if (sBtn) sBtn.classList.add('hidden');
+            if (aBtn) aBtn.classList.remove('hidden');
+            if (params.get('dropdown') === '1') {
+              const drop = document.getElementById('account-dropdown');
+              if (drop) drop.classList.remove('hidden');
+            }
+          }, 150);
+        }
+      } catch (_) {}
       if (elements.messagesContainer) {
         elements.messagesContainer.scrollTop = 0;
       }
+      renderCategoryChart([]);
       if (state.userId) {
         fetchDashboard();
       }
@@ -219,14 +253,14 @@ tailwind.config = {
       elements.micBtn.addEventListener('click', toggleRecording);
       elements.cancelRecordingBtn.addEventListener('click', cancelRecording);
 
-      // Clear Chat
+      // Clear Chat (preserve welcome card so chat feed is never a blank void)
       elements.clearChatBtn.addEventListener('click', async () => {
-        elements.messagesContainer.innerHTML = '';
+        clearChatMessagesPreservingWelcome();
         state.chatHistory = [];
         const fd = new FormData();
         fd.append('user_id', state.userId);
         authFetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
-        showToast('Chat history cleared from view', 'info');
+        showToast(t('toast.chat_cleared'), 'info');
       });
 
       // Mic Modal buttons
@@ -329,15 +363,22 @@ tailwind.config = {
       if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = account.user_id;
     }
 
+    function clearChatMessagesPreservingWelcome() {
+      if (!elements.messagesContainer) return;
+      Array.from(elements.messagesContainer.children).forEach((child) => {
+        if (child.id !== 'welcome-card') {
+          child.remove();
+        }
+      });
+    }
+
     // Expose app interface for auth state updates
     window.HisaabApp = {
       onUserChanged: (newUserId) => {
         if (!newUserId) return;
         state.userId = String(newUserId).trim().toLowerCase();
         state.chatHistory = [];
-        if (elements.messagesContainer) {
-          elements.messagesContainer.innerHTML = "";
-        }
+        clearChatMessagesPreservingWelcome();
         fetchDashboard();
       }
     };

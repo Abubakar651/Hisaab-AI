@@ -151,6 +151,8 @@ async def add_security_headers(request: Request, call_next):
         "form-action 'self'; "
         "frame-ancestors 'none';"
     )
+    if request.url.path in ("/", "/sw.js", "/manifest.webmanifest") or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 
 # Global 500 error handler returning sanitized generic response with request ID
