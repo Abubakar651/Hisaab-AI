@@ -357,7 +357,7 @@ class DeleteLastTransactionInput(BaseModel):
 # ---------------------------------------------------------------------------
 # Dynamic System Prompt
 # ---------------------------------------------------------------------------
-def build_system_prompt() -> str:
+def build_system_prompt(ui_lang: Optional[str] = None) -> str:
     """
     Builds dynamic system prompt injecting current dates and Pakistani context in PKT.
     Optimized for compact token footprint to strictly respect Groq ITPM rate limits.
@@ -371,7 +371,21 @@ def build_system_prompt() -> str:
     three_days_ago_str = (now - timedelta(days=3)).strftime("%Y-%m-%d")
     seven_days_ago_str = (now - timedelta(days=7)).strftime("%Y-%m-%d")
 
+    lang_pref_clause = ""
+    if ui_lang == "en":
+        lang_pref_clause = (
+            "\n### UI LANGUAGE OVERRIDE: ACTIVE INTERFACE IS ENGLISH\n"
+            "- The user's active UI setting is English. Respond in 100% clear, polite English unless the user explicitly types in Urdu script (Nastaliq).\n"
+            "- When producing spending reports, summaries, or tables, use English titles, English headers ('Date', 'Store', 'Amount (PKR)', 'Payment'), and English categories/payment methods.\n"
+        )
+    elif ui_lang == "ur":
+        lang_pref_clause = (
+            "\n### UI LANGUAGE OVERRIDE: ACTIVE INTERFACE IS URDU\n"
+            "- The user's active UI setting is Urdu. Respond in natural Pakistani Urdu script (Nastaliq) unless the user explicitly communicated in English.\n"
+        )
+
     return f"""You are **HisaabAI**, a brilliant, polite, and accurate financial voice & text expense tracking assistant for Pakistan.
+{lang_pref_clause}
 
 ### STRICT DOMAIN BOUNDARY & OUT-OF-DOMAIN REFUSAL:
 You are EXCLUSIVELY a personal finance, expense tracking, and budget assistant for Pakistan.
@@ -408,6 +422,18 @@ You are EXCLUSIVELY a personal finance, expense tracking, and budget assistant f
 ### CALENDAR CONTEXT:
 - Today: {today_str} ({day_name}) | Month Start: {month_start_str} | Yesterday: {yesterday_str}
 - 2 Days Ago: {two_days_ago_str} | 3 Days Ago: {three_days_ago_str} | 7 Days Ago: {seven_days_ago_str}
+
+### REPORT & TABLE FORMATTING (MOBILE-OPTIMIZED):
+When reporting spending totals, summaries, or recent transaction lists:
+1. Always state the high-level summary first: Total spent in PKR, number of transactions, and date range.
+2. If providing a transaction list:
+   - For English: Use a clean markdown table with English headers:
+     `| Date | Store | Amount (PKR) | Payment |`
+     Format values neatly: Store names clean and capitalized (e.g. 'Local Store', 'Al-Fatah', 'Fuel', 'Bank Transfer'). Clean payment methods: 'Cash', 'Card', 'EasyPaisa', 'JazzCash', 'Bank Transfer'.
+   - For Urdu: Use a clean markdown table with Urdu headers:
+     `| تاریخ | دکان | رقم (PKR) | ادائیگی |`
+     Format payment methods: نقد، کارڈ، ایزی پیسہ، جاز کیش، بینک ٹرانسفر
+3. Keep the overall reply concise, clean, and easily readable on mobile screens without clutter.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
 You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
@@ -576,7 +602,8 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             # If it was a money transfer and store defaulted to 'local store', assign clean transfer store
             if raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send")):
                 if canonical_store in ("local store", "general store", "general purchase"):
-                    canonical_store = f"{final_pm} transfer" if final_pm != "cash" else "money transfer"
+                    clean_pm = final_pm.replace("_", " ")
+                    canonical_store = clean_pm if "transfer" in clean_pm else f"{clean_pm} transfer"
 
             # Create Transaction record
             tx = Transaction(
@@ -758,9 +785,9 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 tx_list.append(
                     {
                         "id": tx.id,
-                        "store_name": tx.store_name,
+                        "store_name": (tx.store_name.replace("_", " ").title() if tx.store_name else "Local Store").replace("Transfer Transfer", "Transfer"),
                         "total_amount_pkr": round(tx.total_amount, 2),
-                        "payment_method": tx.payment_method or "cash",
+                        "payment_method": (tx.payment_method or "cash").replace("_", " ").title(),
                         "date": tx.transaction_date.strftime("%Y-%m-%d"),
                         "items": [
                             {
@@ -1004,6 +1031,7 @@ def run_agent(
     user_text: str,
     raw_transcript: str = "",
     chat_history: Optional[List[Dict[str, str]]] = None,
+    ui_lang: Optional[str] = None,
 ) -> str:
     """
     Executes the LangChain agent for the given user, scoping tools to user_id.
@@ -1014,7 +1042,7 @@ def run_agent(
 
     clean_user_id = user_id.strip() or "default"
     tools = get_tools_for_user(clean_user_id, raw_transcript=raw_transcript)
-    system_prompt = build_system_prompt()
+    system_prompt = build_system_prompt(ui_lang=ui_lang)
     llm = get_chat_llm()
 
     # Construct conversation history (treat client-supplied history as untrusted)
@@ -1055,7 +1083,19 @@ def run_agent(
     )
 
     try:
-        response = agent.invoke({"messages": messages})
+        response = None
+        for attempt in range(2):
+            try:
+                response = agent.invoke({"messages": messages})
+                break
+            except Exception as invoke_err:
+                err_text = str(invoke_err)
+                if ("429" in err_text or "rate_limit" in err_text.lower() or "too many tokens" in err_text.lower()) and attempt == 0:
+                    logger.warning(f"Groq rate limit 429 encountered, backing off 3.5s before retry (attempt {attempt+1})...")
+                    time.sleep(3.5)
+                    continue
+                raise invoke_err
+
         final_message = response["messages"][-1]
         reply_text = final_message.content if hasattr(final_message, "content") else str(final_message)
         reply_text = ensure_urdu_script(reply_text)
@@ -1098,5 +1138,12 @@ def run_agent(
             return fallback_reply
         except Exception as e2:
             logger.error(f"Fallback agent execution error: {e2}")
-            return f"Maafi chahte hain, processing ke dauraan masla pesh aya: {str(e2)}"
+            err_str2 = str(e2)
+            if "429" in err_str2 or "rate_limit" in err_str2.lower() or "tokens" in err_str2.lower():
+                if ui_lang == "en":
+                    return "The AI assistant is temporarily busy with high request volume. Please wait a few seconds and try again."
+                return "سسٹم پر اس وقت زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔"
+            if ui_lang == "en":
+                return "We encountered an issue processing your request. Please try again."
+            return "درخواست پر کارروائی کے دوران مسئلہ پیش آیا۔ براہ کرم دوبارہ کوشش کریں۔"
 

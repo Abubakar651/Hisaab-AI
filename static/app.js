@@ -240,7 +240,9 @@ tailwind.config = {
       // Prompt Suggestion Chips
       document.querySelectorAll('.prompt-chip').forEach(chip => {
         chip.addEventListener('click', () => {
+          if (state.isSending) return;
           const prompt = chip.getAttribute('data-prompt');
+          if (!prompt) return;
           elements.messageInput.value = prompt;
           elements.chatForm.dispatchEvent(new Event('submit'));
         });
@@ -544,13 +546,24 @@ tailwind.config = {
     }
 
     async function sendChatRequest({ message = null, audioBlob = null }) {
+      state.isSending = true;
       const loadingBubble = appendLoadingBubble();
       elements.sendBtn.disabled = true;
+      document.querySelectorAll('.prompt-chip').forEach(c => {
+        c.disabled = true;
+        c.classList.add('opacity-50', 'pointer-events-none');
+      });
 
       const formData = new FormData();
       formData.append('user_id', state.userId);
       if (message) formData.append('message', message);
       if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
+      
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      formData.append('lang', currentLang);
+
       // Pass recent conversation history for multi-turn context memory (last 4 messages to optimize token bandwidth)
       if (state.chatHistory && state.chatHistory.length > 0) {
         formData.append('history', JSON.stringify(state.chatHistory.slice(-4)));
@@ -586,10 +599,23 @@ tailwind.config = {
         await checkAndRenderPendingConfirmation();
       } catch (err) {
         removeLoadingBubble(loadingBubble);
-        appendErrorMessage(err.message || 'Error occurred while contacting server.');
-        showToast(err.message, 'error');
+        const isUrdu = (window.HisaabI18n && window.HisaabI18n.getLang() === 'ur');
+        const defaultNetErr = isUrdu
+          ? (typeof window.t === 'function' ? window.t('chat.error_network') : 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔')
+          : (typeof window.t === 'function' ? window.t('chat.error_network') : 'Unable to connect to server. Please check your internet connection and try again.');
+        const rawMsg = err.message || '';
+        const userMsg = (rawMsg && rawMsg !== 'Failed to fetch' && !rawMsg.includes('Failed to communicate'))
+          ? rawMsg
+          : defaultNetErr;
+        appendErrorMessage(userMsg);
+        showToast(userMsg, 'error');
       } finally {
+        state.isSending = false;
         elements.sendBtn.disabled = false;
+        document.querySelectorAll('.prompt-chip').forEach(c => {
+          c.disabled = false;
+          c.classList.remove('opacity-50', 'pointer-events-none');
+        });
       }
     }
 
@@ -902,10 +928,19 @@ tailwind.config = {
     function appendLoadingBubble() {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant loading-bubble';
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      const isUrdu = currentLang === 'ur';
+      const loadingText = (typeof window.t === 'function')
+        ? window.t('chat.loading')
+        : (isUrdu ? 'حساب کتاب دیکھا جا رہا ہے...' : 'Calculating ledger...');
+      const fontClass = isUrdu ? 'font-ur' : '';
+
       wrapper.innerHTML = `
-        <div class="flex items-center gap-2 text-xs text-mut font-ur">
+        <div class="flex items-center gap-2 text-xs text-mut ${fontClass}">
           <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brass"></i>
-          <span>حساب کتاب دیکھا جا رہا ہے...</span>
+          <span>${escapeHtml(loadingText)}</span>
         </div>
       `;
       elements.messagesContainer.appendChild(wrapper);
@@ -923,11 +958,18 @@ tailwind.config = {
     function appendErrorMessage(errorText) {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant border-bad/40 bg-bad/10';
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      const isUrdu = currentLang === 'ur';
+      const titleText = isUrdu ? 'مسئلہ پیش آیا' : 'Processing Issue';
+      const fontClass = isUrdu ? 'font-ur' : '';
+
       wrapper.innerHTML = `
-        <div class="flex items-center gap-2 text-xs font-semibold text-bad mb-1">
-          <i data-lucide="alert-circle" class="w-4 h-4"></i> Processing Issue
+        <div class="flex items-center gap-2 text-xs font-semibold text-bad mb-1 ${fontClass}">
+          <i data-lucide="alert-circle" class="w-4 h-4"></i> ${escapeHtml(titleText)}
         </div>
-        <p class="text-xs sm:text-sm text-tx">${escapeHtml(errorText)}</p>
+        <p class="text-xs sm:text-sm text-tx ${fontClass}">${escapeHtml(errorText)}</p>
       `;
       elements.messagesContainer.appendChild(wrapper);
       scrollToBottom();

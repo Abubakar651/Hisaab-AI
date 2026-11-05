@@ -735,6 +735,94 @@ html[lang="en"] .welcome-sub-text {
   margin-bottom: 0.3em !important;
 }
 
+/* Responsive, Beautiful Markdown Tables inside Assistant Bubbles */
+.bubble-assistant .prose {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.bubble-assistant .prose table,
+.bubble-assistant table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background-color: var(--s1);
+  display: table;
+  overflow: hidden;
+}
+
+.bubble-assistant thead {
+  background-color: rgba(43, 147, 130, 0.15);
+}
+
+html.light .bubble-assistant thead {
+  background-color: rgba(43, 147, 130, 0.1);
+}
+
+.bubble-assistant th {
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--tx);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+.bubble-assistant td {
+  padding: 8px 12px;
+  color: var(--tx);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+html.light .bubble-assistant td {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.bubble-assistant tr:last-child td {
+  border-bottom: none;
+}
+
+.bubble-assistant tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+html.light .bubble-assistant tbody tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.bubble-assistant tbody tr:hover {
+  background-color: rgba(43, 147, 130, 0.08);
+}
+
+/* Nastaleeq Urdu Tables */
+.bubble-assistant.has-urdu table {
+  font-family: var(--ur) !important;
+  font-size: 15px;
+  line-height: 2.1;
+  direction: rtl;
+}
+
+.bubble-assistant.has-urdu th,
+.bubble-assistant.has-urdu td {
+  padding: 8px 12px;
+  text-align: right;
+}
+
+.bubble-assistant.has-urdu td:first-child {
+  font-family: var(--num) !important;
+  direction: ltr;
+  text-align: center;
+}
+
 /* Zero-Shift Ledger & Form Controls Across UR & EN */
 html[lang="en"] .ledger-section-title.font-ur {
   font-family: var(--ui) !important;

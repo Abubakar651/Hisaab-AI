@@ -1,9 +1,9 @@
 /* HisaabAI service worker.
  * - App shell (HTML + CSS + JS + icons) is cached so the app opens instantly / offline.
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
- * Upgrades from hisaabai-shell-v1 and hisaabai-shell-v12 to hisaabai-shell-v16 to ensure immediate script updates.
+ * Upgrades from hisaabai-shell-v1 and hisaabai-shell-v12 to hisaabai-shell-v17 to ensure immediate script updates.
  */
-const CACHE = 'hisaabai-shell-v16';
+const CACHE = 'hisaabai-shell-v17';
 const SHELL = [
   '/',
   '/manifest.webmanifest',

@@ -454,6 +454,7 @@ async def chat_endpoint(
     message: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None),
     history: Optional[str] = Form(None),
+    lang: Optional[str] = Form(None),
     current_user: str = Depends(get_current_user),
 ):
     """
@@ -550,6 +551,7 @@ async def chat_endpoint(
             user_text=effective_text,
             raw_transcript=raw_transcript_record,
             chat_history=parsed_history,
+            ui_lang=lang,
         )
         return {
             "user_id": effective_user_id,

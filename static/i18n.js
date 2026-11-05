@@ -44,16 +44,22 @@
       'chat.welcome_ask': 'حساب پوچھیں:',
       'chat.welcome_ask_eg': '"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"',
       'chat.chip_month': 'اس مہینے کا خرچہ',
+      'chat.chip_month_prompt': 'اس مہینے کا میرا کل خرچہ کتنا ہے؟',
       'chat.chip_3days': 'پچھلے ۳ دن',
+      'chat.chip_3days_prompt': 'پچھلے ۳ دن میں کتنا خرچ ہوا؟',
       'chat.chip_budget': 'بجٹ سیٹ کریں',
+      'chat.chip_budget_prompt': 'میرا اس مہینے کا بجٹ سیٹ کریں',
       'chat.chip_undo': 'آخری اندراج مٹائیں',
+      'chat.chip_undo_prompt': 'میرا آخری اندراج مٹا دیں',
       'chat.recording': 'آواز ریکارڈ ہو رہی ہے...',
       'chat.cancel': 'منسوخ کریں',
       'chat.placeholder': 'اردو یا انگریزی میں بولیں یا لکھیں...',
       'chat.transcribing_placeholder': 'آواز تحریر میں تبدیل ہو رہی ہے...',
       'chat.tip': 'ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا ادویات)۔',
-      'chat.loading': 'حساب کتاب ہو رہا ہے...',
+      'chat.loading': 'حساب کتاب دیکھا جا رہا ہے...',
       'chat.voice_tag': 'وائس نوٹ، تحریر شدہ',
+      'chat.error_network': 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔',
+      'chat.error_busy': 'اس وقت سسٹم پر زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔',
 
       // Ledger Pane
       'ledger.total_spend': 'اس مہینے کا کل خرچ',
@@ -202,9 +208,13 @@
       'chat.welcome_ask': 'Ask your ledger:',
       'chat.welcome_ask_eg': '"What is my total spend this month?", "How much on groceries?"',
       'chat.chip_month': 'This month\'s spend',
+      'chat.chip_month_prompt': 'What is my total spend this month?',
       'chat.chip_3days': 'Last 3 days',
+      'chat.chip_3days_prompt': 'What did I spend in the last 3 days?',
       'chat.chip_budget': 'Set monthly budget',
+      'chat.chip_budget_prompt': 'I want to set my monthly budget',
       'chat.chip_undo': 'Delete last entry',
+      'chat.chip_undo_prompt': 'Delete my last entry',
       'chat.recording': 'Recording audio...',
       'chat.cancel': 'Cancel',
       'chat.placeholder': 'Speak or type in Urdu or English...',
@@ -212,6 +222,8 @@
       'chat.tip': 'Tip: Speak or type expenses from any store, market or bill (e.g. groceries, fuel, dining, electricity, healthcare).',
       'chat.loading': 'Calculating ledger...',
       'chat.voice_tag': 'Voice note, transcribed',
+      'chat.error_network': 'Unable to connect to server. Please check your internet connection and try again.',
+      'chat.error_busy': 'The assistant is temporarily busy with high request volume. Please try again in a few moments.',
 
       // Ledger Pane
       'ledger.total_spend': 'Total Spend This Month',
@@ -420,6 +432,23 @@
       const key = el.getAttribute('data-i18n-title');
       if (key) {
         el.setAttribute('title', t(key));
+      }
+    });
+
+    // Translate dynamic prompt attributes with data-i18n-prompt
+    document.querySelectorAll('[data-i18n-prompt]').forEach(el => {
+      const key = el.getAttribute('data-i18n-prompt');
+      if (key) {
+        el.setAttribute('data-prompt', t(key));
+      }
+    });
+
+    // Toggle font-ur class on prompt chips according to active language
+    document.querySelectorAll('.prompt-chip').forEach(el => {
+      if (lang === 'ur') {
+        el.classList.add('font-ur');
+      } else {
+        el.classList.remove('font-ur');
       }
     });
 
