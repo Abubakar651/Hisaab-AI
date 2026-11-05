@@ -12,7 +12,16 @@ from typing import Dict, List, Optional, Any
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from database import Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, get_pkt_now, PKT_TZ
+from database import (
+    Transaction,
+    TransactionItem,
+    Budget,
+    RecurringExpense,
+    PendingTransaction,
+    UdhaarEntry,
+    get_pkt_now,
+    PKT_TZ,
+)
 
 PAYMENT_METHODS = ["cash", "easypaisa", "jazzcash", "card", "bank_transfer"]
 
@@ -140,6 +149,11 @@ def month_start(now: Optional[datetime] = None) -> datetime:
     return datetime(now.year, now.month, 1, 0, 0, 0)
 
 
+def _is_expense_clause():
+    """Returns SQLAlchemy filter matching expense transactions (including legacy rows with NULL tx_type)."""
+    return or_(Transaction.tx_type == "expense", Transaction.tx_type.is_(None))
+
+
 def category_breakdown(db: Session, user_id: str, since: datetime) -> List[Dict]:
     """SUM(price) per category since `since`, largest first, with percentage share."""
     rows = (
@@ -152,6 +166,7 @@ def category_breakdown(db: Session, user_id: str, since: datetime) -> List[Dict]
             Transaction.user_id == user_id,
             Transaction.transaction_date >= since,
             Transaction.deleted_at.is_(None),
+            _is_expense_clause(),
         )
         .group_by(TransactionItem.category)
         .order_by(func.sum(TransactionItem.price).desc())
@@ -188,6 +203,7 @@ def daily_trend(db: Session, user_id: str, days: int = 30) -> List[Dict]:
             Transaction.user_id == user_id,
             Transaction.transaction_date >= start,
             Transaction.deleted_at.is_(None),
+            _is_expense_clause(),
         )
         .group_by("day")
         .all()
@@ -212,6 +228,7 @@ def payment_split(db: Session, user_id: str, since: datetime) -> List[Dict]:
             Transaction.user_id == user_id,
             Transaction.transaction_date >= since,
             Transaction.deleted_at.is_(None),
+            _is_expense_clause(),
         )
         .group_by(Transaction.payment_method)
         .order_by(func.sum(Transaction.total_amount).desc())
@@ -240,6 +257,7 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
                     Transaction.user_id == user_id,
                     Transaction.transaction_date >= start,
                     Transaction.deleted_at.is_(None),
+                    _is_expense_clause(),
                 )
                 .scalar()
             )
@@ -251,6 +269,7 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
                     Transaction.user_id == user_id,
                     Transaction.transaction_date >= start,
                     Transaction.deleted_at.is_(None),
+                    _is_expense_clause(),
                     or_(
                         TransactionItem.category.ilike(b.category),
                         TransactionItem.item_name.ilike(f"%{b.category}%"),
@@ -278,6 +297,225 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
             }
         )
     return result
+
+
+def galla_summary(db: Session, user_id: str) -> Dict[str, Any]:
+    """
+    Computes deterministic 'Aaj Ka Galla' (Today's Cash Drawer) and Monthly Cash-In vs Cash-Out.
+    - Sales (tx_type='sale'): Cash-In / Bikri
+    - Expenses (tx_type='expense'): Cash-Out / Kharcha
+    """
+    now = get_pkt_now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    m_start = month_start(now)
+
+    month_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.transaction_date >= m_start,
+            Transaction.deleted_at.is_(None),
+        )
+        .all()
+    )
+
+    today_sales = 0.0
+    today_expenses = 0.0
+    today_cash_sales = 0.0
+    today_digital_sales = 0.0
+    today_sales_count = 0
+
+    monthly_sales = 0.0
+    monthly_expenses = 0.0
+    monthly_sales_count = 0
+
+    for tx in month_txs:
+        amt = float(tx.total_amount or 0.0)
+        is_sale = (tx.tx_type == "sale")
+        is_today = bool(tx.transaction_date and tx.transaction_date >= today_start)
+        pm = (tx.payment_method or "cash").lower()
+
+        if is_sale:
+            monthly_sales += amt
+            monthly_sales_count += 1
+            if is_today:
+                today_sales += amt
+                today_sales_count += 1
+                if pm == "cash":
+                    today_cash_sales += amt
+                else:
+                    today_digital_sales += amt
+        else:
+            monthly_expenses += amt
+            if is_today:
+                today_expenses += amt
+
+    return {
+        "today_sales_pkr": round(today_sales, 2),
+        "today_expenses_pkr": round(today_expenses, 2),
+        "today_net_pkr": round(today_sales - today_expenses, 2),
+        "today_cash_sales_pkr": round(today_cash_sales, 2),
+        "today_digital_sales_pkr": round(today_digital_sales, 2),
+        "today_sales_count": today_sales_count,
+        "monthly_sales_pkr": round(monthly_sales, 2),
+        "monthly_expenses_pkr": round(monthly_expenses, 2),
+        "monthly_net_pkr": round(monthly_sales - monthly_expenses, 2),
+        "monthly_sales_count": monthly_sales_count,
+    }
+
+
+def udhaar_summary(db: Session, user_id: str) -> Dict[str, Any]:
+    """
+    Returns deterministic Udhaar (Lend & Borrow) Khata summary for the user:
+    - total_receivable_pkr: Maine Lene Hain (Customer owes shopkeeper)
+    - total_payable_pkr: Maine Dene Hain (Shopkeeper owes supplier/lender)
+    - entries: active open Udhaar entries
+    """
+    rows = (
+        db.query(UdhaarEntry)
+        .filter(
+            UdhaarEntry.user_id == user_id,
+            UdhaarEntry.deleted_at.is_(None),
+        )
+        .order_by(UdhaarEntry.status.asc(), UdhaarEntry.updated_at.desc(), UdhaarEntry.id.desc())
+        .all()
+    )
+
+    total_receivable = 0.0
+    total_payable = 0.0
+    open_entries = []
+
+    for r in rows:
+        d = r.to_dict()
+        rem = d["remaining_pkr"]
+        if d["status"] == "open" and rem > 0:
+            if d["direction"] == "payable":
+                total_payable += rem
+            else:
+                total_receivable += rem
+            open_entries.append(d)
+
+    return {
+        "total_receivable_pkr": round(total_receivable, 2),
+        "total_payable_pkr": round(total_payable, 2),
+        "net_udhaar_pkr": round(total_receivable - total_payable, 2),
+        "open_count": len(open_entries),
+        "entries": open_entries,
+        "open_entries": open_entries,
+    }
+
+
+def add_udhaar_entry(
+    db: Session,
+    user_id: str,
+    person_name: str,
+    amount: float,
+    direction: str = "receivable",
+    notes: Optional[str] = "",
+    phone_number: Optional[str] = "",
+) -> Dict[str, Any]:
+    """Creates a new Udhaar entry ('receivable' = Maine Lene Hain, 'payable' = Maine Dene Hain)."""
+    clean_name = (person_name or "").strip()
+    if not clean_name:
+        return {"status": "error", "message": "Person name is required for Udhaar entry."}
+    try:
+        clean_amt = validate_transaction_amount(amount)
+    except ValueError as ve:
+        return {"status": "error", "message": str(ve)}
+    clean_dir = "payable" if str(direction or "").strip().lower() in ("payable", "borrow", "dene", "liya", "owed") else "receivable"
+    now = get_pkt_now()
+
+    entry = UdhaarEntry(
+        user_id=user_id,
+        person_name=clean_name,
+        phone_number=(phone_number or "").strip() or None,
+        direction=clean_dir,
+        amount=clean_amt,
+        paid_amount=0.0,
+        notes=(notes or "").strip() or None,
+        status="open",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return {"status": "success", "entry": entry.to_dict()}
+
+
+def settle_udhaar(
+    db: Session,
+    user_id: str,
+    person_name: Optional[str] = None,
+    entry_id: Optional[int] = None,
+    payment_amount: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Settles full or partial Udhaar balance by entry_id or person_name (FIFO across open entries).
+    """
+    now = get_pkt_now()
+    query = db.query(UdhaarEntry).filter(
+        UdhaarEntry.user_id == user_id,
+        UdhaarEntry.deleted_at.is_(None),
+        UdhaarEntry.status == "open",
+    )
+
+    if entry_id is not None:
+        query = query.filter(UdhaarEntry.id == int(entry_id))
+    elif person_name:
+        clean_p = person_name.strip().lower()
+        query = query.filter(UdhaarEntry.person_name.ilike(f"%{clean_p}%"))
+    else:
+        return {"status": "error", "message": "Provide person_name or entry_id to settle Udhaar."}
+
+    entries = query.order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc()).all()
+    if not entries:
+        return {
+            "status": "not_found",
+            "message": f"No open Udhaar record found for '{person_name or entry_id}'.",
+        }
+
+    total_open_before = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in entries)
+    if payment_amount is None or float(payment_amount) <= 0 or float(payment_amount) >= total_open_before:
+        # Full settlement of matching entries
+        applied = total_open_before
+        for e in entries:
+            e.paid_amount = float(e.amount or 0.0)
+            e.status = "settled"
+            e.updated_at = now
+    else:
+        # Partial settlement FIFO
+        remaining_to_apply = round(float(payment_amount), 2)
+        applied = 0.0
+        for e in entries:
+            if remaining_to_apply <= 0:
+                break
+            entry_rem = round(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)), 2)
+            if entry_rem <= 0:
+                e.status = "settled"
+                continue
+            chunk = min(entry_rem, remaining_to_apply)
+            e.paid_amount = round(float(e.paid_amount or 0.0) + chunk, 2)
+            remaining_to_apply = round(remaining_to_apply - chunk, 2)
+            applied = round(applied + chunk, 2)
+            if e.paid_amount >= float(e.amount or 0.0) - 0.01:
+                e.paid_amount = float(e.amount or 0.0)
+                e.status = "settled"
+            e.updated_at = now
+
+    db.commit()
+    total_open_after = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in entries)
+    matched_person = entries[0].person_name
+    direction = entries[0].direction
+
+    return {
+        "status": "success",
+        "person_name": matched_person,
+        "direction": direction,
+        "settled_amount_pkr": round(applied, 2),
+        "remaining_balance_pkr": round(total_open_after, 2),
+        "fully_settled": total_open_after <= 0.01,
+    }
 
 
 def recurring_status(db: Session, user_id: str) -> List[Dict]:

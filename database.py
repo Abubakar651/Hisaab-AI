@@ -80,6 +80,7 @@ class Transaction(Base):
     transaction_date = Column(DateTime, index=True, default=get_pkt_now, nullable=False)
     raw_transcript = Column(Text, nullable=True)
     payment_method = Column(String(30), index=True, default="cash", nullable=False)
+    tx_type = Column(String(20), index=True, default="expense", nullable=False)  # 'expense' or 'sale'
     deleted_at = Column(DateTime, index=True, nullable=True)  # Soft delete support
 
     items = relationship(
@@ -102,6 +103,7 @@ class Transaction(Base):
             ),
             "raw_transcript": self.raw_transcript,
             "payment_method": self.payment_method or "cash",
+            "tx_type": self.tx_type or "expense",
             "items": [item.to_dict() for item in self.items],
             "deleted_at": self.deleted_at.strftime("%Y-%m-%d %H:%M") if self.deleted_at else None,
         }
@@ -261,6 +263,48 @@ class PendingTransaction(Base):
         }
 
 
+class UdhaarEntry(Base):
+    """
+    Shopkeeper & Personal Udhaar (Credit / Lend & Borrow) Khata Book.
+    - direction='receivable': Maine Lene Hain / Udhaar Diya (Customer owes user)
+    - direction='payable': Maine Dene Hain / Udhaar Liya (User owes supplier/lender)
+    """
+
+    __tablename__ = "udhaar_entries"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    person_name = Column(String(150), index=True, nullable=False)
+    phone_number = Column(String(50), nullable=True)
+    direction = Column(String(20), index=True, default="receivable", nullable=False)  # 'receivable' or 'payable'
+    amount = Column(Float, nullable=False)
+    paid_amount = Column(Float, default=0.0, nullable=False)
+    notes = Column(String(255), nullable=True)
+    status = Column(String(20), index=True, default="open", nullable=False)  # 'open' or 'settled'
+    created_at = Column(DateTime, default=get_pkt_now, nullable=False)
+    updated_at = Column(DateTime, default=get_pkt_now, nullable=False)
+    deleted_at = Column(DateTime, index=True, nullable=True)
+
+    def to_dict(self):
+        total = float(self.amount or 0.0)
+        paid = float(self.paid_amount or 0.0)
+        rem = round(max(0.0, total - paid), 2)
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "person_name": self.person_name,
+            "phone_number": self.phone_number or "",
+            "direction": self.direction or "receivable",
+            "amount": round(total, 2),
+            "paid_amount": round(paid, 2),
+            "remaining_pkr": rem,
+            "notes": self.notes or "",
+            "status": "settled" if rem <= 0.0 else (self.status or "open"),
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else None,
+        }
+
+
 def _migrate_sqlite():
     """Adds columns introduced after the first release to existing SQLite files using safe DDL."""
     if not DATABASE_URL.startswith("sqlite"):
@@ -278,6 +322,13 @@ def _migrate_sqlite():
             )
         if cols and "deleted_at" not in cols:
             conn.execute(text("ALTER TABLE transactions ADD COLUMN deleted_at DATETIME NULL"))
+        if cols and "tx_type" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE transactions ADD COLUMN tx_type "
+                    "VARCHAR(20) NOT NULL DEFAULT 'expense'"
+                )
+            )
 
         user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
         if user_cols and "firebase_uid" not in user_cols:

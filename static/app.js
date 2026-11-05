@@ -186,6 +186,13 @@ tailwind.config = {
           setMobileTab('dashboard');
           setDesktopView('ledger');
         }
+        if (params.get('view') === 'split') {
+          setDesktopView('split');
+        } else if (params.get('view') === 'ledger') {
+          setDesktopView('ledger');
+        } else if (params.get('view') === 'chat') {
+          setDesktopView('chat');
+        }
         if (params.get('modal') === 'auth' || params.get('modal') === 'signup') {
           const authModal = document.getElementById('auth-modal');
           if (authModal) authModal.classList.remove('hidden');
@@ -193,24 +200,6 @@ tailwind.config = {
             const signupTab = document.getElementById('auth-tab-signup');
             if (signupTab) setTimeout(() => signupTab.click(), 50);
           }
-        }
-        if (params.get('preview_signed_in') === '1') {
-          setTimeout(() => {
-            updateAccountUI({
-              user_id: 'abubakariqbal651@gmail.com',
-              email: 'abubakariqbal651@gmail.com',
-              display_name: 'Abu Bakar Iqbal',
-              auth_provider: 'google'
-            });
-            const sBtn = document.getElementById('signin-header-btn');
-            const aBtn = document.getElementById('account-btn');
-            if (sBtn) sBtn.classList.add('hidden');
-            if (aBtn) aBtn.classList.remove('hidden');
-            if (params.get('dropdown') === '1') {
-              const drop = document.getElementById('account-dropdown');
-              if (drop) drop.classList.remove('hidden');
-            }
-          }, 150);
         }
       } catch (_) {}
       if (elements.messagesContainer) {
@@ -240,7 +229,9 @@ tailwind.config = {
       // Prompt Suggestion Chips
       document.querySelectorAll('.prompt-chip').forEach(chip => {
         chip.addEventListener('click', () => {
+          if (state.isSending) return;
           const prompt = chip.getAttribute('data-prompt');
+          if (!prompt) return;
           elements.messageInput.value = prompt;
           elements.chatForm.dispatchEvent(new Event('submit'));
         });
@@ -544,13 +535,24 @@ tailwind.config = {
     }
 
     async function sendChatRequest({ message = null, audioBlob = null }) {
+      state.isSending = true;
       const loadingBubble = appendLoadingBubble();
       elements.sendBtn.disabled = true;
+      document.querySelectorAll('.prompt-chip').forEach(c => {
+        c.disabled = true;
+        c.classList.add('opacity-50', 'pointer-events-none');
+      });
 
       const formData = new FormData();
       formData.append('user_id', state.userId);
       if (message) formData.append('message', message);
       if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
+      
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      formData.append('lang', currentLang);
+
       // Pass recent conversation history for multi-turn context memory (last 4 messages to optimize token bandwidth)
       if (state.chatHistory && state.chatHistory.length > 0) {
         formData.append('history', JSON.stringify(state.chatHistory.slice(-4)));
@@ -586,10 +588,23 @@ tailwind.config = {
         await checkAndRenderPendingConfirmation();
       } catch (err) {
         removeLoadingBubble(loadingBubble);
-        appendErrorMessage(err.message || 'Error occurred while contacting server.');
-        showToast(err.message, 'error');
+        const isUrdu = (window.HisaabI18n && window.HisaabI18n.getLang() === 'ur');
+        const defaultNetErr = isUrdu
+          ? (typeof window.t === 'function' ? window.t('chat.error_network') : 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔')
+          : (typeof window.t === 'function' ? window.t('chat.error_network') : 'Unable to connect to server. Please check your internet connection and try again.');
+        const rawMsg = err.message || '';
+        const userMsg = (rawMsg && rawMsg !== 'Failed to fetch' && !rawMsg.includes('Failed to communicate'))
+          ? rawMsg
+          : defaultNetErr;
+        appendErrorMessage(userMsg);
+        showToast(userMsg, 'error');
       } finally {
+        state.isSending = false;
         elements.sendBtn.disabled = false;
+        document.querySelectorAll('.prompt-chip').forEach(c => {
+          c.disabled = false;
+          c.classList.remove('opacity-50', 'pointer-events-none');
+        });
       }
     }
 
@@ -902,10 +917,19 @@ tailwind.config = {
     function appendLoadingBubble() {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant loading-bubble';
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      const isUrdu = currentLang === 'ur';
+      const loadingText = (typeof window.t === 'function')
+        ? window.t('chat.loading')
+        : (isUrdu ? 'حساب کتاب دیکھا جا رہا ہے...' : 'Calculating ledger...');
+      const fontClass = isUrdu ? 'font-ur' : '';
+
       wrapper.innerHTML = `
-        <div class="flex items-center gap-2 text-xs text-mut font-ur">
+        <div class="flex items-center gap-2 text-xs text-mut ${fontClass}">
           <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brass"></i>
-          <span>حساب کتاب دیکھا جا رہا ہے...</span>
+          <span>${escapeHtml(loadingText)}</span>
         </div>
       `;
       elements.messagesContainer.appendChild(wrapper);
@@ -923,11 +947,18 @@ tailwind.config = {
     function appendErrorMessage(errorText) {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant border-bad/40 bg-bad/10';
+      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
+        ? window.HisaabI18n.getLang()
+        : 'ur';
+      const isUrdu = currentLang === 'ur';
+      const titleText = isUrdu ? 'مسئلہ پیش آیا' : 'Processing Issue';
+      const fontClass = isUrdu ? 'font-ur' : '';
+
       wrapper.innerHTML = `
-        <div class="flex items-center gap-2 text-xs font-semibold text-bad mb-1">
-          <i data-lucide="alert-circle" class="w-4 h-4"></i> Processing Issue
+        <div class="flex items-center gap-2 text-xs font-semibold text-bad mb-1 ${fontClass}">
+          <i data-lucide="alert-circle" class="w-4 h-4"></i> ${escapeHtml(titleText)}
         </div>
-        <p class="text-xs sm:text-sm text-tx">${escapeHtml(errorText)}</p>
+        <p class="text-xs sm:text-sm text-tx ${fontClass}">${escapeHtml(errorText)}</p>
       `;
       elements.messagesContainer.appendChild(wrapper);
       scrollToBottom();
@@ -1048,7 +1079,9 @@ tailwind.config = {
         }
       }
 
-      // Analytics sections (budgets, charts, payment split, recurring bills)
+      // Analytics sections (galla, udhaar, budgets, charts, payment split, recurring bills)
+      renderGalla(data.galla || {});
+      renderUdhaar(data.udhaar || {});
       renderBudgets(data.budgets || []);
       renderCategoryChart(data.category_breakdown || []);
       renderTrendChart(data.daily_trend || []);
@@ -1076,10 +1109,16 @@ tailwind.config = {
 
       // 3. Transactions List
       const txs = data.recent_transactions || [];
-      if (txs.length === 0) {
-        elements.txCountBadge.textContent = t('ledger.no_tx_this_month');
-      } else {
-        elements.txCountBadge.textContent = t('ledger.tx_count', { count: txs.length });
+      const emptyDiv = document.getElementById('tx-empty-divider');
+      if (elements.txCountBadge) {
+        if (txs.length === 0) {
+          elements.txCountBadge.classList.remove('hidden');
+          if (emptyDiv) emptyDiv.classList.remove('hidden');
+          elements.txCountBadge.textContent = t('ledger.no_tx_this_month');
+        } else {
+          elements.txCountBadge.classList.add('hidden');
+          if (emptyDiv) emptyDiv.classList.add('hidden');
+        }
       }
       elements.transactionsList.innerHTML = '';
 
@@ -1101,20 +1140,28 @@ tailwind.config = {
         let itemsHtml = '';
         if (tx.items && tx.items.length > 0) {
           const itemsBadges = tx.items.map(it => `
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-s2 border border-rule text-[11px] text-mut">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-s2 border border-rule text-[13px] text-mut font-ur">
               <span class="text-tx font-medium">${escapeHtml(it.item_name)}</span>
-              ${it.quantity > 1 ? `<span class="text-mut">×${it.quantity}</span>` : ''}
-              <span class="text-brass font-num tabular">Rs ${formatMoney(it.price)}</span>
+              ${it.quantity > 1 ? `<span class="text-mut" dir="ltr">×${it.quantity}</span>` : ''}
+              <span class="text-brass font-num tabular font-semibold" dir="ltr">Rs ${formatMoney(it.price)}</span>
             </span>
           `).join('');
-          itemsHtml = `<div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>`;
+          itemsHtml = `<div class="flex flex-wrap gap-1.5 mt-2">${itemsBadges}</div>`;
         }
+
+        const isSale = tx.tx_type === 'sale';
+        const amountHtml = isSale
+          ? `<span class="text-ok font-bold font-num text-[17px]" dir="ltr">+PKR ${formatMoney(tx.total_amount)}</span>`
+          : `<span class="text-brass font-bold font-num text-[17px]" dir="ltr">PKR ${formatMoney(tx.total_amount)}</span>`;
+        const typeBadgeHtml = isSale
+          ? `<span class="udhaar-pill udhaar-pill-in font-ur">${t('tx.sale_badge')}</span>`
+          : '';
 
         card.innerHTML = `
           <div class="tx-row-top">
-            <div class="tx-store-name capitalize">${escapeHtml(tx.store_name)}</div>
-            <div class="tx-row-amount">
-              <span class="text-brass font-bold">PKR ${formatMoney(tx.total_amount)}</span>
+            <div class="tx-store-name capitalize flex items-center gap-2 font-ur font-bold text-[18px]">${escapeHtml(tx.store_name)} ${typeBadgeHtml}</div>
+            <div class="tx-row-amount flex items-center gap-2">
+              ${amountHtml}
               <button 
                 class="delete-tx-btn btn-icon-del"
                 data-id="${tx.id}"
@@ -1125,10 +1172,10 @@ tailwind.config = {
               </button>
             </div>
           </div>
-          <div class="tx-row-sub">
-            <span>${escapeHtml(tx.transaction_date || '')}</span>
-            <span class="badge-pill-method">${escapeHtml((tx.payment_method || 'cash').replace('_', ' '))}</span>
-            <span class="text-mut font-num tabular">#${tx.id}</span>
+          <div class="tx-row-sub flex items-center gap-2 mt-1">
+            <span class="font-num text-[13.5px] text-mut" dir="ltr">${escapeHtml(tx.transaction_date || '')}</span>
+            <span class="badge-pill-method font-ur">${escapeHtml(formatPaymentMethodName(tx.payment_method || 'cash'))}</span>
+            <span class="text-mut font-num tabular text-[13px]" dir="ltr">#${tx.id}</span>
           </div>
           ${itemsHtml}
         `;
@@ -1174,6 +1221,109 @@ tailwind.config = {
     // (all numbers are computed by SQL on the server; the browser only draws them)
     // =========================================================================
     const charts = { category: null, trend: null };
+
+    function renderGalla(galla) {
+      const salesEl = document.getElementById('galla-today-sales');
+      const expEl = document.getElementById('galla-today-expenses');
+      const netEl = document.getElementById('galla-today-net');
+      const splitEl = document.getElementById('galla-cash-split');
+      if (!salesEl || !expEl || !netEl) return;
+
+      const todaySales = Number(galla.today_sales_pkr || 0);
+      const todayExp = Number(galla.today_expenses_pkr || 0);
+      const todayNet = Number(galla.today_net_pkr || 0);
+      const cashSales = Number(galla.today_cash_sales_pkr || 0);
+      const digSales = Number(galla.today_digital_sales_pkr || 0);
+
+      salesEl.textContent = `+Rs ${formatMoney(todaySales)}`;
+      expEl.textContent = `-Rs ${formatMoney(todayExp)}`;
+      netEl.textContent = `${todayNet >= 0 ? '' : '-'}Rs ${formatMoney(Math.abs(todayNet))}`;
+      netEl.style.color = todayNet > 0 ? 'var(--ok)' : todayNet < 0 ? 'var(--bad)' : 'var(--tx)';
+
+      if (splitEl) {
+        splitEl.innerHTML = `
+          <span class="inline-flex items-center gap-1"><span class="font-ur">${t('galla.cash_short')}:</span> <span class="font-num font-semibold" dir="ltr">Rs ${formatMoney(cashSales)}</span></span>
+          <span class="text-mut px-1">•</span>
+          <span class="inline-flex items-center gap-1"><span class="font-ur">${t('galla.digital_short')}:</span> <span class="font-num font-semibold" dir="ltr">Rs ${formatMoney(digSales)}</span></span>
+        `;
+      }
+    }
+
+    function renderUdhaar(udhaar) {
+      const recEl = document.getElementById('udhaar-total-receivable');
+      const payEl = document.getElementById('udhaar-total-payable');
+      const box = document.getElementById('udhaar-list-container');
+      if (!box) return;
+
+      if (recEl) recEl.textContent = `Rs ${formatMoney(udhaar.total_receivable_pkr || 0)}`;
+      if (payEl) payEl.textContent = `Rs ${formatMoney(udhaar.total_payable_pkr || 0)}`;
+
+      const items = udhaar.open_entries || [];
+      if (!items.length) {
+        box.innerHTML = `<span class="budget-empty-hint font-ur">${t('udhaar.empty')}</span>`;
+        return;
+      }
+
+      box.innerHTML = '';
+      items.forEach(item => {
+        const isReceivable = item.direction === 'receivable';
+        const badgeClass = isReceivable ? 'udhaar-pill-in' : 'udhaar-pill-out';
+        const badgeLabel = isReceivable ? t('udhaar.badge_lene') : t('udhaar.badge_dene');
+        const amountColor = isReceivable ? 'var(--ok)' : 'var(--bad)';
+        const remaining = Number(item.remaining_pkr || item.amount || 0);
+
+        const waMessage = isReceivable
+          ? `السلام علیکم ${item.person_name} صاحب، آپ کے ذمے PKR ${formatMoney(remaining)} بقایا ہیں (${item.notes || 'ادھار کھاتہ'})۔ براہ کرم جلد ادائیگی فرما دیں۔ شکریہ!`
+          : `السلام علیکم ${item.person_name} صاحب، آپ کے PKR ${formatMoney(remaining)} ہمارے کھاتے میں درج ہیں۔`;
+        const cleanPhone = (item.phone_number || '').replace(/[^0-9]/g, '');
+        const waPhone = cleanPhone.startsWith('03') ? ('92' + cleanPhone.slice(1)) : cleanPhone;
+        const waHref = `https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`;
+
+        const row = document.createElement('div');
+        row.className = 'bill-row';
+        row.innerHTML = `
+          <div class="bill-main">
+            <div class="bill-title capitalize flex flex-wrap items-center gap-2 font-ur">
+              <span class="font-bold text-[18px]">${escapeHtml(item.person_name)}</span>
+              <span class="udhaar-pill ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="bill-sub font-ur mt-1 flex flex-wrap items-center gap-2">
+              <strong style="color:${amountColor}" class="text-[17px] font-num">PKR ${formatMoney(remaining)}</strong>
+              ${item.paid_amount > 0 ? `<span class="text-mut text-[14px]">(${t('bill.paid', 'ادا شدہ')}: PKR ${formatMoney(item.paid_amount)})</span>` : ''}
+              ${item.notes ? `<span class="text-mut text-[15px]">· ${escapeHtml(item.notes)}</span>` : ''}
+            </div>
+          </div>
+          <div class="bill-actions flex items-center gap-2 shrink-0">
+            ${isReceivable ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-remind" title="${t('udhaar.btn_whatsapp')}"><i data-lucide="message-circle" class="w-4 h-4"></i></a>` : ''}
+            <button class="settle-udhaar-btn btn-mark-paid font-ur" data-id="${item.id}">
+              <i data-lucide="check" class="w-4 h-4"></i> <span>${t('udhaar.btn_settle')}</span>
+            </button>
+            <button class="del-udhaar-btn btn-icon-del" data-id="${item.id}" title="${t('btn.remove')}">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        `;
+        box.appendChild(row);
+      });
+
+      box.querySelectorAll('.settle-udhaar-btn').forEach(btn => btn.addEventListener('click', async () => {
+        const res = await authFetch(`/api/udhaar/${encodeURIComponent(state.userId)}/${btn.dataset.id}/settle`, { method: 'POST' });
+        if (res.ok) {
+          showToast(t('toast.udhaar_settled'), 'success');
+          fetchDashboard();
+        }
+      }));
+
+      box.querySelectorAll('.del-udhaar-btn').forEach(btn => btn.addEventListener('click', async () => {
+        const res = await authFetch(`/api/udhaar/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast(t('toast.udhaar_deleted'), 'info');
+          fetchDashboard();
+        }
+      }));
+
+      lucide.createIcons();
+    }
 
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
@@ -1241,6 +1391,51 @@ tailwind.config = {
       lucide.createIcons();
     }
 
+    function formatCategoryName(c) {
+      if (!c) return '';
+      const cat = String(c).toLowerCase().trim();
+      const key = 'budget.' + cat;
+      const trans = t(key);
+      if (trans && trans !== key) return trans;
+      const urMap = {
+        groceries: 'راشن و گروسری',
+        dairy: 'ڈیری و بیکری',
+        fuel: 'فیول و پیٹرول',
+        dining: 'کھانا پینا',
+        utilities: 'یوٹیلیٹی بلز',
+        healthcare: 'ادویات و صحت',
+        clothing: 'کپڑے و شاپنگ',
+        rent: 'مکان کا کرایہ',
+        education: 'تعلیم و فیس',
+        entertainment: 'تفریح',
+        other: 'دیگر اخراجات'
+      };
+      if (document.documentElement.getAttribute('lang') === 'ur' || (window.HisaabI18n && HisaabI18n.getLanguage() === 'ur')) {
+        return urMap[cat] || cat;
+      }
+      return cat.charAt(0).toUpperCase() + cat.slice(1).replace('_', ' ');
+    }
+
+    function formatPaymentMethodName(m) {
+      if (!m) return '';
+      const method = String(m).toLowerCase().trim();
+      const urMap = {
+        cash: 'نقد (کیش)',
+        bank_transfer: 'بینک ٹرانسفر',
+        easypaisa: 'ایزی پیسہ',
+        jazzcash: 'جاز کیش',
+        card: 'کارڈ',
+        credit_card: 'کریڈٹ کارڈ',
+        debit_card: 'ڈیبٹ کارڈ',
+        digital: 'ڈیجیٹل',
+        udhaar: 'ادھار کھاتہ'
+      };
+      if (document.documentElement.getAttribute('lang') === 'ur' || (window.HisaabI18n && HisaabI18n.getLanguage() === 'ur')) {
+        return urMap[method] || method.replace('_', ' ');
+      }
+      return method.charAt(0).toUpperCase() + method.slice(1).replace('_', ' ');
+    }
+
     function renderCategoryChart(rows) {
       const canvas = document.getElementById('category-chart');
       const empty = document.getElementById('category-empty');
@@ -1291,13 +1486,14 @@ tailwind.config = {
       if (legendBox) {
         legendBox.innerHTML = rows.map((r, i) => {
           const color = palette[i % palette.length];
+          const catLabel = formatCategoryName(r.category);
           return `
             <div class="legend-row">
               <div class="legend-label-group">
                 <span class="legend-color-box" style="background-color: ${color}"></span>
-                <span class="legend-cat-name capitalize text-tx">${escapeHtml(r.category)}</span>
+                <span class="legend-cat-name font-ur text-[16px] text-tx">${escapeHtml(catLabel)}</span>
               </div>
-              <span class="legend-amount tabular font-num text-mut">PKR ${formatMoney(r.total_pkr)}</span>
+              <span class="legend-amount tabular font-num text-mut text-[15px]" dir="ltr">PKR ${formatMoney(r.total_pkr)}</span>
             </div>
           `;
         }).join('');
@@ -1359,6 +1555,7 @@ tailwind.config = {
       const digital = total - cash;
       const cashPct = ((cash / total) * 100).toFixed(1);
       const digitalPct = ((digital / total) * 100).toFixed(1);
+      const isUr = (document.documentElement.getAttribute('lang') === 'ur');
 
       box.innerHTML = `
         <div class="split-bar-wrap mb-3">
@@ -1366,15 +1563,23 @@ tailwind.config = {
             <div class="split-fill-cash" style="width: ${cashPct}%;"></div>
             <div class="split-fill-digital" style="width: ${digitalPct}%;"></div>
           </div>
-          <div class="flex items-center justify-between text-xs mt-1.5 font-ur tabular">
-            <span class="text-brass">${t('ledger.cash')}: ${cashPct}% (PKR ${formatMoney(cash)})</span>
-            <span class="text-ok">${t('ledger.digital')}: ${digitalPct}% (PKR ${formatMoney(digital)})</span>
+          <div class="flex items-center justify-between mt-2 font-ur ${isUr ? 'text-[15.5px]' : 'text-xs'}">
+            <span class="text-brass inline-flex items-center gap-1.5">
+              <span>${t('ledger.cash')}:</span>
+              <span class="font-num font-semibold" dir="ltr">${cashPct}%</span>
+              <span class="text-mut text-[13.5px]" dir="ltr">(PKR ${formatMoney(cash)})</span>
+            </span>
+            <span class="text-ok inline-flex items-center gap-1.5">
+              <span>${t('ledger.digital')}:</span>
+              <span class="font-num font-semibold" dir="ltr">${digitalPct}%</span>
+              <span class="text-mut text-[13.5px]" dir="ltr">(PKR ${formatMoney(digital)})</span>
+            </span>
           </div>
         </div>
         ${rows.map(r => `
-          <div class="flex items-center justify-between text-xs py-1 border-b border-dashed border-rule">
-            <span class="capitalize text-tx">${escapeHtml(r.method.replace('_', ' '))}</span>
-            <span class="font-num tabular text-mut">PKR ${formatMoney(r.total_pkr)} (${((r.total_pkr / total) * 100).toFixed(1)}%)</span>
+          <div class="flex items-center justify-between py-1.5 border-b border-dashed border-rule">
+            <span class="text-tx font-ur ${isUr ? 'text-[16px]' : 'text-sm'}">${escapeHtml(formatPaymentMethodName(r.method))}</span>
+            <span class="font-num tabular text-mut text-[15px]" dir="ltr">PKR ${formatMoney(r.total_pkr)} (${((r.total_pkr / total) * 100).toFixed(1)}%)</span>
           </div>`).join('')}
       `;
     }
@@ -1397,11 +1602,15 @@ tailwind.config = {
         row.innerHTML = `
           <div class="bill-main">
             <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
-            <div class="bill-sub font-ui tabular">${t('bill.due_day', 'Due Day')}: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-sub font-ur flex items-center gap-2 text-[15.5px]">
+              <span>${t('bill.due_day', 'Due Day')}: <span class="font-num font-semibold" dir="ltr">${r.due_day}</span></span>
+              <span class="text-mut">·</span>
+              <span class="font-num font-semibold" dir="ltr">PKR ${formatMoney(r.amount)}</span>
+            </div>
           </div>
-          <div class="bill-actions">
+          <div class="bill-actions flex items-center gap-2 shrink-0">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> ${t('btn.mark_paid', 'Mark as Paid')}</button>`}
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid font-ur" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> <span>${t('btn.mark_paid', 'Mark as Paid')}</span></button>`}
             <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="${t('btn.remove', 'Remove')}"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
           </div>
         `;
@@ -1485,6 +1694,44 @@ tailwind.config = {
         } else showToast((await res.json().catch(() => ({}))).detail || 'Could not save', 'error');
         fetchDashboard();
       });
+
+      const udhaarForm = document.getElementById('udhaar-form');
+      if (udhaarForm) {
+        udhaarForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const personEl = document.getElementById('udhaar-person');
+          const amountEl = document.getElementById('udhaar-amount');
+          const dirEl = document.getElementById('udhaar-direction');
+          const notesEl = document.getElementById('udhaar-notes');
+
+          const rawNotes = notesEl ? notesEl.value.trim() : '';
+          let phone = '';
+          let notes = rawNotes;
+          const phoneMatch = rawNotes.match(/(03\d{9}|\+?923\d{9})/);
+          if (phoneMatch) {
+            phone = phoneMatch[1];
+          }
+
+          const fd = new FormData();
+          fd.append('user_id', state.userId);
+          fd.append('person_name', personEl.value);
+          fd.append('amount', amountEl.value);
+          fd.append('direction', dirEl ? dirEl.value : 'receivable');
+          if (notes) fd.append('notes', notes);
+          if (phone) fd.append('phone_number', phone);
+
+          const res = await authFetch('/api/udhaar', { method: 'POST', body: fd });
+          if (res.ok) {
+            personEl.value = '';
+            amountEl.value = '';
+            if (notesEl) notesEl.value = '';
+            showToast(t('toast.udhaar_saved'), 'success');
+          } else {
+            showToast((await res.json().catch(() => ({}))).detail || 'Could not save udhaar', 'error');
+          }
+          fetchDashboard();
+        });
+      }
     }
 
     // Register the service worker (PWA install + offline shell)

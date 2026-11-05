@@ -44,16 +44,26 @@
       'chat.welcome_ask': 'حساب پوچھیں:',
       'chat.welcome_ask_eg': '"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"',
       'chat.chip_month': 'اس مہینے کا خرچہ',
+      'chat.chip_month_prompt': 'اس مہینے کا میرا کل خرچہ کتنا ہے؟',
       'chat.chip_3days': 'پچھلے ۳ دن',
+      'chat.chip_3days_prompt': 'پچھلے ۳ دن میں کتنا خرچ ہوا؟',
+      'chat.chip_galla': 'آج کا گلہ',
+      'chat.chip_galla_prompt': 'آج کا گلہ اور بکری بتائیں',
+      'chat.chip_udhaar': 'ادھار کھاتہ',
+      'chat.chip_udhaar_prompt': 'ادھار کھاتہ دکھائیں کس سے پیسے لینے ہیں؟',
       'chat.chip_budget': 'بجٹ سیٹ کریں',
+      'chat.chip_budget_prompt': 'میرا اس مہینے کا بجٹ سیٹ کریں',
       'chat.chip_undo': 'آخری اندراج مٹائیں',
+      'chat.chip_undo_prompt': 'میرا آخری اندراج مٹا دیں',
       'chat.recording': 'آواز ریکارڈ ہو رہی ہے...',
       'chat.cancel': 'منسوخ کریں',
       'chat.placeholder': 'اردو یا انگریزی میں بولیں یا لکھیں...',
       'chat.transcribing_placeholder': 'آواز تحریر میں تبدیل ہو رہی ہے...',
       'chat.tip': 'ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا ادویات)۔',
-      'chat.loading': 'حساب کتاب ہو رہا ہے...',
+      'chat.loading': 'حساب کتاب دیکھا جا رہا ہے...',
       'chat.voice_tag': 'وائس نوٹ، تحریر شدہ',
+      'chat.error_network': 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔',
+      'chat.error_busy': 'اس وقت سسٹم پر زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔',
 
       // Ledger Pane
       'ledger.total_spend': 'اس مہینے کا کل خرچ',
@@ -72,8 +82,8 @@
       'ledger.stores_empty': 'ابھی تک کوئی دکان ریکارڈ میں نہیں۔',
       'ledger.payment_split_title': 'ادائیگی کا طریقہ (نقد بمقابلہ ڈیجیٹل)',
       'ledger.payment_split_empty': 'ادائیگی کا کوئی ڈیٹا درج نہیں۔',
-      'ledger.cash': 'نقد (Cash)',
-      'ledger.digital': 'ڈیجیٹل (Digital)',
+      'ledger.cash': 'نقد',
+      'ledger.digital': 'ڈیجیٹل',
       'ledger.recurring_title': 'ماہانہ بل اور ضروری واجبات',
       'ledger.recurring_empty': 'کوئی بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔',
       'ledger.recent_tx_title': 'حالیہ اخراجات کی تفصیل',
@@ -90,18 +100,18 @@
       'bill.unpaid': 'واجب الادا',
       'bill.pending': 'زیر التواء',
       'bill.due_day': 'آخری تاریخ',
-      'budget.overall': 'کل بجٹ (Overall)',
-      'budget.groceries': 'راشن و گروسری (Groceries)',
-      'budget.dairy': 'ڈیری و بیکری (Dairy)',
-      'budget.fuel': 'فیول و پیٹرول (Fuel)',
-      'budget.dining': 'کھانا پینا (Dining)',
-      'budget.utilities': 'یوٹیلیٹی بلز (Utilities)',
-      'budget.healthcare': 'ادویات و صحت (Healthcare)',
-      'budget.clothing': 'کپڑے و شاپنگ (Clothing)',
-      'budget.rent': 'مکان کا کرایہ (Rent)',
-      'budget.education': 'تعلیم و اسکول فیس (Education)',
-      'budget.other': 'دیگر اخراجات (Other)',
-      'budget.custom': '✍️ اپنی مرضی کا بجٹ (Custom Name...)',
+      'budget.overall': 'کل بجٹ',
+      'budget.groceries': 'راشن و گروسری',
+      'budget.dairy': 'ڈیری و بیکری',
+      'budget.fuel': 'پیٹرول و ایندھن',
+      'budget.dining': 'کھانا پینا',
+      'budget.utilities': 'بجلی، گیس و پانی کے بلز',
+      'budget.healthcare': 'ادویات و علاج',
+      'budget.clothing': 'لباس و خریداری',
+      'budget.rent': 'کرایہ دکان یا مکان',
+      'budget.education': 'تعلیم و فیس',
+      'budget.other': 'دیگر اخراجات',
+      'budget.custom': '✍️ اپنی مرضی کا بجٹ نام',
       'budget.custom_placeholder': 'بجٹ کا کسٹم نام لکھیں (مثلاً جم، سفر، مرمت)',
       'budget.amount_placeholder': 'بجٹ رقم (PKR)',
       'budget.over': 'بجٹ سے PKR {amount} زیادہ خرچ ہو گئے',
@@ -168,7 +178,32 @@
       'toast.tx_deleted': 'اندراج #{id} مٹا دیا گیا',
       'toast.signed_in': 'کامیابی سے لاگ ان ہو گئے!',
       'toast.signed_out': 'لاگ آؤٹ ہو گئے',
-      'toast.account_created': 'اکاؤنٹ بن گیا! تصدیق کے لیے اپنا ای میل چیک کریں۔'
+      'toast.account_created': 'اکاؤنٹ بن گیا! تصدیق کے لیے اپنا ای میل چیک کریں۔',
+
+      // Shopkeeper: Galla & Udhaar Khata
+      'galla.title': 'آج کا گلہ (روزانہ بکری اور خرچہ)',
+      'galla.today_sales': 'آج کی بکری (In)',
+      'galla.today_expenses': 'آج کا خرچہ (Out)',
+      'galla.today_net': 'خالص گلہ (Net)',
+      'galla.cash_short': 'نقد',
+      'galla.digital_short': 'ڈیجیٹل',
+      'udhaar.title': 'ادھار کھاتہ (لین دین)',
+      'udhaar.lene_hain': 'لینے ہیں:',
+      'udhaar.dene_hain': 'دینے ہیں:',
+      'udhaar.badge_lene': 'لینے ہیں (وصولی)',
+      'udhaar.badge_dene': 'دینے ہیں (ادائیگی)',
+      'udhaar.empty': 'کوئی ادھار درج نہیں ہے۔ نیچے شامل کریں یا چیٹ میں کہیں "علی کو 1500 ادھار دیا"۔',
+      'udhaar.person_placeholder': 'نام (مثلاً علی بھائی، طارق کریانہ)',
+      'udhaar.amount_placeholder': 'رقم (PKR)',
+      'udhaar.opt_receivable': 'لینے ہیں (دیے)',
+      'udhaar.opt_payable': 'دینے ہیں (لیے)',
+      'udhaar.notes_placeholder': 'تفصیل / فون نمبر (اختیاری)',
+      'udhaar.btn_settle': 'وصول / چکتا',
+      'udhaar.btn_whatsapp': 'واٹس ایپ یاد دہانی',
+      'tx.sale_badge': 'بکری (Sale)',
+      'toast.udhaar_saved': 'ادھار کھاتہ اپ ڈیٹ ہو گیا',
+      'toast.udhaar_settled': 'ادھار چکتا کر دیا گیا',
+      'toast.udhaar_deleted': 'ادھار کا اندراج مٹا دیا گیا'
     },
 
     en: {
@@ -202,9 +237,17 @@
       'chat.welcome_ask': 'Ask your ledger:',
       'chat.welcome_ask_eg': '"What is my total spend this month?", "How much on groceries?"',
       'chat.chip_month': 'This month\'s spend',
+      'chat.chip_month_prompt': 'What is my total spend this month?',
       'chat.chip_3days': 'Last 3 days',
+      'chat.chip_3days_prompt': 'What did I spend in the last 3 days?',
+      'chat.chip_galla': 'Today\'s Galla',
+      'chat.chip_galla_prompt': 'Show today\'s sales and cash drawer summary',
+      'chat.chip_udhaar': 'Udhaar Khata',
+      'chat.chip_udhaar_prompt': 'Show my udhaar khata: who owes me money and who do I owe?',
       'chat.chip_budget': 'Set monthly budget',
+      'chat.chip_budget_prompt': 'I want to set my monthly budget',
       'chat.chip_undo': 'Delete last entry',
+      'chat.chip_undo_prompt': 'Delete my last entry',
       'chat.recording': 'Recording audio...',
       'chat.cancel': 'Cancel',
       'chat.placeholder': 'Speak or type in Urdu or English...',
@@ -212,6 +255,8 @@
       'chat.tip': 'Tip: Speak or type expenses from any store, market or bill (e.g. groceries, fuel, dining, electricity, healthcare).',
       'chat.loading': 'Calculating ledger...',
       'chat.voice_tag': 'Voice note, transcribed',
+      'chat.error_network': 'Unable to connect to server. Please check your internet connection and try again.',
+      'chat.error_busy': 'The assistant is temporarily busy with high request volume. Please try again in a few moments.',
 
       // Ledger Pane
       'ledger.total_spend': 'Total Spend This Month',
@@ -326,7 +371,32 @@
       'toast.tx_deleted': 'Transaction #{id} deleted',
       'toast.signed_in': 'Successfully signed in!',
       'toast.signed_out': 'Signed out',
-      'toast.account_created': 'Account created! Please check your email for the verification link.'
+      'toast.account_created': 'Account created! Please check your email for the verification link.',
+
+      // Shopkeeper: Galla & Udhaar Khata
+      'galla.title': 'Today\'s Galla (Daily Sales & Spend)',
+      'galla.today_sales': 'Today\'s Sales (In)',
+      'galla.today_expenses': 'Today\'s Spend (Out)',
+      'galla.today_net': 'Net Galla (Drawer)',
+      'galla.cash_short': 'Cash',
+      'galla.digital_short': 'Digital',
+      'udhaar.title': 'Udhaar Khata (Lend & Borrow)',
+      'udhaar.lene_hain': 'To Receive:',
+      'udhaar.dene_hain': 'To Pay:',
+      'udhaar.badge_lene': 'To Receive (Lene Hain)',
+      'udhaar.badge_dene': 'To Pay (Dene Hain)',
+      'udhaar.empty': 'No active udhaar entries. Add below or say in chat "Lent 1500 to Ali".',
+      'udhaar.person_placeholder': 'Person / Shop Name (e.g. Ali Bhai)',
+      'udhaar.amount_placeholder': 'Amount (PKR)',
+      'udhaar.opt_receivable': 'To Receive (Lent / Sold on Credit)',
+      'udhaar.opt_payable': 'To Pay (Borrowed / Supplier Credit)',
+      'udhaar.notes_placeholder': 'Notes / Phone Number (Optional)',
+      'udhaar.btn_settle': 'Mark Settled',
+      'udhaar.btn_whatsapp': 'WhatsApp Reminder',
+      'tx.sale_badge': 'Sale (Bikri)',
+      'toast.udhaar_saved': 'Udhaar Khata updated',
+      'toast.udhaar_settled': 'Udhaar marked as settled',
+      'toast.udhaar_deleted': 'Udhaar entry removed'
     }
   };
 
@@ -420,6 +490,23 @@
       const key = el.getAttribute('data-i18n-title');
       if (key) {
         el.setAttribute('title', t(key));
+      }
+    });
+
+    // Translate dynamic prompt attributes with data-i18n-prompt
+    document.querySelectorAll('[data-i18n-prompt]').forEach(el => {
+      const key = el.getAttribute('data-i18n-prompt');
+      if (key) {
+        el.setAttribute('data-prompt', t(key));
+      }
+    });
+
+    // Toggle font-ur class on prompt chips according to active language
+    document.querySelectorAll('.prompt-chip').forEach(el => {
+      if (lang === 'ur') {
+        el.classList.add('font-ur');
+      } else {
+        el.classList.remove('font-ur');
       }
     });
 

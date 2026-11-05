@@ -370,10 +370,11 @@
 
       <!-- Suggestion Chips Bar -->
       <div class="chat-suggestions-box">
-        <button class="prompt-chip font-ur" data-prompt="Is mahine ka kharcha" data-i18n="chat.chip_month">اس مہینے کا خرچہ</button>
-        <button class="prompt-chip font-ur" data-prompt="What did I spend in the last 3 days?" data-i18n="chat.chip_3days">پچھلے ۳ دن</button>
-        <button class="prompt-chip font-ur" data-prompt="Mera is mahine ka budget set karo" data-i18n="chat.chip_budget">بجٹ سیٹ کریں</button>
-        <button class="prompt-chip font-ur" data-prompt="Delete my last entry" data-i18n="chat.chip_undo">آخری اندراج مٹائیں</button>
+        <button class="prompt-chip font-ur" data-prompt="اس مہینے کا میرا کل خرچہ کتنا ہے؟" data-i18n="chat.chip_month" data-i18n-prompt="chat.chip_month_prompt">اس مہینے کا خرچہ</button>
+        <button class="prompt-chip font-ur" data-prompt="آج کا گلہ اور بکری بتائیں" data-i18n="chat.chip_galla" data-i18n-prompt="chat.chip_galla_prompt">آج کا گلہ</button>
+        <button class="prompt-chip font-ur" data-prompt="ادھار کھاتہ دکھائیں کس سے پیسے لینے ہیں؟" data-i18n="chat.chip_udhaar" data-i18n-prompt="chat.chip_udhaar_prompt">ادھار کھاتہ</button>
+        <button class="prompt-chip font-ur" data-prompt="میرا اس مہینے کا بجٹ سیٹ کریں" data-i18n="chat.chip_budget" data-i18n-prompt="chat.chip_budget_prompt">بجٹ سیٹ کریں</button>
+        <button class="prompt-chip font-ur" data-prompt="میرا آخری اندراج مٹا دیں" data-i18n="chat.chip_undo" data-i18n-prompt="chat.chip_undo_prompt">آخری اندراج مٹائیں</button>
       </div>
 
       <!-- Voice Recording Status Banner with Live Wave Visualizer -->
@@ -433,10 +434,71 @@
           <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> <span data-i18n="ledger.purchases">خریداری</span></span>
           <span class="hero-fact-divider">•</span>
           <span><span data-i18n="ledger.top_store">پسندیدہ دکان:</span> <strong id="kpi-top-store" data-i18n="ledger.not_recorded">درج نہیں</strong></span>
-          <span class="hero-fact-divider">•</span>
-          <span id="tx-count-badge" class="font-ur" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
+          <span id="tx-empty-divider" class="hero-fact-divider hidden">•</span>
+          <span id="tx-count-badge" class="font-ur hidden" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
         </div>
       </div>
+
+      <!-- Shopkeeper Daily Galla (Today's Cash Drawer) -->
+      <section class="ledger-section">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 class="ledger-section-title mb-0 font-ur" data-i18n="galla.title">آج کا گلہ (روزانہ بکری اور خرچہ)</h2>
+          <span id="galla-cash-split" class="text-xs text-mut font-ur">نقد: Rs 0 • ڈیجیٹل: Rs 0</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2.5 font-ur">
+          <div class="galla-stat-box galla-stat-in">
+            <div class="galla-stat-label" data-i18n="galla.today_sales">آج کی بکری (In)</div>
+            <div id="galla-today-sales" class="galla-stat-value text-ok font-num tabular">+Rs 0</div>
+          </div>
+          <div class="galla-stat-box galla-stat-out">
+            <div class="galla-stat-label" data-i18n="galla.today_expenses">آج کا خرچہ (Out)</div>
+            <div id="galla-today-expenses" class="galla-stat-value text-bad font-num tabular">-Rs 0</div>
+          </div>
+          <div class="galla-stat-box galla-stat-net">
+            <div class="galla-stat-label" data-i18n="galla.today_net">خالص گلہ (Net)</div>
+            <div id="galla-today-net" class="galla-stat-value font-num tabular">Rs 0</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Udhaar / Khata Book (Lend & Borrow Money) -->
+      <section class="ledger-section">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 class="ledger-section-title mb-0 font-ur" data-i18n="udhaar.title">ادھار کھاتہ (لین دین)</h2>
+          <div class="flex items-center gap-2 text-xs font-ur">
+            <span class="udhaar-pill udhaar-pill-in">
+              <span data-i18n="udhaar.lene_hain">لینے ہیں:</span>
+              <strong id="udhaar-total-receivable" class="font-num tabular">Rs 0</strong>
+            </span>
+            <span class="udhaar-pill udhaar-pill-out">
+              <span data-i18n="udhaar.dene_hain">دینے ہیں:</span>
+              <strong id="udhaar-total-payable" class="font-num tabular">Rs 0</strong>
+            </span>
+          </div>
+        </div>
+        <div id="udhaar-list-container" class="space-y-2 font-ur">
+          <span class="budget-empty-hint font-ur" data-i18n="udhaar.empty">کوئی ادھار درج نہیں ہے۔ نیچے شامل کریں یا چیٹ میں کہیں "علی کو 1500 ادھار دیا"۔</span>
+        </div>
+        <form id="udhaar-form" class="mt-4 grid grid-cols-12 gap-2.5 font-ur">
+          <input id="udhaar-person" type="text" maxlength="100" required
+            data-i18n-placeholder="udhaar.person_placeholder"
+            placeholder="نام (مثلاً علی بھائی، طارق کریانہ)"
+            class="col-span-12 sm:col-span-4 input-base font-ur">
+          <input id="udhaar-amount" type="number" min="1" step="1" required
+            data-i18n-placeholder="udhaar.amount_placeholder"
+            placeholder="رقم (PKR)"
+            class="col-span-6 sm:col-span-3 input-base font-ur">
+          <select id="udhaar-direction" class="col-span-6 sm:col-span-3 input-base font-ur">
+            <option value="receivable" data-i18n="udhaar.opt_receivable">لینے ہیں (دیے)</option>
+            <option value="payable" data-i18n="udhaar.opt_payable">دینے ہیں (لیے)</option>
+          </select>
+          <input id="udhaar-notes" type="text" maxlength="140"
+            data-i18n-placeholder="udhaar.notes_placeholder"
+            placeholder="تفصیل / فون نمبر (اختیاری)"
+            class="col-span-8 sm:col-span-9 input-base font-ur">
+          <button type="submit" class="col-span-4 sm:col-span-3 btn-primary font-ur" data-i18n="btn.add">شامل کریں</button>
+        </form>
+      </section>
 
       <!-- Monthly Budgets -->
       <section class="ledger-section">
@@ -447,17 +509,17 @@
         <form id="budget-form" class="mt-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
           <div class="flex-1 min-w-[200px] flex flex-col gap-2">
             <select id="budget-category" class="input-base font-ur budget-input-base">
-              <option value="total" data-i18n="budget.overall">کل بجٹ (Overall)</option>
-              <option value="groceries" data-i18n="budget.groceries">راشن و گروسری (Groceries)</option>
-              <option value="dairy" data-i18n="budget.dairy">ڈیری و بیکری (Dairy)</option>
-              <option value="fuel" data-i18n="budget.fuel">فیول و پیٹرول (Fuel)</option>
-              <option value="dining" data-i18n="budget.dining">کھانا پینا (Dining)</option>
-              <option value="utilities" data-i18n="budget.utilities">یوٹیلیٹی بلز (Utilities)</option>
-              <option value="healthcare" data-i18n="budget.healthcare">ادویات و صحت (Healthcare)</option>
-              <option value="clothing" data-i18n="budget.clothing">کپڑے و شاپنگ (Clothing)</option>
-              <option value="rent" data-i18n="budget.rent">مکان کا کرایہ (Rent)</option>
-              <option value="education" data-i18n="budget.education">تعلیم و اسکول فیس (Education)</option>
-              <option value="custom" data-i18n="budget.custom">✍️ اپنی مرضی کا بجٹ (Custom Name...)</option>
+              <option value="total" data-i18n="budget.overall">کل بجٹ</option>
+              <option value="groceries" data-i18n="budget.groceries">راشن و گروسری</option>
+              <option value="dairy" data-i18n="budget.dairy">ڈیری و بیکری</option>
+              <option value="fuel" data-i18n="budget.fuel">پیٹرول و ایندھن</option>
+              <option value="dining" data-i18n="budget.dining">کھانا پینا</option>
+              <option value="utilities" data-i18n="budget.utilities">بجلی، گیس و پانی کے بلز</option>
+              <option value="healthcare" data-i18n="budget.healthcare">ادویات و علاج</option>
+              <option value="clothing" data-i18n="budget.clothing">لباس و خریداری</option>
+              <option value="rent" data-i18n="budget.rent">کرایہ دکان یا مکان</option>
+              <option value="education" data-i18n="budget.education">تعلیم و فیس</option>
+              <option value="custom" data-i18n="budget.custom">✍️ اپنی مرضی کا بجٹ نام</option>
             </select>
             <input id="budget-custom-name" type="text" maxlength="60"
               data-i18n-placeholder="placeholder.budget_custom_name"
