@@ -21,9 +21,9 @@
       case 'auth/invalid-credential':
       case 'auth/user-not-found':
       case 'auth/wrong-password':
-        return 'Incorrect email or password.';
+        return 'Incorrect email or password. If you originally signed up with Google, please use "Continue with Google".';
       case 'auth/email-already-in-use':
-        return 'An account already exists with this email.';
+        return 'An account already exists with this email. If you originally signed up with Google, please use "Continue with Google".';
       case 'auth/weak-password':
         return 'Password is too weak. Please use at least 8 characters.';
       case 'auth/invalid-email':
@@ -35,7 +35,7 @@
       case 'auth/popup-closed-by-user':
         return 'Sign-in cancelled';
       case 'auth/popup-blocked':
-        return 'Sign-in popup was blocked by your browser. Please allow popups.';
+        return 'Sign-in popup was blocked. Redirecting to Google...';
       case 'auth/unauthorized-domain':
         return 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
       case 'auth/operation-not-allowed':
@@ -206,6 +206,19 @@
 
       // Set persistence to LOCAL so user stays signed in across reloads
       await firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+      // Check for redirect result from Google Sign-In redirect flow
+      try {
+        const redirectRes = await firebaseAuth.getRedirectResult();
+        if (redirectRes && redirectRes.user) {
+          currentUser = redirectRes.user;
+          await handleUserSignedIn(redirectRes.user);
+          if (window.showToast) window.showToast('Successfully signed in!', 'success');
+        }
+      } catch (redirectErr) {
+        console.warn('Error processing redirect sign-in:', redirectErr);
+        setAuthMessage(mapAuthError(redirectErr), 'error');
+      }
 
       // Listen for auth state changes
       firebaseAuth.onAuthStateChanged(async (user) => {
@@ -443,7 +456,7 @@
     setAuthMessage('If an account exists with this email, a password reset link has been sent.', 'info');
   }
 
-  // Google Sign-In with Popup
+  // Google Sign-In (Adaptive: Popup with automatic Redirect fallback for mobile / popup-blockers)
   async function signInWithGoogle() {
     setAuthMessage('');
     if (!isConfigured) {
@@ -460,11 +473,30 @@
       return;
     }
     const googleBtn = document.getElementById('google-signin-btn');
-    if (googleBtn) googleBtn.disabled = true;
+    if (googleBtn) {
+      googleBtn.disabled = true;
+      googleBtn.classList.add('opacity-70');
+    }
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    // Detect mobile or standalone PWA environment where popup is unreliable or blocked
+    const isMobileOrPWA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                          window.matchMedia('(display-mode: standalone)').matches ||
+                          Boolean(navigator.standalone);
+
+    if (isMobileOrPWA) {
+      try {
+        setAuthMessage(window.t ? window.t('auth.redirecting_google') : 'Connecting to Google...', 'info');
+        await firebaseAuth.signInWithRedirect(provider);
+        return;
+      } catch (redirErr) {
+        console.warn('Direct signInWithRedirect failed, attempting popup:', redirErr);
+      }
+    }
 
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
       const res = await firebaseAuth.signInWithPopup(provider);
       if (res && res.user) {
         currentUser = res.user;
@@ -475,19 +507,25 @@
       if (window.showToast) window.showToast('Successfully signed in!', 'success');
     } catch (err) {
       console.error('Google Sign-In failed:', err);
-      let msg = err.message || 'Google Sign-In failed';
-      if (err.code === 'auth/configuration-not-found') {
-        msg = 'Firebase Authentication is not initialized in the Firebase Console (auth/configuration-not-found).';
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        msg = 'Sign-in cancelled';
-      } else if (err.code === 'auth/popup-blocked') {
-        msg = 'Sign-in popup was blocked by your browser. Please allow popups.';
-      } else if (err.code === 'auth/unauthorized-domain') {
-        msg = 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
+      // If popup was blocked or closed or unsupported, immediately fall back to redirect!
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request' || err.code === 'auth/operation-not-supported-in-this-environment') {
+        console.warn('Popup blocked or unsupported, falling back to signInWithRedirect...');
+        setAuthMessage(window.t ? window.t('auth.redirecting_google') : 'Popup blocked, redirecting to Google...', 'info');
+        try {
+          await firebaseAuth.signInWithRedirect(provider);
+          return;
+        } catch (redirFallbackErr) {
+          console.error('signInWithRedirect fallback failed:', redirFallbackErr);
+          setAuthMessage(mapAuthError(redirFallbackErr), 'error');
+        }
+      } else {
+        setAuthMessage(mapAuthError(err), 'error');
       }
-      setAuthMessage(msg, 'error');
     } finally {
-      if (googleBtn && isConfigured) googleBtn.disabled = false;
+      if (googleBtn && isConfigured) {
+        googleBtn.disabled = false;
+        googleBtn.classList.remove('opacity-70');
+      }
     }
   }
 
