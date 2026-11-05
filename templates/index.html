@@ -39,6 +39,7 @@
 
   <!-- PWA: installable on Android / iOS ("Add to Home Screen") -->
   <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0d1517">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -335,16 +336,16 @@
     <section id="chat-pane" class="pane-chat">
 
       <!-- Chat Header -->
-      <div class="px-5 py-3 border-b border-rule flex items-center justify-between bg-s1">
+      <div class="chat-subheader-bar px-5 py-2.5 border-b border-rule flex items-center justify-between bg-s1">
         <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-brass animate-pulse"></span>
-          <span class="text-xs text-mut font-ur">
+          <span class="w-2 h-2 rounded-full bg-brass animate-pulse shrink-0"></span>
+          <span class="chat-session-label text-mut font-ur flex items-center gap-1.5">
             <span data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display" class="font-bold text-tx font-mono">—</span>
           </span>
         </div>
         <button id="clear-chat-btn" class="chat-clear-btn text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
           data-i18n-title="chat.clear_screen" title="اسکرین صاف کریں">
-          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass"></i> <span data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
+          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass shrink-0"></i> <span data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
         </button>
       </div>
 
@@ -352,16 +353,16 @@
       <div id="messages-container" class="chat-messages-container">
 
         <!-- Welcome Message -->
-        <div class="bubble-assistant has-urdu" dir="auto">
+        <div id="welcome-card" class="bubble-assistant welcome-bubble">
           <div class="flex items-center gap-2 mb-2 text-brass">
-            <i data-lucide="wallet" class="w-5 h-5"></i>
+            <i data-lucide="wallet" class="w-5 h-5 shrink-0"></i>
             <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">السلام علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
           </div>
-          <p data-i18n="chat.welcome_sub" class="text-tx font-ur text-base leading-relaxed" dir="auto">اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
-          <ul class="list-disc pr-6 mt-2.5 space-y-2 text-tx font-ur text-base leading-loose" dir="auto">
-            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span class="text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
-            <li><strong data-i18n="chat.welcome_pa">پنجابی:</strong> <span class="text-brass" data-i18n="chat.welcome_pa_eg">"1500 دا پٹرول ڈلوایا تے 450 دا سامان لیا"</span></li>
-            <li dir="ltr" class="text-left font-ui text-[14.5px]"><strong data-i18n="chat.welcome_en">English:</strong> <span class="text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
+          <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
+          <ul class="welcome-examples-list list-disc mt-2.5 space-y-2 text-tx font-ur text-base">
+            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" class="font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
+            <li><strong data-i18n="chat.welcome_pa">پنجابی:</strong> <span lang="ur" class="font-nastaleeq text-brass" data-i18n="chat.welcome_pa_eg">"1500 دا پٹرول ڈلوایا تے 450 دا سامان لیا"</span></li>
+            <li><strong class="font-ui" data-i18n="chat.welcome_en">English:</strong> <span dir="ltr" class="font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
             <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="text-brass" data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
           </ul>
         </div>

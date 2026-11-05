@@ -4,8 +4,21 @@ tailwind.config = {
         extend: {
           fontFamily: {
             nastaleeq: ["'Jameel Noori Nastaleeq'", "'Noori Nastaleeq'", "'Noto Nastaliq Urdu'", "'Urdu Typesetting'", "serif"],
+            ui: ["var(--ui)"],
+            num: ["var(--num)"],
+            ur: ["var(--ur)"],
           },
           colors: {
+            ink: 'var(--ink)',
+            s1: 'var(--s1)',
+            s2: 'var(--s2)',
+            rule: 'var(--rule)',
+            tx: 'var(--tx)',
+            mut: 'var(--mut)',
+            brass: 'var(--brass)',
+            ok: 'var(--ok)',
+            warn: 'var(--warn)',
+            bad: 'var(--bad)',
             brand: {
               50: '#ecfdf5',
               100: '#d1fae5',
@@ -117,11 +130,11 @@ tailwind.config = {
     function autosizeComposer(el) {
       if (!el) return;
       const max = Math.min(window.innerHeight * 0.4, 240);
-      const prev = el.offsetHeight || 46;
+      const prev = el.offsetHeight || 48;
       el.style.transition = 'none';
       el.style.height = 'auto';
       const scrollH = el.scrollHeight;
-      const target = Math.max(46, Math.min(scrollH, max));
+      const target = Math.max(48, Math.min(scrollH, max));
       el.style.height = prev + 'px';
       el.offsetHeight; // force reflow
       el.style.transition = '';
@@ -148,7 +161,7 @@ tailwind.config = {
 
       elements.messageInput.addEventListener('blur', function () {
         if (!this.value.trim()) {
-          this.style.height = '46px';
+          this.style.height = '48px';
         }
       });
 
@@ -167,7 +180,9 @@ tailwind.config = {
       initViewportResizing();
       setMobileTab('chat');
       setDesktopView('chat');
-      scrollToBottom();
+      if (elements.messagesContainer) {
+        elements.messagesContainer.scrollTop = 0;
+      }
       if (state.userId) {
         fetchDashboard();
       }
@@ -365,7 +380,12 @@ tailwind.config = {
       const themeBtn = document.getElementById('theme-toggle-btn');
       let savedTheme = 'dark';
       try {
-        savedTheme = localStorage.getItem('hisaab_theme') || 'dark';
+        const urlTheme = new URLSearchParams(window.location.search).get('theme');
+        if (urlTheme === 'light' || urlTheme === 'dark') {
+          savedTheme = urlTheme;
+        } else {
+          savedTheme = localStorage.getItem('hisaab_theme') || 'dark';
+        }
       } catch (_) {}
       applyTheme(savedTheme);
 
@@ -383,18 +403,25 @@ tailwind.config = {
       function applyTheme(theme) {
         const sunIcon = document.querySelector('.theme-icon-sun');
         const moonIcon = document.querySelector('.theme-icon-moon');
+        const metaTheme = document.querySelector('meta[name="theme-color"]');
         if (theme === 'light') {
           document.documentElement.classList.remove('dark');
           document.documentElement.classList.add('light');
           if (sunIcon) sunIcon.classList.add('hidden');
           if (moonIcon) moonIcon.classList.remove('hidden');
           if (themeBtn) themeBtn.setAttribute('title', 'Switch to Dark Mode');
+          if (metaTheme) metaTheme.setAttribute('content', '#f6f4ef');
         } else {
           document.documentElement.classList.remove('light');
           document.documentElement.classList.add('dark');
           if (sunIcon) sunIcon.classList.remove('hidden');
           if (moonIcon) moonIcon.classList.add('hidden');
           if (themeBtn) themeBtn.setAttribute('title', 'Switch to Light Mode');
+          if (metaTheme) metaTheme.setAttribute('content', '#0d1517');
+        }
+        if (state.lastDashboardData) {
+          renderCategoryChart(state.lastDashboardData.category_breakdown || []);
+          renderTrendChart(state.lastDashboardData.daily_trend || []);
         }
         if (window.lucide && typeof window.lucide.createIcons === 'function') {
           window.lucide.createIcons();
@@ -808,7 +835,7 @@ tailwind.config = {
           <i data-lucide="bot" class="w-3.5 h-3.5"></i>
           <span class="text-xs font-semibold">HisaabAI</span>
         </div>
-        <div class="${nastaleeqClass} text-tx prose prose-invert max-w-none" ${dirAttr}>
+        <div class="${nastaleeqClass} text-tx prose max-w-none" ${dirAttr}>
           ${parsedHtml}
         </div>
       `;
@@ -1449,13 +1476,15 @@ tailwind.config = {
       if (!container) return;
       const toast = document.createElement('div');
       const bgColors = {
-        success: 'bg-emerald-900/90 border-emerald-500/50 text-emerald-200',
-        error: 'bg-rose-900/90 border-rose-500/50 text-rose-200',
-        info: 'bg-surface-800/90 border-slate-700 text-slate-200',
+        success: 'bg-s1 border-rule text-ok',
+        error: 'bg-s1 border-bad/40 text-bad',
+        warning: 'bg-s1 border-warn/30 text-warn',
+        info: 'bg-s1 border-rule text-tx',
       };
       const icons = {
         success: 'check-circle',
         error: 'alert-triangle',
+        warning: 'alert-circle',
         info: 'info',
       };
 

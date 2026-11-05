@@ -30,44 +30,138 @@
 }
 
 :root {
-  --ink: #0d1517;      /* page background */
-  --s1: #121c1f;       /* panel surface (chat pane) */
-  --s2: #18262a;       /* raised surface, assistant bubbles, inputs, tracks */
-  --rule: #26383d;     /* borders and dividers */
-  --tx: #ece7da;       /* parchment text */
-  --mut: #8fa1a4;      /* muted text */
-  --brass: #d4a95a;    /* money and primary accent */
+  --ink: #0d1517;        /* page background */
+  --s1: #121c1f;         /* panel surface (chat pane) */
+  --s2: #18262a;         /* raised surface, assistant bubbles, inputs, tracks */
+  --rule: #26383d;       /* borders and dividers */
+  --tx: #ece7da;         /* parchment text */
+  --mut: #95a7aa;        /* muted text (WCAG AA compliant) */
+  --brass: #d4a95a;      /* money and primary accent */
+  --brass-fill: #d4a95a; /* solid primary button fill */
   --brass-dark: #b88d42;
-  --ok: #6fbf94;       /* positive / paid */
-  --warn: #e8b04a;     /* warning */
-  --bad: #e5707e;      /* error / delete / over-budget */
+  --ok: #6fbf94;         /* positive / paid */
+  --warn: #e8b04a;       /* warning */
+  --bad: #e5707e;        /* error / delete / over-budget */
   --ui: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --num: "Fraunces", Georgia, serif;
   --ur: "Jameel Noori Nastaleeq", "Noori Nastaleeq", "JameelNooriNastaliq", "Noto Nastaliq Urdu", serif;
   color-scheme: dark;
 }
 
+/* Premier Fintech Warm Alabaster & Deep Ink-Teal Light Mode Palette */
 html.light {
-  --ink: #f4f7f8;      /* light clean page background */
-  --s1: #ffffff;       /* white panel surface */
-  --s2: #eaeff2;       /* raised surface, assistant bubbles, inputs, tracks */
-  --rule: #cfd8dc;     /* borders and dividers */
-  --tx: #101c1f;       /* crisp readable text */
-  --mut: #546e7a;      /* secondary muted text */
-  --brass: #a9751e;    /* rich high-contrast amber gold */
-  --brass-dark: #8c5d14;
-  --ok: #15803d;       /* green paid / ok */
-  --warn: #b45309;     /* amber warning */
-  --bad: #b91c1c;      /* error / delete / over-budget */
+  --ink: #f6f4ef;        /* Warm Alabaster / Financial Ivory canvas */
+  --s1: #ffffff;         /* Crisp pure white card & panel surface */
+  --s2: #edeae2;         /* Warm stone raised surface for inputs & chips */
+  --rule: #d8d3c8;       /* Warm taupe-gray structural border (WCAG 3:1+) */
+  --tx: #111c1f;         /* Deep Ink-Teal charcoal text (15.8:1 AAA contrast) */
+  --mut: #4e6166;        /* Muted slate-teal secondary text (6.2:1 AA/AAA) */
+  --brass: #9e6b14;      /* High-contrast burnished gold for text & icons */
+  --brass-fill: #c9932c; /* Rich warm gold fill for primary buttons */
+  --brass-dark: #84570d;
+  --ok: #137347;         /* Deep emerald green */
+  --warn: #b45309;       /* Rich amber warning */
+  --bad: #be123c;        /* Deep crimson danger */
   color-scheme: light;
 }
 
 html.light .app-header {
   background-color: #ffffff;
+  box-shadow: 0 1px 4px rgba(17, 28, 31, 0.04);
 }
 
 html.light .modal-overlay {
-  background-color: rgba(16, 28, 31, 0.55);
+  background-color: rgba(17, 28, 31, 0.48);
+}
+
+html.light .bubble-user {
+  background-color: #f7eedb !important;
+  border-color: #dfc488 !important;
+  color: var(--tx) !important;
+  box-shadow: 0 2px 8px rgba(158, 107, 20, 0.08) !important;
+}
+
+html.light .bubble-assistant {
+  background-color: #ffffff !important;
+  border-color: var(--rule) !important;
+  box-shadow: 0 2px 10px rgba(17, 28, 31, 0.05) !important;
+}
+
+html.light #pending-expense-banner,
+html.light .m.hold {
+  background-color: #fdf6e7 !important;
+  border-color: #d4a95a !important;
+  box-shadow: 0 4px 16px rgba(158, 107, 20, 0.12) !important;
+}
+
+html.light .account-dropdown-menu {
+  box-shadow: 0 12px 32px rgba(17, 28, 31, 0.14);
+}
+
+html.light .modal-panel-420 {
+  box-shadow: 0 20px 48px rgba(17, 28, 31, 0.22);
+}
+
+html.light .btn-primary,
+html.light .btn-primary-brass,
+html.light .btn-mic-brass,
+html.light .view-pill-btn.active,
+html.light .btn.go,
+html.light #btn-confirm-pending {
+  background-color: var(--brass-fill) !important;
+  color: #111c1f !important;
+}
+
+html.light #recording-banner,
+html.light .recording-active-banner {
+  color: var(--tx);
+  background-color: rgba(190, 18, 60, 0.08);
+  border-color: rgba(190, 18, 60, 0.3);
+}
+
+html.light .voice-wave-canvas {
+  background: rgba(17, 28, 31, 0.06);
+}
+
+/* Semantic Design Token Utility Classes (Zero FOUC, Theme-Adaptive) */
+.text-tx { color: var(--tx) !important; }
+.text-mut { color: var(--mut) !important; }
+.text-brass { color: var(--brass) !important; }
+.text-ok { color: var(--ok) !important; }
+.text-warn { color: var(--warn) !important; }
+.text-bad { color: var(--bad) !important; }
+.bg-ink { background-color: var(--ink) !important; }
+.bg-s1 { background-color: var(--s1) !important; }
+.bg-s2 { background-color: var(--s2) !important; }
+.border-rule { border-color: var(--rule) !important; }
+.bg-brass\/15 { background-color: rgba(212, 169, 90, 0.15) !important; }
+.border-brass\/35 { border-color: rgba(212, 169, 90, 0.35) !important; }
+.bg-bad\/10 { background-color: rgba(229, 112, 126, 0.1) !important; }
+.bg-bad\/15 { background-color: rgba(229, 112, 126, 0.15) !important; }
+.border-bad\/30 { border-color: rgba(229, 112, 126, 0.3) !important; }
+.border-bad\/40 { border-color: rgba(229, 112, 126, 0.4) !important; }
+.bg-warn\/15 { background-color: rgba(232, 176, 74, 0.15) !important; }
+.border-warn\/30 { border-color: rgba(232, 176, 74, 0.3) !important; }
+.bg-ok\/20 { background-color: rgba(111, 191, 148, 0.2) !important; }
+.hover\:text-tx:hover { color: var(--tx) !important; }
+.hover\:bg-s2:hover { background-color: var(--s2) !important; }
+
+/* Smooth Theme Surface Transitions */
+body,
+.app-header,
+.pane-chat,
+.pane-ledger,
+.chat-subheader-bar,
+.chat-composer-box,
+.mobile-tab-bar,
+.bubble-user,
+.bubble-assistant,
+.modal-panel-420,
+.account-dropdown-menu {
+  transition: background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.18s ease,
+              box-shadow 0.22s ease;
 }
 
 /* Reset & Box Sizing */
@@ -264,139 +358,350 @@ html[lang="ur"] .font-nastaleeq,
   font-family: var(--ur) !important;
 }
 
-html[lang="en"] .font-ur,
-html[lang="en"] .font-nastaleeq {
+html[lang="en"] .font-ur:not([lang="ur"]),
+html[lang="en"] .font-nastaleeq:not([lang="ur"]) {
   font-family: var(--ui) !important;
-  line-height: normal !important;
-  letter-spacing: normal !important;
-  word-spacing: normal !important;
-  direction: ltr !important;
-  text-align: left !important;
-}
-
-html[lang="en"] .composer-input.font-ur {
-  font-family: var(--ui) !important;
-  font-size: 15px !important;
   line-height: 1.5 !important;
-  direction: ltr !important;
-  text-align: left !important;
-  word-spacing: normal !important;
   letter-spacing: normal !important;
-}
-
-html[lang="en"] .ledger-section-title.font-ur {
-  font-family: var(--ui) !important;
-  font-size: 15px !important;
-  line-height: 1.4 !important;
-  letter-spacing: -0.01em !important;
+  word-spacing: normal !important;
   direction: ltr !important;
   text-align: left !important;
 }
 
-html[lang="en"] .ledger-hero-label.font-ur,
-html[lang="en"] .ledger-hero-facts.font-ur {
+/* Zero-Shift Chat Subheader Bar (Locked 48px Height in Both UR & EN) */
+.chat-subheader-bar {
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  padding: 0 20px !important;
+  direction: ltr !important;
+  box-sizing: border-box !important;
+}
+
+.chat-session-label {
+  direction: ltr !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  line-height: 1 !important;
+}
+
+html[lang="ur"] .chat-session-label [data-i18n="chat.active_session"] {
+  font-family: var(--ur) !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+}
+
+html[lang="en"] .chat-session-label [data-i18n="chat.active_session"] {
   font-family: var(--ui) !important;
   font-size: 13px !important;
-  line-height: 1.4 !important;
-  direction: ltr !important;
-  text-align: left !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
 }
 
-html[lang="en"] .btn-primary.font-ur {
+#active-user-display {
   font-family: var(--ui) !important;
-  font-size: 14px !important;
-  line-height: 1.4 !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
 }
 
-html[lang="en"] .prompt-chip {
-  font-family: var(--ui) !important;
-  font-size: 13.5px !important;
-  line-height: 1.4 !important;
-  letter-spacing: normal !important;
-  word-spacing: normal !important;
-  padding: 6px 14px !important;
+.chat-clear-btn {
+  height: 34px !important;
+  min-height: 34px !important;
+  max-height: 34px !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  border-radius: 8px !important;
+  box-sizing: border-box !important;
 }
 
 html[lang="en"] .chat-clear-btn {
   font-family: var(--ui) !important;
   font-size: 13px !important;
-  line-height: 1.4 !important;
-}
-
-html[lang="en"] .chat-welcome-title {
-  font-family: var(--ui) !important;
-  font-size: 17px !important;
-  line-height: 1.4 !important;
-}
-
-html[lang="en"] .chat-tip-text {
-  font-family: var(--ui) !important;
-  font-size: 13px !important;
-  line-height: 1.5 !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
 }
 
 html[lang="ur"] .chat-clear-btn {
   font-family: var(--ur) !important;
+  font-size: 15.5px !important;
+  line-height: 1 !important;
+}
+
+/* Zero-Shift Composer Input (Locked 48px Base Height in Both UR & EN) */
+html[lang="en"] .composer-input.font-ur,
+html[lang="en"] .composer-input {
+  font-family: var(--ui) !important;
   font-size: 14.5px !important;
-  line-height: 2 !important;
-}
-
-html[lang="ur"] .chat-welcome-title {
-  font-family: var(--ur) !important;
-  font-size: 18px !important;
-  line-height: 2.2 !important;
-}
-
-html[lang="ur"] .chat-tip-text {
-  font-family: var(--ur) !important;
-  font-size: 14px !important;
-  line-height: 2 !important;
+  line-height: 22px !important;
+  direction: ltr !important;
+  text-align: left !important;
+  word-spacing: normal !important;
+  letter-spacing: normal !important;
+  padding: 12px 14px !important;
+  min-height: 48px !important;
 }
 
 html[lang="ur"] .composer-input.font-ur,
 html[lang="ur"] .composer-input.font-nastaleeq,
 .composer-input[dir="rtl"] {
   font-family: var(--ur) !important;
-  font-size: 21.5px !important;
-  line-height: 2.5 !important;
+  font-size: 17.5px !important;
+  line-height: 28px !important;
   direction: rtl !important;
   text-align: right !important;
-  word-spacing: 2.8px !important;
-  letter-spacing: 0.4px !important;
-  padding: 14px 18px !important;
+  word-spacing: 2px !important;
+  letter-spacing: 0.2px !important;
+  padding: 9px 14px !important;
+  min-height: 48px !important;
 }
 
-.bubble-user .font-ur,
-.bubble-user .font-nastaleeq,
-.bubble-assistant .font-ur,
-.bubble-assistant .font-nastaleeq,
+html[lang="ur"] .composer-input::placeholder {
+  font-family: var(--ur) !important;
+  font-size: 16.5px !important;
+  line-height: 28px !important;
+}
+
+html[lang="en"] .composer-input::placeholder {
+  font-family: var(--ui) !important;
+  font-size: 13px !important;
+  line-height: 22px !important;
+}
+
+@media (max-width: 639px) {
+  html[lang="en"] .composer-input:placeholder-shown {
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+    line-height: 16px !important;
+  }
+  html[lang="en"] .composer-input::placeholder {
+    font-size: 12.5px !important;
+    line-height: 16px !important;
+  }
+}
+
+/* Zero-Shift Suggestion Chips (Locked 40px Pill Height in Both UR & EN) */
+html[lang="en"] .prompt-chip {
+  font-family: var(--ui) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 16px !important;
+}
+
+html[lang="ur"] .prompt-chip {
+  font-family: var(--ur) !important;
+  font-size: 16.5px !important;
+  line-height: 1 !important;
+  word-spacing: 1.5px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 16px !important;
+}
+
+/* Zero-Shift Tip Footer (Locked 38px Height in Both UR & EN) */
+.chat-tip-text {
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-top: 6px !important;
+  margin-bottom: 0 !important;
+  overflow: hidden !important;
+}
+
+html[lang="en"] .chat-tip-text {
+  font-family: var(--ui) !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+  text-align: center !important;
+  direction: ltr !important;
+}
+
+html[lang="ur"] .chat-tip-text {
+  font-family: var(--ur) !important;
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+  text-align: center !important;
+  direction: rtl !important;
+}
+
+/* Welcome Card & Chat Bubble Multi-Script Harmony */
+html[lang="en"] .chat-welcome-title {
+  font-family: var(--ui) !important;
+  font-size: 17px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="ur"] .chat-welcome-title {
+  font-family: var(--ur) !important;
+  font-size: 19.5px !important;
+  line-height: 1.9 !important;
+}
+
+html[lang="ur"] .welcome-bubble {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+html[lang="en"] .welcome-bubble {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+.welcome-examples-list {
+  padding-inline-start: 22px !important;
+  padding-inline-end: 6px !important;
+  margin-top: 10px !important;
+}
+
+html[lang="ur"] .welcome-examples-list li,
+html[lang="ur"] .welcome-sub-text {
+  font-family: var(--ur) !important;
+  font-size: 18px !important;
+  line-height: 2.05 !important;
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+html[lang="en"] .welcome-examples-list li,
+html[lang="en"] .welcome-sub-text {
+  font-family: var(--ui) !important;
+  font-size: 14.5px !important;
+  line-height: 1.65 !important;
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+.welcome-examples-list span[lang="ur"] {
+  font-family: var(--ur) !important;
+  font-size: 18px !important;
+  line-height: 1.95 !important;
+  display: inline;
+}
+
+/* Chat Bubbles (User & Assistant) */
+.bubble-user.has-urdu .font-nastaleeq,
+.bubble-assistant.has-urdu .font-nastaleeq,
 .bubble-user [dir="rtl"],
-.bubble-assistant [dir="rtl"],
-[dir="rtl"] {
+.bubble-assistant [dir="rtl"] {
   font-family: var(--ur) !important;
   direction: rtl !important;
   text-align: right !important;
-  line-height: 2.65 !important;
-  font-size: 22.5px !important;
-  word-spacing: 3px !important;
-  letter-spacing: 0.4px !important;
+  line-height: 2.15 !important;
+  font-size: 18.5px !important;
+  word-spacing: 2.2px !important;
+  letter-spacing: 0.2px !important;
 }
 
 .bubble-user.has-urdu,
 .bubble-assistant.has-urdu {
-  padding: 16px 20px !important;
+  padding: 14px 18px !important;
 }
 
-.bubble-assistant .font-ur p,
+.bubble-assistant .font-nastaleeq p,
 .bubble-assistant [dir="rtl"] p,
 .bubble-assistant .prose[dir="rtl"] p {
   font-family: var(--ur) !important;
-  font-size: 22.5px !important;
-  line-height: 2.65 !important;
-  word-spacing: 3px !important;
-  letter-spacing: 0.4px !important;
-  margin-top: 0.35em !important;
-  margin-bottom: 0.35em !important;
+  font-size: 18.5px !important;
+  line-height: 2.15 !important;
+  word-spacing: 2.2px !important;
+  letter-spacing: 0.2px !important;
+  margin-top: 0.3em !important;
+  margin-bottom: 0.3em !important;
+}
+
+/* Zero-Shift Ledger & Form Controls Across UR & EN */
+html[lang="en"] .ledger-section-title.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 16.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  letter-spacing: -0.01em !important;
+  direction: ltr !important;
+  text-align: left !important;
+  min-height: 36px !important;
+}
+
+html[lang="ur"] .ledger-section-title.font-ur {
+  font-family: var(--ur) !important;
+  font-size: 20px !important;
+  line-height: 1.8 !important;
+  min-height: 36px !important;
+}
+
+html[lang="en"] .ledger-hero-label.font-ur,
+html[lang="en"] .ledger-hero-facts.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 13.5px !important;
+  line-height: 1.4 !important;
+  direction: ltr !important;
+  text-align: left !important;
+  min-height: 30px !important;
+}
+
+html[lang="ur"] .ledger-hero-label.font-ur,
+html[lang="ur"] .ledger-hero-facts.font-ur {
+  font-family: var(--ur) !important;
+  font-size: 17px !important;
+  line-height: 1.8 !important;
+  min-height: 30px !important;
+}
+
+html[lang="en"] .btn-primary.font-ur {
+  font-family: var(--ui) !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  height: 48px !important;
+  min-height: 48px !important;
+}
+
+html[lang="ur"] .btn-primary.font-ur {
+  font-family: var(--ur) !important;
+  font-size: 17px !important;
+  line-height: 1 !important;
+  height: 48px !important;
+  min-height: 48px !important;
+}
+
+/* Urdu Readability Floor (>= 15.5px) for Modals, Labels, & Empty Hints */
+html[lang="ur"] #auth-modal [data-i18n],
+html[lang="ur"] #mic-permission-modal [data-i18n] {
+  font-family: var(--ur) !important;
+}
+
+html[lang="ur"] #auth-modal label[data-i18n],
+html[lang="ur"] #auth-modal p[data-i18n],
+html[lang="ur"] #auth-modal #auth-forgot-btn,
+html[lang="ur"] #auth-modal #google-config-notice,
+html[lang="ur"] .budget-empty-hint,
+html[lang="ur"] .bill-empty-hint,
+html[lang="ur"] #category-empty,
+html[lang="ur"] #store-breakdown-container .font-ur,
+html[lang="ur"] #payment-split-container .font-ur,
+html[lang="ur"] #transactions-list .font-ur {
+  font-family: var(--ur) !important;
+  font-size: 16px !important;
+  line-height: 1.95 !important;
+}
+
+html[lang="ur"] .modal-tab-btn,
+html[lang="ur"] #auth-submit-btn span,
+html[lang="ur"] #google-signin-btn span {
+  font-family: var(--ur) !important;
+  font-size: 16.5px !important;
+  line-height: 1.4 !important;
 }
 
 /* Keyboard Focus Ring */
@@ -882,6 +1187,17 @@ html[lang="en"] .lang-code-ur {
 }
 
 /* Chat Bubbles */
+@keyframes bubbleAppear {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .bubble-user {
   max-width: 82%;
   margin-inline-start: auto;
@@ -892,9 +1208,10 @@ html[lang="en"] .lang-code-ur {
   border-bottom-right-radius: 4px;
   padding: 12px 16px;
   color: var(--tx);
-  font-size: 14.5px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.55;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  animation: bubbleAppear 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .bubble-assistant {
@@ -907,9 +1224,15 @@ html[lang="en"] .lang-code-ur {
   border-top-left-radius: 4px;
   padding: 14px 18px;
   color: var(--tx);
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.6;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  animation: bubbleAppear 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.welcome-bubble {
+  max-width: 94%;
+  width: 100%;
 }
 
 .voice-note-tag {
@@ -931,14 +1254,20 @@ html[lang="en"] .lang-code-ur {
   flex-shrink: 0;
 }
 
-/* Suggestion prompt chips below feed */
+/* Suggestion prompt chips below feed (Locked 52px Container & 40px Pill Height) */
 .chat-suggestions-box {
   flex-shrink: 0;
-  padding: 0 24px 12px;
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  padding: 0 20px 10px;
   display: flex;
+  align-items: center;
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  box-sizing: border-box;
+  direction: ltr !important;
 }
 .chat-suggestions-box::-webkit-scrollbar {
   display: none;
@@ -949,31 +1278,41 @@ html[lang="en"] .lang-code-ur {
   border: 1px solid var(--rule);
   color: var(--mut);
   border-radius: 99px;
-  padding: 6px 18px;
+  padding: 0 16px;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
   font-size: 16.5px;
   font-family: var(--ur), var(--ui);
-  line-height: 2.2;
-  word-spacing: 2px;
+  line-height: 1;
+  word-spacing: 1.5px;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
-  min-height: 40px;
+  transition: border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .prompt-chip:hover {
   border-color: var(--brass);
   color: var(--tx);
   background-color: var(--s1);
+  transform: translateY(-1px);
 }
 
-/* Composer Area */
+.prompt-chip:active {
+  transform: scale(0.97);
+}
+
+/* Composer Area (Locked 48px Input & Button Row) */
 .chat-composer-box {
   flex-shrink: 0;
   background-color: var(--s1);
   border-top: 1px solid var(--rule);
-  padding: 14px 24px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
   position: relative;
 }
 
@@ -981,11 +1320,13 @@ html[lang="en"] .lang-code-ur {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 48px;
 }
 
 .composer-input {
   flex: 1;
-  min-height: 46px;
+  height: 48px;
+  min-height: 48px;
   max-height: 240px;
   background-color: var(--s2);
   border: 1px solid var(--rule);
@@ -993,10 +1334,10 @@ html[lang="en"] .lang-code-ur {
   padding: 11px 16px;
   color: var(--tx);
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 15px;
   resize: none;
   outline: none;
-  transition: border-color 0.15s, height 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, height 0.18s ease;
   overflow-y: hidden;
   box-sizing: border-box;
 }
@@ -1013,6 +1354,7 @@ html[lang="en"] .lang-code-ur {
 
 .composer-input:focus {
   border-color: var(--brass);
+  box-shadow: 0 0 0 2px rgba(212, 169, 90, 0.18);
 }
 
 .composer-input.recording-active-glow {
@@ -1021,8 +1363,8 @@ html[lang="en"] .lang-code-ur {
 }
 
 .composer-btn-circle {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   border: none;
   display: flex;
@@ -1030,11 +1372,15 @@ html[lang="en"] .lang-code-ur {
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: transform 0.1s, background-color 0.15s, border-color 0.15s;
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.composer-btn-circle:hover {
+  transform: translateY(-1px);
 }
 
 .composer-btn-circle:active {
-  transform: scale(0.95);
+  transform: scale(0.94);
 }
 
 .btn-mic-brass {
@@ -1989,8 +2335,8 @@ html[lang="en"] .lang-code-ur {
   }
 
   .app-workspace {
-    height: calc(100dvh - 60px - 56px - env(safe-area-inset-bottom, 0px));
-    height: calc(var(--app-viewport-height, 100dvh) - 60px - 56px - env(safe-area-inset-bottom, 0px));
+    height: calc(100dvh - 60px - 58px - env(safe-area-inset-bottom, 0px));
+    height: calc(var(--app-viewport-height, 100dvh) - 60px - 58px - env(safe-area-inset-bottom, 0px));
     overflow: hidden;
     flex-direction: column;
     padding-bottom: 0;
@@ -2015,7 +2361,7 @@ html[lang="en"] .lang-code-ur {
   }
 
   .chat-composer-box {
-    padding: 10px 14px 12px;
+    padding: 10px 14px 10px;
   }
 
   .mobile-tab-bar {
@@ -2024,7 +2370,7 @@ html[lang="en"] .lang-code-ur {
     bottom: 0;
     left: 0;
     right: 0;
-    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background-color: var(--s1);
     border-top: 1px solid var(--rule);
@@ -2037,14 +2383,38 @@ html[lang="en"] .lang-code-ur {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 2px;
     background: transparent;
     border: none;
     color: var(--mut);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: color 0.15s;
+    transition: color 0.18s ease, transform 0.12s ease;
+  }
+
+  .mobile-tab-btn span[data-i18n] {
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  html[lang="ur"] .mobile-tab-btn span[data-i18n] {
+    font-family: var(--ur) !important;
+    font-size: 14.5px !important;
+    line-height: 1 !important;
+  }
+
+  html[lang="en"] .mobile-tab-btn span[data-i18n] {
+    font-family: var(--ui) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+  }
+
+  .mobile-tab-btn:active {
+    transform: scale(0.96);
   }
 
   .mobile-tab-btn.active,
