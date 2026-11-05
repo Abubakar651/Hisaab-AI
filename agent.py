@@ -485,8 +485,9 @@ When reporting spending totals, summaries, or recent transaction lists:
      Format values neatly: Store names clean and capitalized (e.g. 'Local Store', 'Al-Fatah', 'Fuel', 'Bank Transfer'). Clean payment methods: 'Cash', 'Card', 'EasyPaisa', 'JazzCash', 'Bank Transfer'.
    - For Urdu: Use a clean markdown table with Urdu headers:
      `| تاریخ | دکان | رقم (PKR) | ادائیگی |`
-     Format payment methods: نقد، کارڈ، ایزی پیسہ، جاز کیش، بینک ٹرانسفر
-3. Keep the overall reply concise, clean, and easily readable on mobile screens without clutter.
+     Format payment methods strictly in Urdu: نقد، کارڈ، ایزی پیسہ، جاز کیش، بینک ٹرانسفر
+     Translate generic English store names to Urdu naturally (e.g. 'local store' -> 'لوکل اسٹور', 'fuel' -> 'پیٹرول پمپ', 'groceries' -> 'کریانہ / راشن', 'bank_transfer' -> 'بینک ٹرانسفر').
+3. Keep the overall reply concise, clean, and easily readable on mobile screens without clutter. Never output raw code keys like 'bank_transfer' or 'local store' in Urdu replies.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
 You are equipped with real SQLite database tools: `log_expense`, `log_sale`, `manage_udhaar`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.

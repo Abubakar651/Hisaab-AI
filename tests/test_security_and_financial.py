@@ -1185,7 +1185,10 @@ def test_default_view_matches_html_initial_state(client):
 
 
 def _is_llm_api_unavailable(reply: str) -> bool:
-    return any(k in (reply or "") for k in ["Invalid API Key", "401", "Rate limit", "429", "masla pesh aya", "AuthenticationError"])
+    return any(k in (reply or "") for k in [
+        "Invalid API Key", "401", "Rate limit", "429", "masla pesh aya", "AuthenticationError",
+        "busy with high request volume", "زیادہ رش ہے", "دوبارہ کوشش کریں"
+    ])
 
 
 def test_out_of_domain_prompts_are_politely_deflected():

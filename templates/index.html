@@ -434,14 +434,14 @@
           <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> <span data-i18n="ledger.purchases">خریداری</span></span>
           <span class="hero-fact-divider">•</span>
           <span><span data-i18n="ledger.top_store">پسندیدہ دکان:</span> <strong id="kpi-top-store" data-i18n="ledger.not_recorded">درج نہیں</strong></span>
-          <span class="hero-fact-divider">•</span>
-          <span id="tx-count-badge" class="font-ur" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
+          <span id="tx-empty-divider" class="hero-fact-divider hidden">•</span>
+          <span id="tx-count-badge" class="font-ur hidden" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
         </div>
       </div>
 
       <!-- Shopkeeper Daily Galla (Today's Cash Drawer) -->
       <section class="ledger-section">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="galla.title">آج کا گلہ (روزانہ بکری اور خرچہ)</h2>
           <span id="galla-cash-split" class="text-xs text-mut font-ur">نقد: Rs 0 • ڈیجیٹل: Rs 0</span>
         </div>
@@ -509,17 +509,17 @@
         <form id="budget-form" class="mt-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
           <div class="flex-1 min-w-[200px] flex flex-col gap-2">
             <select id="budget-category" class="input-base font-ur budget-input-base">
-              <option value="total" data-i18n="budget.overall">کل بجٹ (Overall)</option>
-              <option value="groceries" data-i18n="budget.groceries">راشن و گروسری (Groceries)</option>
-              <option value="dairy" data-i18n="budget.dairy">ڈیری و بیکری (Dairy)</option>
-              <option value="fuel" data-i18n="budget.fuel">فیول و پیٹرول (Fuel)</option>
-              <option value="dining" data-i18n="budget.dining">کھانا پینا (Dining)</option>
-              <option value="utilities" data-i18n="budget.utilities">یوٹیلیٹی بلز (Utilities)</option>
-              <option value="healthcare" data-i18n="budget.healthcare">ادویات و صحت (Healthcare)</option>
-              <option value="clothing" data-i18n="budget.clothing">کپڑے و شاپنگ (Clothing)</option>
-              <option value="rent" data-i18n="budget.rent">مکان کا کرایہ (Rent)</option>
-              <option value="education" data-i18n="budget.education">تعلیم و اسکول فیس (Education)</option>
-              <option value="custom" data-i18n="budget.custom">✍️ اپنی مرضی کا بجٹ (Custom Name...)</option>
+              <option value="total" data-i18n="budget.overall">کل بجٹ</option>
+              <option value="groceries" data-i18n="budget.groceries">راشن و گروسری</option>
+              <option value="dairy" data-i18n="budget.dairy">ڈیری و بیکری</option>
+              <option value="fuel" data-i18n="budget.fuel">پیٹرول و ایندھن</option>
+              <option value="dining" data-i18n="budget.dining">کھانا پینا</option>
+              <option value="utilities" data-i18n="budget.utilities">بجلی، گیس و پانی کے بلز</option>
+              <option value="healthcare" data-i18n="budget.healthcare">ادویات و علاج</option>
+              <option value="clothing" data-i18n="budget.clothing">لباس و خریداری</option>
+              <option value="rent" data-i18n="budget.rent">کرایہ دکان یا مکان</option>
+              <option value="education" data-i18n="budget.education">تعلیم و فیس</option>
+              <option value="custom" data-i18n="budget.custom">✍️ اپنی مرضی کا بجٹ نام</option>
             </select>
             <input id="budget-custom-name" type="text" maxlength="60"
               data-i18n-placeholder="placeholder.budget_custom_name"

@@ -186,6 +186,28 @@ tailwind.config = {
           setMobileTab('dashboard');
           setDesktopView('ledger');
         }
+        if (params.get('view') === 'split') {
+          setDesktopView('split');
+        } else if (params.get('view') === 'ledger') {
+          setDesktopView('ledger');
+        } else if (params.get('view') === 'chat') {
+          setDesktopView('chat');
+        }
+        if (params.get('preview_table') === '1') {
+          const wc = document.getElementById('welcome-card');
+          if (wc) wc.classList.add('hidden');
+          appendUserMessage('اس مہینے کا خرچہ');
+          appendAssistantMessage(`اس ماہ کا مکمل خرچ (01-05 نومبر 2026):
+
+| تاریخ | دکان | رقم (PKR) | ادائیگی |
+|---|---|---|---|
+| 2026-11-05 | اکبری منڈی | 12,500 | نقد |
+| 2026-11-05 | کاؤنٹر بکری | 8,400 | نقد |
+| 2026-11-05 | آن لائن آرڈر | 2,200 | ایزی پیسہ |
+| 2026-11-04 | لوکل اسٹور | 1,500 | بینک ٹرانسفر |
+
+کل خریداری: 4 | مجموعی رقم: **PKR 24,600**`);
+        }
         if (params.get('modal') === 'auth' || params.get('modal') === 'signup') {
           const authModal = document.getElementById('auth-modal');
           if (authModal) authModal.classList.remove('hidden');
@@ -201,6 +223,54 @@ tailwind.config = {
               email: 'abubakariqbal651@gmail.com',
               display_name: 'Abu Bakar Iqbal',
               auth_provider: 'google'
+            });
+            renderDashboard({
+              user_id: 'abubakariqbal651@gmail.com',
+              monthly_total: 12500,
+              monthly_count: 3,
+              top_store: 'اکبری منڈی (Akbari Mandi)',
+              store_breakdown: [
+                { store_name: 'Akbari Mandi', total_pkr: 12500, visit_count: 1 },
+                { store_name: 'Counter Sale', total_pkr: 8400, visit_count: 1 },
+              ],
+              category_breakdown: [
+                { category: 'groceries', total_pkr: 12500, percent: 100 },
+              ],
+              daily_trend: [
+                { date: '2026-11-03', total_pkr: 4000 },
+                { date: '2026-11-04', total_pkr: 8500 },
+                { date: '2026-11-05', total_pkr: 12500 },
+              ],
+              payment_split: [
+                { method: 'cash', total_pkr: 12500 },
+              ],
+              budgets: [
+                { id: 1, category: 'total', monthly_limit: 60000, spent_pkr: 12500, remaining_pkr: 47500, percent: 21, level: 'normal' },
+                { id: 2, category: 'groceries', monthly_limit: 25000, spent_pkr: 12500, remaining_pkr: 12500, percent: 50, level: 'normal' }
+              ],
+              recurring: [
+                { id: 1, title: 'دکان کا کرایہ', amount: 25000, due_day: 5, category: 'rent', paid_this_month: false, overdue: false }
+              ],
+              galla: {
+                today_sales_pkr: 10600,
+                today_expenses_pkr: 12500,
+                today_net_pkr: -1900,
+                today_cash_sales_pkr: 8400,
+                today_digital_sales_pkr: 2200,
+              },
+              udhaar: {
+                total_receivable_pkr: 2500,
+                total_payable_pkr: 15000,
+                open_entries: [
+                  { id: 1, person_name: 'حاجی طارق کریانہ', direction: 'receivable', amount: 3500, paid_amount: 1000, remaining_pkr: 2500, notes: 'چینی اور گھی', phone_number: '03001234567' },
+                  { id: 2, person_name: 'ملتان ہول سیل ڈیلر', direction: 'payable', amount: 15000, paid_amount: 0, remaining_pkr: 15000, notes: 'آٹا 10 بوریاں', phone_number: '03219876543' }
+                ]
+              },
+              recent_transactions: [
+                { id: 103, tx_type: 'sale', store_name: 'آن لائن بکری (EasyPaisa)', total_amount: 2200, payment_method: 'easypaisa', transaction_date: '2026-11-05 18:00', items: [{ item_name: 'بسکٹ اور چائے', price: 2200, quantity: 1 }] },
+                { id: 102, tx_type: 'sale', store_name: 'کاؤنٹر بکری (Daily Sale)', total_amount: 8400, payment_method: 'cash', transaction_date: '2026-11-05 17:30', items: [{ item_name: 'آٹا 2 بوریاں', price: 5400, quantity: 2 }, { item_name: 'گھی 1 ٹن', price: 3000, quantity: 1 }] },
+                { id: 101, tx_type: 'expense', store_name: 'اکبری منڈی (Akbari Mandi)', total_amount: 12500, payment_method: 'cash', transaction_date: '2026-11-05 16:00', items: [{ item_name: 'چینی 50 کلو بورا', price: 7500, quantity: 1 }, { item_name: 'دال چنا 25 کلو', price: 5000, quantity: 1 }] }
+              ]
             });
             const sBtn = document.getElementById('signin-header-btn');
             const aBtn = document.getElementById('account-btn');
@@ -1120,10 +1190,16 @@ tailwind.config = {
 
       // 3. Transactions List
       const txs = data.recent_transactions || [];
-      if (txs.length === 0) {
-        elements.txCountBadge.textContent = t('ledger.no_tx_this_month');
-      } else {
-        elements.txCountBadge.textContent = t('ledger.tx_count', { count: txs.length });
+      const emptyDiv = document.getElementById('tx-empty-divider');
+      if (elements.txCountBadge) {
+        if (txs.length === 0) {
+          elements.txCountBadge.classList.remove('hidden');
+          if (emptyDiv) emptyDiv.classList.remove('hidden');
+          elements.txCountBadge.textContent = t('ledger.no_tx_this_month');
+        } else {
+          elements.txCountBadge.classList.add('hidden');
+          if (emptyDiv) emptyDiv.classList.add('hidden');
+        }
       }
       elements.transactionsList.innerHTML = '';
 
@@ -1145,27 +1221,27 @@ tailwind.config = {
         let itemsHtml = '';
         if (tx.items && tx.items.length > 0) {
           const itemsBadges = tx.items.map(it => `
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-s2 border border-rule text-[11px] text-mut">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-s2 border border-rule text-[13px] text-mut font-ur">
               <span class="text-tx font-medium">${escapeHtml(it.item_name)}</span>
-              ${it.quantity > 1 ? `<span class="text-mut">×${it.quantity}</span>` : ''}
-              <span class="text-brass font-num tabular">Rs ${formatMoney(it.price)}</span>
+              ${it.quantity > 1 ? `<span class="text-mut" dir="ltr">×${it.quantity}</span>` : ''}
+              <span class="text-brass font-num tabular font-semibold" dir="ltr">Rs ${formatMoney(it.price)}</span>
             </span>
           `).join('');
-          itemsHtml = `<div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>`;
+          itemsHtml = `<div class="flex flex-wrap gap-1.5 mt-2">${itemsBadges}</div>`;
         }
 
         const isSale = tx.tx_type === 'sale';
         const amountHtml = isSale
-          ? `<span class="text-ok font-bold">+PKR ${formatMoney(tx.total_amount)}</span>`
-          : `<span class="text-brass font-bold">PKR ${formatMoney(tx.total_amount)}</span>`;
+          ? `<span class="text-ok font-bold font-num text-[17px]" dir="ltr">+PKR ${formatMoney(tx.total_amount)}</span>`
+          : `<span class="text-brass font-bold font-num text-[17px]" dir="ltr">PKR ${formatMoney(tx.total_amount)}</span>`;
         const typeBadgeHtml = isSale
-          ? `<span class="udhaar-pill udhaar-pill-in text-[10px]">${t('tx.sale_badge')}</span>`
+          ? `<span class="udhaar-pill udhaar-pill-in font-ur">${t('tx.sale_badge')}</span>`
           : '';
 
         card.innerHTML = `
           <div class="tx-row-top">
-            <div class="tx-store-name capitalize flex items-center gap-1.5">${escapeHtml(tx.store_name)} ${typeBadgeHtml}</div>
-            <div class="tx-row-amount">
+            <div class="tx-store-name capitalize flex items-center gap-2 font-ur font-bold text-[18px]">${escapeHtml(tx.store_name)} ${typeBadgeHtml}</div>
+            <div class="tx-row-amount flex items-center gap-2">
               ${amountHtml}
               <button 
                 class="delete-tx-btn btn-icon-del"
@@ -1177,10 +1253,10 @@ tailwind.config = {
               </button>
             </div>
           </div>
-          <div class="tx-row-sub">
-            <span>${escapeHtml(tx.transaction_date || '')}</span>
-            <span class="badge-pill-method">${escapeHtml((tx.payment_method || 'cash').replace('_', ' '))}</span>
-            <span class="text-mut font-num tabular">#${tx.id}</span>
+          <div class="tx-row-sub flex items-center gap-2 mt-1">
+            <span class="font-num text-[13.5px] text-mut" dir="ltr">${escapeHtml(tx.transaction_date || '')}</span>
+            <span class="badge-pill-method font-ur">${escapeHtml(formatPaymentMethodName(tx.payment_method || 'cash'))}</span>
+            <span class="text-mut font-num tabular text-[13px]" dir="ltr">#${tx.id}</span>
           </div>
           ${itemsHtml}
         `;
@@ -1246,7 +1322,11 @@ tailwind.config = {
       netEl.style.color = todayNet > 0 ? 'var(--ok)' : todayNet < 0 ? 'var(--bad)' : 'var(--tx)';
 
       if (splitEl) {
-        splitEl.textContent = `${t('galla.cash_short')}: Rs ${formatMoney(cashSales)} • ${t('galla.digital_short')}: Rs ${formatMoney(digSales)}`;
+        splitEl.innerHTML = `
+          <span class="inline-flex items-center gap-1"><span class="font-ur">${t('galla.cash_short')}:</span> <span class="font-num font-semibold" dir="ltr">Rs ${formatMoney(cashSales)}</span></span>
+          <span class="text-mut px-1">•</span>
+          <span class="inline-flex items-center gap-1"><span class="font-ur">${t('galla.digital_short')}:</span> <span class="font-num font-semibold" dir="ltr">Rs ${formatMoney(digSales)}</span></span>
+        `;
       }
     }
 
@@ -1284,20 +1364,20 @@ tailwind.config = {
         row.className = 'bill-row';
         row.innerHTML = `
           <div class="bill-main">
-            <div class="bill-title capitalize flex flex-wrap items-center gap-1.5 font-ur">
-              <span>${escapeHtml(item.person_name)}</span>
-              <span class="udhaar-pill ${badgeClass} text-[10px]">${badgeLabel}</span>
+            <div class="bill-title capitalize flex flex-wrap items-center gap-2 font-ur">
+              <span class="font-bold text-[18px]">${escapeHtml(item.person_name)}</span>
+              <span class="udhaar-pill ${badgeClass}">${badgeLabel}</span>
             </div>
-            <div class="bill-sub font-ur tabular">
-              <strong style="color:${amountColor}">PKR ${formatMoney(remaining)}</strong>
-              ${item.paid_amount > 0 ? `<span class="text-mut"> (کل: ${formatMoney(item.amount)})</span>` : ''}
-              ${item.notes ? ` · <span>${escapeHtml(item.notes)}</span>` : ''}
+            <div class="bill-sub font-ur mt-1 flex flex-wrap items-center gap-2">
+              <strong style="color:${amountColor}" class="text-[17px] font-num">PKR ${formatMoney(remaining)}</strong>
+              ${item.paid_amount > 0 ? `<span class="text-mut text-[14px]">(${t('bill.paid', 'ادا شدہ')}: PKR ${formatMoney(item.paid_amount)})</span>` : ''}
+              ${item.notes ? `<span class="text-mut text-[15px]">· ${escapeHtml(item.notes)}</span>` : ''}
             </div>
           </div>
-          <div class="bill-actions">
-            ${isReceivable ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-remind" title="${t('udhaar.btn_whatsapp')}"><i data-lucide="message-circle" class="w-3.5 h-3.5"></i></a>` : ''}
-            <button class="settle-udhaar-btn btn-mark-paid" data-id="${item.id}">
-              <i data-lucide="check" class="w-3.5 h-3.5"></i> ${t('udhaar.btn_settle')}
+          <div class="bill-actions flex items-center gap-2 shrink-0">
+            ${isReceivable ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-remind" title="${t('udhaar.btn_whatsapp')}"><i data-lucide="message-circle" class="w-4 h-4"></i></a>` : ''}
+            <button class="settle-udhaar-btn btn-mark-paid font-ur" data-id="${item.id}">
+              <i data-lucide="check" class="w-4 h-4"></i> <span>${t('udhaar.btn_settle')}</span>
             </button>
             <button class="del-udhaar-btn btn-icon-del" data-id="${item.id}" title="${t('btn.remove')}">
               <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -1392,6 +1472,51 @@ tailwind.config = {
       lucide.createIcons();
     }
 
+    function formatCategoryName(c) {
+      if (!c) return '';
+      const cat = String(c).toLowerCase().trim();
+      const key = 'budget.' + cat;
+      const trans = t(key);
+      if (trans && trans !== key) return trans;
+      const urMap = {
+        groceries: 'راشن و گروسری',
+        dairy: 'ڈیری و بیکری',
+        fuel: 'فیول و پیٹرول',
+        dining: 'کھانا پینا',
+        utilities: 'یوٹیلیٹی بلز',
+        healthcare: 'ادویات و صحت',
+        clothing: 'کپڑے و شاپنگ',
+        rent: 'مکان کا کرایہ',
+        education: 'تعلیم و فیس',
+        entertainment: 'تفریح',
+        other: 'دیگر اخراجات'
+      };
+      if (document.documentElement.getAttribute('lang') === 'ur' || (window.HisaabI18n && HisaabI18n.getLanguage() === 'ur')) {
+        return urMap[cat] || cat;
+      }
+      return cat.charAt(0).toUpperCase() + cat.slice(1).replace('_', ' ');
+    }
+
+    function formatPaymentMethodName(m) {
+      if (!m) return '';
+      const method = String(m).toLowerCase().trim();
+      const urMap = {
+        cash: 'نقد (کیش)',
+        bank_transfer: 'بینک ٹرانسفر',
+        easypaisa: 'ایزی پیسہ',
+        jazzcash: 'جاز کیش',
+        card: 'کارڈ',
+        credit_card: 'کریڈٹ کارڈ',
+        debit_card: 'ڈیبٹ کارڈ',
+        digital: 'ڈیجیٹل',
+        udhaar: 'ادھار کھاتہ'
+      };
+      if (document.documentElement.getAttribute('lang') === 'ur' || (window.HisaabI18n && HisaabI18n.getLanguage() === 'ur')) {
+        return urMap[method] || method.replace('_', ' ');
+      }
+      return method.charAt(0).toUpperCase() + method.slice(1).replace('_', ' ');
+    }
+
     function renderCategoryChart(rows) {
       const canvas = document.getElementById('category-chart');
       const empty = document.getElementById('category-empty');
@@ -1442,13 +1567,14 @@ tailwind.config = {
       if (legendBox) {
         legendBox.innerHTML = rows.map((r, i) => {
           const color = palette[i % palette.length];
+          const catLabel = formatCategoryName(r.category);
           return `
             <div class="legend-row">
               <div class="legend-label-group">
                 <span class="legend-color-box" style="background-color: ${color}"></span>
-                <span class="legend-cat-name capitalize text-tx">${escapeHtml(r.category)}</span>
+                <span class="legend-cat-name font-ur text-[16px] text-tx">${escapeHtml(catLabel)}</span>
               </div>
-              <span class="legend-amount tabular font-num text-mut">PKR ${formatMoney(r.total_pkr)}</span>
+              <span class="legend-amount tabular font-num text-mut text-[15px]" dir="ltr">PKR ${formatMoney(r.total_pkr)}</span>
             </div>
           `;
         }).join('');
@@ -1510,6 +1636,7 @@ tailwind.config = {
       const digital = total - cash;
       const cashPct = ((cash / total) * 100).toFixed(1);
       const digitalPct = ((digital / total) * 100).toFixed(1);
+      const isUr = (document.documentElement.getAttribute('lang') === 'ur');
 
       box.innerHTML = `
         <div class="split-bar-wrap mb-3">
@@ -1517,15 +1644,23 @@ tailwind.config = {
             <div class="split-fill-cash" style="width: ${cashPct}%;"></div>
             <div class="split-fill-digital" style="width: ${digitalPct}%;"></div>
           </div>
-          <div class="flex items-center justify-between text-xs mt-1.5 font-ur tabular">
-            <span class="text-brass">${t('ledger.cash')}: ${cashPct}% (PKR ${formatMoney(cash)})</span>
-            <span class="text-ok">${t('ledger.digital')}: ${digitalPct}% (PKR ${formatMoney(digital)})</span>
+          <div class="flex items-center justify-between mt-2 font-ur ${isUr ? 'text-[15.5px]' : 'text-xs'}">
+            <span class="text-brass inline-flex items-center gap-1.5">
+              <span>${t('ledger.cash')}:</span>
+              <span class="font-num font-semibold" dir="ltr">${cashPct}%</span>
+              <span class="text-mut text-[13.5px]" dir="ltr">(PKR ${formatMoney(cash)})</span>
+            </span>
+            <span class="text-ok inline-flex items-center gap-1.5">
+              <span>${t('ledger.digital')}:</span>
+              <span class="font-num font-semibold" dir="ltr">${digitalPct}%</span>
+              <span class="text-mut text-[13.5px]" dir="ltr">(PKR ${formatMoney(digital)})</span>
+            </span>
           </div>
         </div>
         ${rows.map(r => `
-          <div class="flex items-center justify-between text-xs py-1 border-b border-dashed border-rule">
-            <span class="capitalize text-tx">${escapeHtml(r.method.replace('_', ' '))}</span>
-            <span class="font-num tabular text-mut">PKR ${formatMoney(r.total_pkr)} (${((r.total_pkr / total) * 100).toFixed(1)}%)</span>
+          <div class="flex items-center justify-between py-1.5 border-b border-dashed border-rule">
+            <span class="text-tx font-ur ${isUr ? 'text-[16px]' : 'text-sm'}">${escapeHtml(formatPaymentMethodName(r.method))}</span>
+            <span class="font-num tabular text-mut text-[15px]" dir="ltr">PKR ${formatMoney(r.total_pkr)} (${((r.total_pkr / total) * 100).toFixed(1)}%)</span>
           </div>`).join('')}
       `;
     }
@@ -1548,11 +1683,15 @@ tailwind.config = {
         row.innerHTML = `
           <div class="bill-main">
             <div class="bill-title capitalize truncate font-ur">${escapeHtml(r.title)}</div>
-            <div class="bill-sub font-ui tabular">${t('bill.due_day', 'Due Day')}: ${r.due_day} · PKR ${formatMoney(r.amount)}</div>
+            <div class="bill-sub font-ur flex items-center gap-2 text-[15.5px]">
+              <span>${t('bill.due_day', 'Due Day')}: <span class="font-num font-semibold" dir="ltr">${r.due_day}</span></span>
+              <span class="text-mut">·</span>
+              <span class="font-num font-semibold" dir="ltr">PKR ${formatMoney(r.amount)}</span>
+            </div>
           </div>
-          <div class="bill-actions">
+          <div class="bill-actions flex items-center gap-2 shrink-0">
             ${badge}
-            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> ${t('btn.mark_paid', 'Mark as Paid')}</button>`}
+            ${r.paid_this_month ? '' : `<button class="pay-rec-btn btn-mark-paid font-ur" data-id="${r.id}"><i data-lucide="check" class="w-4 h-4"></i> <span>${t('btn.mark_paid', 'Mark as Paid')}</span></button>`}
             <button class="del-rec-btn btn-icon-del" data-id="${r.id}" title="${t('btn.remove', 'Remove')}"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
           </div>
         `;

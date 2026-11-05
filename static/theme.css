@@ -427,8 +427,30 @@ select.font-ur option {
 
 html[lang="ur"] .font-ur,
 html[lang="ur"] .font-nastaleeq,
+html[lang="ur"] [data-i18n],
+html[lang="ur"] input,
+html[lang="ur"] select,
+html[lang="ur"] textarea,
+html[lang="ur"] button,
+html[lang="ur"] .input-base,
+html[lang="ur"] .prose[dir="rtl"],
+html[lang="ur"] .prose[dir="rtl"] *,
+html[lang="ur"] .bubble-assistant[dir="rtl"],
+html[lang="ur"] .bubble-assistant[dir="rtl"] *,
+html[lang="ur"] .bubble-user[dir="rtl"],
+html[lang="ur"] .bubble-user[dir="rtl"] *,
+.bubble-assistant.has-urdu,
+.bubble-assistant.has-urdu *,
+.bubble-user.has-urdu,
+.bubble-user.has-urdu *,
 [lang="ur"] {
   font-family: var(--ur) !important;
+}
+
+/* Never italicize Nastaliq script — preserve authentic calligraphy geometry */
+html[lang="ur"] *,
+[lang="ur"] {
+  font-style: normal !important;
 }
 
 html[lang="en"] .font-ur:not([lang="ur"]),
@@ -572,13 +594,17 @@ html[lang="en"] .prompt-chip {
 
 html[lang="ur"] .prompt-chip {
   font-family: var(--ur) !important;
-  font-size: 16.5px !important;
-  line-height: 1 !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
   word-spacing: 1.5px !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
+  height: 42px !important;
+  min-height: 42px !important;
   padding: 0 16px !important;
+}
+
+html[lang="ur"] .chat-suggestions-box {
+  direction: rtl !important;
 }
 
 /* Zero-Shift Tip Footer (Locked 38px Height in Both UR & EN) */
@@ -804,23 +830,36 @@ html.light .bubble-assistant tbody tr:nth-child(even) {
 }
 
 /* Nastaleeq Urdu Tables */
-.bubble-assistant.has-urdu table {
+.bubble-assistant.has-urdu table,
+html[lang="ur"] .bubble-assistant table {
   font-family: var(--ur) !important;
-  font-size: 15px;
-  line-height: 2.1;
-  direction: rtl;
+  font-size: 16.5px !important;
+  line-height: 2.1 !important;
+  direction: rtl !important;
 }
 
 .bubble-assistant.has-urdu th,
-.bubble-assistant.has-urdu td {
-  padding: 8px 12px;
-  text-align: right;
+.bubble-assistant.has-urdu td,
+html[lang="ur"] .bubble-assistant th,
+html[lang="ur"] .bubble-assistant td {
+  padding: 10px 14px !important;
+  text-align: right !important;
+  white-space: nowrap !important;
+  font-family: var(--ur) !important;
 }
 
-.bubble-assistant.has-urdu td:first-child {
+.bubble-assistant.has-urdu th,
+html[lang="ur"] .bubble-assistant th {
+  font-weight: 700 !important;
+  font-size: 17px !important;
+  background-color: rgba(226, 180, 90, 0.12) !important;
+}
+
+.bubble-assistant.has-urdu td:first-child,
+html[lang="ur"] .bubble-assistant td:first-child {
   font-family: var(--num) !important;
-  direction: ltr;
-  text-align: center;
+  direction: ltr !important;
+  text-align: center !important;
 }
 
 /* Zero-Shift Ledger & Form Controls Across UR & EN */
@@ -835,11 +874,13 @@ html[lang="en"] .ledger-section-title.font-ur {
   min-height: 36px !important;
 }
 
-html[lang="ur"] .ledger-section-title.font-ur {
+html[lang="ur"] .ledger-section-title.font-ur,
+html[lang="ur"] .ledger-section-title {
   font-family: var(--ur) !important;
-  font-size: 20px !important;
-  line-height: 1.8 !important;
-  min-height: 36px !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  line-height: 2.1 !important;
+  min-height: 40px !important;
 }
 
 html[lang="en"] .ledger-hero-label.font-ur,
@@ -853,11 +894,19 @@ html[lang="en"] .ledger-hero-facts.font-ur {
 }
 
 html[lang="ur"] .ledger-hero-label.font-ur,
-html[lang="ur"] .ledger-hero-facts.font-ur {
+html[lang="ur"] .ledger-hero-label {
   font-family: var(--ur) !important;
-  font-size: 17px !important;
-  line-height: 1.8 !important;
-  min-height: 30px !important;
+  font-size: 18.5px !important;
+  line-height: 2.0 !important;
+  min-height: 32px !important;
+}
+
+html[lang="ur"] .ledger-hero-facts.font-ur,
+html[lang="ur"] .ledger-hero-facts {
+  font-family: var(--ur) !important;
+  font-size: 16.5px !important;
+  line-height: 2.0 !important;
+  min-height: 32px !important;
 }
 
 html[lang="en"] .btn-primary.font-ur {
@@ -868,15 +917,20 @@ html[lang="en"] .btn-primary.font-ur {
   min-height: 48px !important;
 }
 
-html[lang="ur"] .btn-primary.font-ur {
+html[lang="ur"] .btn-primary.font-ur,
+html[lang="ur"] .btn-primary {
   font-family: var(--ur) !important;
-  font-size: 17px !important;
+  font-size: 18.5px !important;
+  font-weight: 600 !important;
   line-height: 1 !important;
   height: 48px !important;
   min-height: 48px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
-/* Urdu Readability Floor (>= 15.5px) for Modals, Labels, & Empty Hints */
+/* Urdu Readability Floor (>= 16px) for Modals, Labels, & Empty Hints */
 html[lang="ur"] #auth-modal [data-i18n],
 html[lang="ur"] #mic-permission-modal [data-i18n] {
   font-family: var(--ur) !important;
@@ -890,19 +944,23 @@ html[lang="ur"] .budget-empty-hint,
 html[lang="ur"] .bill-empty-hint,
 html[lang="ur"] #category-empty,
 html[lang="ur"] #store-breakdown-container .font-ur,
+html[lang="ur"] #store-breakdown-container span,
 html[lang="ur"] #payment-split-container .font-ur,
-html[lang="ur"] #transactions-list .font-ur {
+html[lang="ur"] #payment-split-container span,
+html[lang="ur"] #transactions-list .font-ur,
+html[lang="ur"] #transactions-list .text-center {
   font-family: var(--ur) !important;
-  font-size: 16px !important;
-  line-height: 1.95 !important;
+  font-size: 16.5px !important;
+  line-height: 2.05 !important;
+  font-style: normal !important;
 }
 
 html[lang="ur"] .modal-tab-btn,
 html[lang="ur"] #auth-submit-btn span,
 html[lang="ur"] #google-signin-btn span {
   font-family: var(--ur) !important;
-  font-size: 16.5px !important;
-  line-height: 1.4 !important;
+  font-size: 17px !important;
+  line-height: 1.5 !important;
 }
 
 /* Keyboard Focus Ring (Avoid double focus border on inputs that already style :focus) */
@@ -2606,8 +2664,9 @@ html[lang="en"] .lang-code-ur {
 
   html[lang="ur"] .mobile-tab-btn span[data-i18n] {
     font-family: var(--ur) !important;
-    font-size: 14.5px !important;
-    line-height: 1 !important;
+    font-size: 16.5px !important;
+    line-height: 1.3 !important;
+    font-weight: 600 !important;
   }
 
   html[lang="en"] .mobile-tab-btn span[data-i18n] {
@@ -2752,27 +2811,58 @@ html[lang="en"] .lang-code-ur {
 }
 
 .galla-stat-label {
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--mut);
-  line-height: 1.3;
+  line-height: 1.4;
+}
+
+html[lang="ur"] .galla-stat-label {
+  font-family: var(--ur) !important;
+  font-size: 15.5px !important;
+  font-weight: 600 !important;
+  color: var(--mut);
+  line-height: 1.6 !important;
 }
 
 .galla-stat-value {
-  font-size: 16px;
+  font-family: var(--num) !important;
+  font-size: 18px;
   font-weight: 700;
   color: var(--tx);
   white-space: nowrap;
+}
+
+#galla-cash-split {
+  font-size: 13px;
+  color: var(--mut);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html[lang="ur"] #galla-cash-split {
+  font-family: var(--ur) !important;
+  font-size: 15px !important;
+  line-height: 1.7 !important;
+  direction: rtl !important;
 }
 
 .udhaar-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid var(--rule);
+}
+
+html[lang="ur"] .udhaar-pill {
+  font-family: var(--ur) !important;
+  font-size: 14px !important;
+  padding: 3px 10px !important;
+  line-height: 1.5 !important;
 }
 
 .udhaar-pill-in {
@@ -2791,18 +2881,86 @@ html[lang="en"] .lang-code-ur {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   background-color: rgba(37, 211, 102, 0.14);
   border: 1px solid rgba(37, 211, 102, 0.38);
   color: #25d366;
   text-decoration: none;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .btn-whatsapp-remind:hover {
   background-color: rgba(37, 211, 102, 0.24);
   transform: translateY(-1px);
+}
+
+/* Ensure Urdu buttons and pills inside Udhaar & Bills render proudly */
+html[lang="ur"] .settle-udhaar-btn,
+html[lang="ur"] .pay-rec-btn,
+html[lang="ur"] .btn-mark-paid {
+  font-family: var(--ur) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 1.6 !important;
+  padding: 6px 14px !important;
+}
+
+html[lang="ur"] .bill-title {
+  font-family: var(--ur) !important;
+  font-size: 18px !important;
+  line-height: 1.8 !important;
+}
+
+html[lang="ur"] .bill-sub {
+  font-family: var(--ur) !important;
+  font-size: 15.5px !important;
+  line-height: 1.8 !important;
+}
+
+html[lang="ur"] .bill-status-pill {
+  font-family: var(--ur) !important;
+  font-size: 14px !important;
+  padding: 3px 10px !important;
+  line-height: 1.6 !important;
+}
+
+html[lang="ur"] .budget-title {
+  font-family: var(--ur) !important;
+  font-size: 18px !important;
+  line-height: 1.8 !important;
+}
+
+html[lang="ur"] .budget-numbers {
+  font-family: var(--num) !important;
+  font-size: 15.5px !important;
+}
+
+html[lang="ur"] .tx-store-name {
+  font-family: var(--ur) !important;
+  font-size: 17.5px !important;
+  line-height: 1.8 !important;
+}
+
+html[lang="ur"] .badge-pill-method {
+  font-family: var(--ur) !important;
+  font-size: 13.5px !important;
+  line-height: 1.5 !important;
+}
+
+html[lang="ur"] .tx-item-pill,
+html[lang="ur"] .tx-ledger-row .inline-flex {
+  font-family: var(--ur) !important;
+  font-size: 14.5px !important;
+  line-height: 1.6 !important;
+}
+
+html[lang="ur"] .toast-stack,
+html[lang="ur"] .toast-stack span {
+  font-family: var(--ur) !important;
+  font-size: 16px !important;
+  line-height: 1.7 !important;
 }
 
