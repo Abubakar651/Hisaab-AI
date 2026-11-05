@@ -30,76 +30,124 @@
 }
 
 :root {
-  --ink: #0d1517;        /* page background */
-  --s1: #121c1f;         /* panel surface (chat pane) */
-  --s2: #18262a;         /* raised surface, assistant bubbles, inputs, tracks */
-  --rule: #26383d;       /* borders and dividers */
-  --tx: #ece7da;         /* parchment text */
-  --mut: #95a7aa;        /* muted text (WCAG AA compliant) */
-  --brass: #d4a95a;      /* money and primary accent */
-  --brass-fill: #d4a95a; /* solid primary button fill */
-  --brass-dark: #b88d42;
-  --ok: #6fbf94;         /* positive / paid */
-  --warn: #e8b04a;       /* warning */
-  --bad: #e5707e;        /* error / delete / over-budget */
+  /* Dark Mode (60-30-10 Split-Complementary): Midnight Emerald-Slate & Luminous Champagne Gold */
+  --ink: #0b1316;        /* 60% Dominant: Deep Obsidian-Teal canvas */
+  --s1: #101b20;         /* 60% Dominant: Midnight Slate panel surface */
+  --s2: #17272d;         /* 30% Secondary: Elevated Deep Teal surface, inputs, tracks */
+  --rule: #253b43;       /* 30% Secondary: Crisp Teal-Slate structural border */
+  --tx: #f0ede4;         /* 30% Secondary: Warm Parchment primary text (16.2:1 AAA) */
+  --mut: #94adb3;        /* 30% Secondary: Cool Sage-Slate muted text (6.1:1 AA/AAA) */
+  --brass: #e2b45a;      /* 10% Accent 1: Luminous Champagne Gold */
+  --brass-fill: #e2b45a; /* Solid primary button fill */
+  --brass-dark: #c79a42;
+  --ok: #34d399;         /* 10% Split-Complementary Accent 2: Emerald 400 */
+  --warn: #fbbf24;       /* Amber 400 warning */
+  --bad: #f87171;        /* Coral-Red 400 error / over-budget */
   --ui: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --num: "Fraunces", Georgia, serif;
   --ur: "Jameel Noori Nastaleeq", "Noori Nastaleeq", "JameelNooriNastaliq", "Noto Nastaliq Urdu", serif;
   color-scheme: dark;
 }
 
-/* Premier Fintech Warm Alabaster & Deep Ink-Teal Light Mode Palette */
+/* Light Mode (60-30-10 Split-Complementary): Crisp Mint-Porcelain Slate, Royal Emerald-Teal & Burnt Amber */
 html.light {
-  --ink: #f6f4ef;        /* Warm Alabaster / Financial Ivory canvas */
-  --s1: #ffffff;         /* Crisp pure white card & panel surface */
-  --s2: #edeae2;         /* Warm stone raised surface for inputs & chips */
-  --rule: #d8d3c8;       /* Warm taupe-gray structural border (WCAG 3:1+) */
-  --tx: #111c1f;         /* Deep Ink-Teal charcoal text (15.8:1 AAA contrast) */
-  --mut: #4e6166;        /* Muted slate-teal secondary text (6.2:1 AA/AAA) */
-  --brass: #9e6b14;      /* High-contrast burnished gold for text & icons */
-  --brass-fill: #c9932c; /* Rich warm gold fill for primary buttons */
-  --brass-dark: #84570d;
-  --ok: #137347;         /* Deep emerald green */
-  --warn: #b45309;       /* Rich amber warning */
-  --bad: #be123c;        /* Deep crimson danger */
+  --ink: #edf4f3;        /* 60% Dominant: Cool Mint-Porcelain canvas */
+  --s1: #ffffff;         /* 60% Dominant: Pure Crisp White card & panel surface */
+  --s2: #dfecea;         /* 30% Secondary: Soft Mint-Teal raised surface for inputs & chips */
+  --rule: #bdd4d0;       /* 30% Secondary: Crisp Sage-Teal structural border (WCAG 3:1+) */
+  --tx: #0f172a;         /* 30% Secondary: Deep Navy-Slate 900 text (17.1:1 AAA contrast) */
+  --mut: #475569;        /* 30% Secondary: Cool Slate 600 secondary text (7.2:1 AAA contrast) */
+  --brass: #0d7a6f;      /* 10% Accent 1: Deep Royal Emerald-Teal for text, icons & active states */
+  --brass-fill: #0d9488; /* 10% Primary CTA Fill: Vibrant Fintech Teal-600 */
+  --brass-dark: #0f766e;
+  --ok: #059669;         /* Emerald 600 positive status */
+  --warn: #d97706;       /* 10% Split-Complementary Accent 2: Burnt Amber 600 */
+  --bad: #e11d48;        /* Rose-Crimson 600 danger */
   color-scheme: light;
 }
 
 html.light .app-header {
   background-color: #ffffff;
-  box-shadow: 0 1px 4px rgba(17, 28, 31, 0.04);
+  border-bottom-color: #bdd4d0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+
+html.light .app-logo-icon {
+  background: rgba(13, 148, 136, 0.12);
+  border-color: rgba(13, 148, 136, 0.35);
+  color: var(--brass);
+}
+
+html.light .pane-chat {
+  background-color: #f3f8f7;
+}
+
+html.light .chat-subheader-bar {
+  background-color: #ffffff !important;
+  border-bottom-color: #c5dbd7 !important;
+}
+
+html.light .chat-composer-box {
+  background-color: #ffffff !important;
+  border-top-color: #c5dbd7 !important;
+  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.03);
+}
+
+html.light .composer-input {
+  background-color: #e6f1ef !important;
+  border-color: #bdd4d0 !important;
+  color: var(--tx) !important;
+}
+
+html.light .composer-input:focus {
+  background-color: #ffffff !important;
+  border-color: #0d9488 !important;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.16) !important;
+}
+
+html.light .prompt-chip {
+  background-color: #e1efed !important;
+  border-color: #b5d0cc !important;
+  color: #1e3a3a !important;
+}
+
+html.light .prompt-chip:hover {
+  background-color: #cfe8e4 !important;
+  border-color: #0d9488 !important;
+  color: #0d7a6f !important;
 }
 
 html.light .modal-overlay {
-  background-color: rgba(17, 28, 31, 0.48);
+  background-color: rgba(15, 23, 42, 0.48);
 }
 
 html.light .bubble-user {
-  background-color: #f7eedb !important;
-  border-color: #dfc488 !important;
-  color: var(--tx) !important;
-  box-shadow: 0 2px 8px rgba(158, 107, 20, 0.08) !important;
+  background: linear-gradient(135deg, #d8f3ee 0%, #c6ebe4 100%) !important;
+  border-color: #8fd1c6 !important;
+  color: #0b2228 !important;
+  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.1) !important;
 }
 
 html.light .bubble-assistant {
   background-color: #ffffff !important;
-  border-color: var(--rule) !important;
-  box-shadow: 0 2px 10px rgba(17, 28, 31, 0.05) !important;
+  border-color: #c5dbd7 !important;
+  border-top: 3px solid #0d9488 !important;
+  box-shadow: 0 6px 20px rgba(13, 122, 111, 0.07) !important;
 }
 
 html.light #pending-expense-banner,
 html.light .m.hold {
-  background-color: #fdf6e7 !important;
-  border-color: #d4a95a !important;
-  box-shadow: 0 4px 16px rgba(158, 107, 20, 0.12) !important;
+  background-color: #fffbeb !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 4px 16px rgba(217, 119, 6, 0.12) !important;
 }
 
 html.light .account-dropdown-menu {
-  box-shadow: 0 12px 32px rgba(17, 28, 31, 0.14);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
 }
 
 html.light .modal-panel-420 {
-  box-shadow: 0 20px 48px rgba(17, 28, 31, 0.22);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
 }
 
 html.light .btn-primary,
@@ -109,7 +157,20 @@ html.light .view-pill-btn.active,
 html.light .btn.go,
 html.light #btn-confirm-pending {
   background-color: var(--brass-fill) !important;
-  color: #111c1f !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.28) !important;
+}
+
+html.light .btn-send-hisaab {
+  background-color: #e1efed !important;
+  border-color: #b5d0cc !important;
+  color: #0d7a6f !important;
+}
+
+html.light .mobile-tab-bar {
+  background-color: #ffffff !important;
+  border-top-color: #bdd4d0 !important;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.04);
 }
 
 html.light #recording-banner,
@@ -133,9 +194,21 @@ html.light .voice-wave-canvas {
 .bg-ink { background-color: var(--ink) !important; }
 .bg-s1 { background-color: var(--s1) !important; }
 .bg-s2 { background-color: var(--s2) !important; }
+.bg-brass { background-color: var(--brass) !important; }
+.bg-ok { background-color: var(--ok) !important; }
+.bg-warn { background-color: var(--warn) !important; }
+.bg-bad { background-color: var(--bad) !important; }
 .border-rule { border-color: var(--rule) !important; }
-.bg-brass\/15 { background-color: rgba(212, 169, 90, 0.15) !important; }
-.border-brass\/35 { border-color: rgba(212, 169, 90, 0.35) !important; }
+.border-brass { border-color: var(--brass) !important; }
+.bg-brass\/15 { background-color: rgba(226, 180, 90, 0.15) !important; }
+.border-brass\/35 { border-color: rgba(226, 180, 90, 0.35) !important; }
+html.light .bg-brass\/15 { background-color: rgba(13, 148, 136, 0.12) !important; }
+html.light .border-brass\/35 { border-color: rgba(13, 148, 136, 0.35) !important; }
+html.light .budget-custom-badge {
+  background-color: rgba(13, 148, 136, 0.12);
+  border-color: rgba(13, 148, 136, 0.35);
+  color: var(--brass);
+}
 .bg-bad\/10 { background-color: rgba(229, 112, 126, 0.1) !important; }
 .bg-bad\/15 { background-color: rgba(229, 112, 126, 0.15) !important; }
 .border-bad\/30 { border-color: rgba(229, 112, 126, 0.3) !important; }

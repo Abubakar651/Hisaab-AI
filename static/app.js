@@ -410,14 +410,14 @@ tailwind.config = {
           if (sunIcon) sunIcon.classList.add('hidden');
           if (moonIcon) moonIcon.classList.remove('hidden');
           if (themeBtn) themeBtn.setAttribute('title', 'Switch to Dark Mode');
-          if (metaTheme) metaTheme.setAttribute('content', '#f6f4ef');
+          if (metaTheme) metaTheme.setAttribute('content', '#edf4f3');
         } else {
           document.documentElement.classList.remove('light');
           document.documentElement.classList.add('dark');
           if (sunIcon) sunIcon.classList.remove('hidden');
           if (moonIcon) moonIcon.classList.add('hidden');
           if (themeBtn) themeBtn.setAttribute('title', 'Switch to Light Mode');
-          if (metaTheme) metaTheme.setAttribute('content', '#0d1517');
+          if (metaTheme) metaTheme.setAttribute('content', '#0b1316');
         }
         if (state.lastDashboardData) {
           renderCategoryChart(state.lastDashboardData.category_breakdown || []);
