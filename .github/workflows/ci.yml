@@ -1,6 +1,7 @@
 name: HisaabAI CI & Automated Verification
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - dev
