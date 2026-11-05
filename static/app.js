@@ -658,8 +658,8 @@ tailwind.config = {
             const audioBlob = new Blob(state.audioChunks, { type: state.mediaRecorder.mimeType || 'audio/webm' });
 
             // Speech-to-Text Paste-to-Composer Review Flow
-            const origPlaceholder = "اردو، پنجابی یا انگریزی میں بولیں یا لکھیں...";
-            elements.messageInput.placeholder = "آواز تحریر میں تبدیل ہو رہی ہے...";
+            const origPlaceholder = (typeof t === 'function' ? t('chat.placeholder') : null) || "اردو یا انگریزی میں بولیں یا لکھیں...";
+            elements.messageInput.placeholder = (typeof t === 'function' ? t('chat.transcribing_placeholder') : null) || "آواز تحریر میں تبدیل ہو رہی ہے...";
             elements.messageInput.disabled = true;
             showToast("آواز تحریر میں تبدیل ہو رہی ہے...", "info");
 
@@ -777,7 +777,7 @@ tailwind.config = {
         elements.recordingBanner.classList.remove('hidden');
         elements.micBtn.classList.add('rec');
         elements.messageInput.classList.add('recording-active-glow');
-        elements.messageInput.placeholder = "🎙️ Listening... Speak your expense in Urdu, Punjabi or English";
+        elements.messageInput.placeholder = "🎙️ Listening... Speak your expense in Urdu or English";
         state.recordingSeconds = 0;
         updateRecordingTimer();
         state.recordingTimerInterval = setInterval(updateRecordingTimer, 1000);

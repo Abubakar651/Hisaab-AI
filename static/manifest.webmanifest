@@ -1,7 +1,7 @@
 {
   "name": "HisaabAI - Voice Expense Tracker",
   "short_name": "HisaabAI",
-  "description": "Record daily expenses by voice or text in Urdu, Punjabi and English.",
+  "description": "Record daily expenses by voice or text in Urdu and English.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

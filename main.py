@@ -116,7 +116,7 @@ init_db()
 
 app = FastAPI(
     title="HisaabAI — Voice & Text Expense Tracker",
-    description="Multilingual (Urdu, Punjabi, English) Expense Tracker powered by Groq and LangChain",
+    description="Multilingual (Urdu, English) Expense Tracker powered by Groq and LangChain",
     version="1.0.0",
 )
 
