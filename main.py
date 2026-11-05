@@ -52,6 +52,7 @@ from database import (
     RecurringExpense,
     UserAccount,
     PendingTransaction,
+    UdhaarEntry,
 )
 from agent import run_agent, transcribe_audio, clear_user_history
 import analytics
@@ -709,7 +710,7 @@ async def get_user_transactions(
 
     month_start = analytics.month_start()
 
-    # 1. Total monthly spending
+    # 1. Total monthly spending (expenses only)
     monthly_stats = (
         db.query(
             func.coalesce(func.sum(Transaction.total_amount), 0.0).label("total"),
@@ -719,6 +720,7 @@ async def get_user_transactions(
             Transaction.user_id == clean_user_id,
             Transaction.transaction_date >= month_start,
             Transaction.deleted_at.is_(None),
+            analytics._is_expense_clause(),
         )
         .first()
     )
@@ -726,7 +728,7 @@ async def get_user_transactions(
     monthly_total = float(monthly_stats.total) if monthly_stats else 0.0
     monthly_count = int(monthly_stats.count) if monthly_stats else 0
 
-    # 2. Store-wise spending for this month
+    # 2. Store-wise spending for this month (expenses only)
     store_stats = (
         db.query(
             Transaction.store_name,
@@ -737,6 +739,7 @@ async def get_user_transactions(
             Transaction.user_id == clean_user_id,
             Transaction.transaction_date >= month_start,
             Transaction.deleted_at.is_(None),
+            analytics._is_expense_clause(),
         )
         .group_by(Transaction.store_name)
         .order_by(func.sum(Transaction.total_amount).desc())
@@ -777,6 +780,8 @@ async def get_user_transactions(
         "payment_split": analytics.payment_split(db, clean_user_id, month_start),
         "budgets": analytics.budget_status(db, clean_user_id),
         "recurring": analytics.recurring_status(db, clean_user_id),
+        "galla": analytics.galla_summary(db, clean_user_id),
+        "udhaar": analytics.udhaar_summary(db, clean_user_id),
         "recent_transactions": [tx.to_dict() for tx in recent_txs],
     }
 
@@ -1013,6 +1018,90 @@ async def delete_recurring_item(
     db.delete(item)
     db.commit()
     return {"status": "success"}
+
+
+# ---------------------------------------------------------------------------
+# API: Udhaar / Khata Book (Lend & Borrow Money)
+# ---------------------------------------------------------------------------
+@app.get("/api/udhaar/{user_id}")
+async def list_udhaar(
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    return {"udhaar": analytics.udhaar_summary(db, current_user)}
+
+
+@app.post("/api/udhaar")
+async def create_udhaar(
+    person_name: str = Form(...),
+    amount: float = Form(...),
+    direction: str = Form("receivable"),
+    notes: Optional[str] = Form(None),
+    phone_number: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user_id and user_id.strip() != current_user:
+        verify_user_access(user_id, current_user)
+    res = analytics.add_udhaar_entry(
+        db,
+        user_id=current_user,
+        person_name=person_name,
+        amount=amount,
+        direction=direction,
+        notes=notes,
+        phone_number=phone_number,
+    )
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message", "Invalid udhaar entry"))
+    return {"status": "success", "entry": res["entry"], "udhaar": analytics.udhaar_summary(db, current_user)}
+
+
+@app.post("/api/udhaar/{user_id}/{entry_id}/settle")
+async def settle_udhaar_item(
+    user_id: str,
+    entry_id: int,
+    amount: Optional[float] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    res = analytics.settle_udhaar(
+        db,
+        user_id=current_user,
+        entry_id=entry_id,
+        payment_amount=amount,
+    )
+    if res.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=res.get("message", "Udhaar entry not found"))
+    return {**res, "udhaar": analytics.udhaar_summary(db, current_user)}
+
+
+@app.delete("/api/udhaar/{user_id}/{entry_id}")
+async def delete_udhaar_item(
+    user_id: str,
+    entry_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    entry = (
+        db.query(UdhaarEntry)
+        .filter(
+            UdhaarEntry.user_id == current_user,
+            UdhaarEntry.id == entry_id,
+            UdhaarEntry.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="Udhaar entry not found.")
+    entry.deleted_at = get_pkt_now()
+    db.commit()
+    return {"status": "success", "udhaar": analytics.udhaar_summary(db, current_user)}
 
 
 # ---------------------------------------------------------------------------

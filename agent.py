@@ -23,7 +23,7 @@ except ImportError:
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, get_pkt_now
+from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, UdhaarEntry, get_pkt_now
 import analytics
 from analytics import (
     normalize_payment_method,
@@ -35,6 +35,10 @@ from analytics import (
     recurring_status,
     month_start,
     pay_recurring,
+    galla_summary,
+    udhaar_summary,
+    add_udhaar_entry,
+    settle_udhaar,
 )
 
 load_dotenv()
@@ -354,6 +358,55 @@ class DeleteLastTransactionInput(BaseModel):
     )
 
 
+class LogSaleInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    customer_or_note: str = Field(
+        default="daily sale",
+        description="Customer name or sale description, e.g. 'daily sale', 'walk-in customer', 'sugar and oil sale'",
+    )
+    items: Optional[Any] = Field(
+        default=None,
+        description="Sold items list with item_name, price, quantity, or text summary",
+    )
+    total_amount: Optional[float] = Field(
+        default=None,
+        description="Total sale amount in PKR",
+    )
+    date_str: Optional[str] = Field(
+        default=None,
+        description="Sale date in YYYY-MM-DD format. Defaults to today.",
+    )
+    payment_method: Optional[str] = Field(
+        default="cash",
+        description="How customer paid: 'cash', 'easypaisa', 'jazzcash', 'card', 'bank_transfer'",
+    )
+
+
+class ManageUdhaarInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    action: str = Field(
+        description="One of: 'give_credit' (customer owes user / maine lene hain / udhaar diya), 'take_credit' (user owes supplier / maine dene hain / udhaar liya), 'settle' (wasooli / payment received or paid back), 'list' (show active udhaar khata summary)"
+    )
+    person_name: Optional[str] = Field(
+        default=None,
+        description="Customer or supplier name, e.g. 'Ali Bhai', 'Tariq Kiryana'",
+    )
+    amount: Optional[float] = Field(
+        default=None,
+        description="Amount in PKR (for give_credit, take_credit, or partial/full settle; omit on settle to settle full balance)",
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Optional items or note, e.g. 'atta aur cheeni'",
+    )
+    phone_number: Optional[str] = Field(
+        default=None,
+        description="Optional phone number for WhatsApp reminder",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dynamic System Prompt
 # ---------------------------------------------------------------------------
@@ -384,13 +437,13 @@ def build_system_prompt(ui_lang: Optional[str] = None) -> str:
             "- The user's active UI setting is Urdu. Respond in natural Pakistani Urdu script (Nastaliq) unless the user explicitly communicated in English.\n"
         )
 
-    return f"""You are **HisaabAI**, a brilliant, polite, and accurate financial voice & text expense tracking assistant for Pakistan.
+    return f"""You are **HisaabAI**, a brilliant, polite, and accurate financial voice & text ledger assistant for Pakistani shopkeepers and households.
 {lang_pref_clause}
 
 ### STRICT DOMAIN BOUNDARY & OUT-OF-DOMAIN REFUSAL:
-You are EXCLUSIVELY a personal finance, expense tracking, and budget assistant for Pakistan.
+You are EXCLUSIVELY a personal/shop finance, expense tracking, daily sales (bikri/galla), udhaar khata (lend/borrow), and budget assistant for Pakistan.
 1. **IN-DOMAIN TOPICS (ALLOWED):**
-   - Logging, querying, summarizing, or deleting expenses, purchases, bills, receipts, recurring payments, and monthly budgets.
+   - Logging, querying, summarizing, or deleting expenses, shop sales (bikri), galla (cash drawer), udhaar/khata (credit given/taken & wasooli), bills, receipts, recurring payments, and monthly budgets.
    - Natural conversational greetings, thank yous, app capability questions, and questions about the creator/developer of HisaabAI.
 2. **CREATOR & DEVELOPER ATTRIBUTION (MANDATORY CREDIT):**
    - When asked "Who created this app?", "Who made you?", "Who built HisaabAI?", "Who is your developer?", "Yeh app kis ne banai hai?", "Creator kaun hai?", "Developer kaun hai?", "یہ ایپ کس نے بنائی ہے؟", or any question about who authored or built this application:
@@ -436,19 +489,25 @@ When reporting spending totals, summaries, or recent transaction lists:
 3. Keep the overall reply concise, clean, and easily readable on mobile screens without clutter.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
-You are equipped with real SQLite database tools: `log_expense`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
-1. **EXPENSE LOGGING:** When expense is stated/implied, YOUR FIRST ACTION MUST BE TO CALL `log_expense`. Never confirm without calling it! Extract `store_name` (canonical lowercase English, default 'local store'), `items` list (with `item_name`, `price`, `quantity`, `category`), `date_str`, `payment_method` (default 'cash'; detect 'card', 'easypaisa', 'jazzcash', 'bank_transfer'). For multi-store messages, call `log_expense` once for each store.
-2. **SPENDING QUERIES (ZERO MENTAL MATH):** When asked for totals or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
-3. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
-4. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`. Quote tool percentage alerts. Users can set custom budgets for ANY category or purpose according to their needs (e.g. "gym ka budget 5000", "rent ka budget 40000", "bachon ki fees ka budget 25000") -> CALL `set_budget` with the respective custom category name.
-5. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`. Do not ask for amount when paying; tool has it.
-6. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, transaction is NOT saved. Ask user to click the on-screen 'Confirm' (تصدیق کریں) button. If user says cancel/nahi, call `cancel_pending_expense`.
-7. **TRANSACTION ISOLATION:** Every message is independent. NEVER copy items from past messages into new transactions.
+You are equipped with real SQLite database tools: `log_expense`, `log_sale`, `manage_udhaar`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
+1. **EXPENSE LOGGING (CASH-OUT / KHARCHA / STOCK PURCHASE):** When an expense or purchase is stated ("spent", "bought", "khareeda", "kharcha", "bill diya"), CALL `log_expense`. Extract `store_name` (canonical lowercase English, default 'local store'), `items`, `date_str`, `payment_method` (default 'cash').
+2. **DAILY SALES LOGGING (CASH-IN / BIKRI / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki bikri hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
+3. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI):**
+   - Customer took items/money on credit OR user lent money ("Ali ko 1500 ka udhaar diya", "Ali se 1500 lene hain", "lent 2000 to Bilal", "sold on credit to Kamran") -> CALL `manage_udhaar` with `action='give_credit'`.
+   - User borrowed money or bought stock on credit from supplier ("wholesaler/supplier ke 10000 dene hain", "Tariq se 5000 udhaar liya", "borrowed 5000 from Ahmed") -> CALL `manage_udhaar` with `action='take_credit'`.
+   - Customer paid back or user settled udhaar ("Ali ne 1000 jama karwaye", "wasooli 1500 from Ali", "Ali paid back", "udhaar chuka diya") -> CALL `manage_udhaar` with `action='settle'`.
+   - User asks "kis kis se paise lene hain?", "udhaar khata dikhao", "who owes me money?" -> CALL `manage_udhaar` with `action='list'`.
+4. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
+5. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
+6. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`.
+7. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`.
+8. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, ask user to click the on-screen 'Confirm' (تصدیق کریں) button, or call `cancel_pending_expense` if they decline.
+9. **TRANSACTION ISOLATION:** Every message is independent. NEVER copy items from past messages into new transactions.
 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
 - **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, ath sau=800, nau sau=900, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, sadhe paanch hazaar=5500, das hazaar=10000, veeh hazaar=20000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, 60 lakh=6000000, 200 lakh=20000000, 6000 hazaar=6000000, 20000 lakh=2000000000, crore=10000000.
-- **Punjabi:** ton=from ("Imtiaz ton lita"), lita/layi/khareedya=bought, ditte=paid, pwaya=refilled, peeti/khada=consumed, hoya/banya=totaled ("kinna bill hoya?"), kharcha/hisaab=expense.
-- **Stores/Categories:** imtiaz, al-fatah, jalal sons, carrefour, metro, csd, shaheen, local store, petrol pump, dairy shop, sabzi market, butcher shop. Categories: groceries, dairy, fuel, utilities, dining, healthcare, clothing, transport, personal, transfer.
+- **Shopkeeper & Punjabi Terms:** bikri/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), ton=from, lita/layi/khareedya=bought (`log_expense`), ditte=paid, kharcha/hisaab=expense.
+- **Stores/Categories:** imtiaz, al-fatah, jalal sons, carrefour, metro, csd, shaheen, local store, petrol pump, dairy shop, sabzi market, butcher shop. Categories: groceries, dairy, fuel, utilities, dining, healthcare, clothing, transport, personal, transfer, sale.
 - **Relative Dates:** "aaj" / "today" -> {today_str}, "kal" / "yesterday" -> {yesterday_str}, "pichle 2 din" -> start_date: {two_days_ago_str}, "pichle 3 din" -> start_date: {three_days_ago_str}, "is hafte" -> start_date: {seven_days_ago_str}, "is mahine" -> start_date: {month_start_str}, end_date: {today_str}.
 - **Currency & Tone:** Always Pakistani Rupees (PKR / روپے). Concise, polite, friendly confirmation.
 """
@@ -703,6 +762,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             query = db.query(Transaction).filter(
                 Transaction.user_id == user_id,
                 Transaction.deleted_at.is_(None),
+                analytics._is_expense_clause(),
             )
 
             # Apply date filters
@@ -811,6 +871,8 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "spending_by_category": {k: round(v, 2) for k, v in category_totals.items()},
                 "spending_by_payment_method": {k: round(v, 2) for k, v in payment_totals.items()},
                 "transactions": recent_tx_list,
+                "galla_summary": galla_summary(db, user_id),
+                "udhaar_summary": udhaar_summary(db, user_id),
             }
 
             if item_name:
@@ -1002,8 +1064,241 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         finally:
             db.close()
 
+    @tool("log_sale", args_schema=LogSaleInput)
+    def log_sale(
+        customer_or_note: str = "daily sale",
+        items: Optional[Any] = None,
+        total_amount: Optional[float] = None,
+        date_str: Optional[str] = None,
+        payment_method: Optional[str] = "cash",
+    ) -> str:
+        """Logs a daily shop sale (bikri / cash-in) into the database for the current user and updates Aaj Ka Galla."""
+        db: Session = SessionLocal()
+        try:
+            canonical_store = (customer_or_note or "daily sale").strip().lower()
+            tx_date = get_pkt_now()
+            if date_str:
+                try:
+                    parsed_date = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+                    now_pkt = get_pkt_now()
+                    tx_date = parsed_date.replace(
+                        hour=now_pkt.hour,
+                        minute=now_pkt.minute,
+                        second=now_pkt.second,
+                    )
+                except Exception:
+                    pass
+
+            parsed_items = []
+            if isinstance(items, str):
+                try:
+                    loaded = json.loads(items)
+                    items = loaded
+                except Exception:
+                    parts = re.split(r"[,;\n]+", items)
+                    for p in parts:
+                        p = p.strip()
+                        if not p:
+                            continue
+                        m = re.search(
+                            r"([a-zA-Z\s]+?)(?:[:=\-]?\s*(?:rs|pkr)?\s*(\d+(?:\.\d+)?))?$",
+                            p,
+                            re.I,
+                        )
+                        if m and m.group(1).strip():
+                            p_name = m.group(1).strip().lower()
+                            p_price = float(m.group(2)) if m.group(2) else 0.0
+                            parsed_items.append(
+                                {
+                                    "item_name": p_name,
+                                    "price": p_price,
+                                    "quantity": 1.0,
+                                    "category": "sale",
+                                }
+                            )
+
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        p_name = str(item.get("item_name") or item.get("name") or "sale item").strip().lower()
+                        p_price = float(item.get("price") or 0.0)
+                        p_qty = float(item.get("quantity") or 1.0)
+                        p_cat = str(item.get("category") or "sale").strip().lower()
+                        parsed_items.append(
+                            {
+                                "item_name": p_name,
+                                "price": p_price,
+                                "quantity": p_qty,
+                                "category": p_cat,
+                            }
+                        )
+                    elif hasattr(item, "item_name"):
+                        parsed_items.append(
+                            {
+                                "item_name": item.item_name.strip().lower(),
+                                "price": float(item.price),
+                                "quantity": float(item.quantity) if float(item.quantity) > 0 else 1.0,
+                                "category": str(item.category or "sale").strip().lower(),
+                            }
+                        )
+
+            computed_sum = sum(float(it["price"]) for it in parsed_items)
+            if total_amount is not None and float(total_amount) > 0:
+                user_total = float(total_amount)
+                if computed_sum > 0 and abs(computed_sum - user_total) <= 0.05 * user_total:
+                    final_total = computed_sum
+                else:
+                    final_total = user_total
+            elif computed_sum > 0:
+                final_total = computed_sum
+            else:
+                final_total = 0.0
+
+            final_pm = detect_payment_method(payment_method, raw_transcript)
+            try:
+                final_total = validate_transaction_amount(final_total)
+            except ValueError as ve:
+                return json.dumps({"status": "error", "message": str(ve)})
+
+            tx = Transaction(
+                user_id=user_id,
+                store_name=canonical_store,
+                total_amount=round(final_total, 2),
+                transaction_date=tx_date,
+                raw_transcript=raw_transcript or None,
+                payment_method=final_pm,
+                tx_type="sale",
+            )
+            db.add(tx)
+            db.flush()
+
+            logged_items = []
+            if parsed_items:
+                if len(parsed_items) == 1 and abs(parsed_items[0]["price"] - final_total) > 1.0:
+                    parsed_items[0]["price"] = final_total
+                for it in parsed_items:
+                    t_item = TransactionItem(
+                        transaction_id=tx.id,
+                        item_name=it["item_name"],
+                        category=it["category"] or "sale",
+                        price=round(it["price"], 2),
+                        quantity=it["quantity"],
+                    )
+                    db.add(t_item)
+                    logged_items.append(
+                        {
+                            "item": t_item.item_name,
+                            "price": t_item.price,
+                            "quantity": t_item.quantity,
+                            "category": t_item.category,
+                        }
+                    )
+            else:
+                t_item = TransactionItem(
+                    transaction_id=tx.id,
+                    item_name=canonical_store,
+                    category="sale",
+                    price=round(final_total, 2),
+                    quantity=1.0,
+                )
+                db.add(t_item)
+                logged_items.append(
+                    {
+                        "item": canonical_store,
+                        "price": round(final_total, 2),
+                        "quantity": 1.0,
+                        "category": "sale",
+                    }
+                )
+
+            db.commit()
+            db.refresh(tx)
+
+            result = {
+                "status": "success",
+                "message": "Daily sale (bikri) recorded.",
+                "transaction_id": tx.id,
+                "tx_type": "sale",
+                "customer_or_note": canonical_store,
+                "total_amount_pkr": round(final_total, 2),
+                "payment_method": tx.payment_method,
+                "date": tx.transaction_date.strftime("%Y-%m-%d"),
+                "items": logged_items,
+                "galla": galla_summary(db, user_id),
+            }
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error logging sale for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    @tool("manage_udhaar", args_schema=ManageUdhaarInput)
+    def manage_udhaar(
+        action: str,
+        person_name: Optional[str] = None,
+        amount: Optional[float] = None,
+        notes: Optional[str] = None,
+        phone_number: Optional[str] = None,
+    ) -> str:
+        """Manages the shopkeeper's Udhaar / Khata book: give_credit (lene hain), take_credit (dene hain), settle (wasooli), or list."""
+        db: Session = SessionLocal()
+        try:
+            clean_action = (action or "list").strip().lower()
+            if clean_action in ("give_credit", "receivable", "lend", "lene_hain", "udhaar_diya"):
+                if not person_name or amount is None:
+                    return json.dumps({"status": "error", "message": "person_name and amount are required to record udhaar."})
+                res = add_udhaar_entry(
+                    db,
+                    user_id=user_id,
+                    person_name=person_name,
+                    amount=float(amount),
+                    direction="receivable",
+                    notes=notes,
+                    phone_number=phone_number,
+                )
+                res["summary"] = udhaar_summary(db, user_id)
+                return json.dumps(res, ensure_ascii=False)
+            elif clean_action in ("take_credit", "payable", "borrow", "dene_hain", "udhaar_liya"):
+                if not person_name or amount is None:
+                    return json.dumps({"status": "error", "message": "person_name and amount are required to record udhaar."})
+                res = add_udhaar_entry(
+                    db,
+                    user_id=user_id,
+                    person_name=person_name,
+                    amount=float(amount),
+                    direction="payable",
+                    notes=notes,
+                    phone_number=phone_number,
+                )
+                res["summary"] = udhaar_summary(db, user_id)
+                return json.dumps(res, ensure_ascii=False)
+            elif clean_action in ("settle", "wasooli", "pay", "paid"):
+                if not person_name:
+                    return json.dumps({"status": "error", "message": "person_name is required to settle udhaar."})
+                res = settle_udhaar(
+                    db,
+                    user_id=user_id,
+                    person_name=person_name,
+                    payment_amount=float(amount) if amount is not None and float(amount) > 0 else None,
+                )
+                res["summary"] = udhaar_summary(db, user_id)
+                return json.dumps(res, ensure_ascii=False)
+            else:
+                summary = udhaar_summary(db, user_id)
+                return json.dumps({"status": "success", "udhaar": summary}, ensure_ascii=False)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error in manage_udhaar for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
     return [
         log_expense,
+        log_sale,
+        manage_udhaar,
         query_expenses,
         delete_last_transaction,
         set_budget,

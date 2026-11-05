@@ -1090,7 +1090,9 @@ tailwind.config = {
         }
       }
 
-      // Analytics sections (budgets, charts, payment split, recurring bills)
+      // Analytics sections (galla, udhaar, budgets, charts, payment split, recurring bills)
+      renderGalla(data.galla || {});
+      renderUdhaar(data.udhaar || {});
       renderBudgets(data.budgets || []);
       renderCategoryChart(data.category_breakdown || []);
       renderTrendChart(data.daily_trend || []);
@@ -1152,11 +1154,19 @@ tailwind.config = {
           itemsHtml = `<div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>`;
         }
 
+        const isSale = tx.tx_type === 'sale';
+        const amountHtml = isSale
+          ? `<span class="text-ok font-bold">+PKR ${formatMoney(tx.total_amount)}</span>`
+          : `<span class="text-brass font-bold">PKR ${formatMoney(tx.total_amount)}</span>`;
+        const typeBadgeHtml = isSale
+          ? `<span class="udhaar-pill udhaar-pill-in text-[10px]">${t('tx.sale_badge')}</span>`
+          : '';
+
         card.innerHTML = `
           <div class="tx-row-top">
-            <div class="tx-store-name capitalize">${escapeHtml(tx.store_name)}</div>
+            <div class="tx-store-name capitalize flex items-center gap-1.5">${escapeHtml(tx.store_name)} ${typeBadgeHtml}</div>
             <div class="tx-row-amount">
-              <span class="text-brass font-bold">PKR ${formatMoney(tx.total_amount)}</span>
+              ${amountHtml}
               <button 
                 class="delete-tx-btn btn-icon-del"
                 data-id="${tx.id}"
@@ -1216,6 +1226,105 @@ tailwind.config = {
     // (all numbers are computed by SQL on the server; the browser only draws them)
     // =========================================================================
     const charts = { category: null, trend: null };
+
+    function renderGalla(galla) {
+      const salesEl = document.getElementById('galla-today-sales');
+      const expEl = document.getElementById('galla-today-expenses');
+      const netEl = document.getElementById('galla-today-net');
+      const splitEl = document.getElementById('galla-cash-split');
+      if (!salesEl || !expEl || !netEl) return;
+
+      const todaySales = Number(galla.today_sales_pkr || 0);
+      const todayExp = Number(galla.today_expenses_pkr || 0);
+      const todayNet = Number(galla.today_net_pkr || 0);
+      const cashSales = Number(galla.today_cash_sales_pkr || 0);
+      const digSales = Number(galla.today_digital_sales_pkr || 0);
+
+      salesEl.textContent = `+Rs ${formatMoney(todaySales)}`;
+      expEl.textContent = `-Rs ${formatMoney(todayExp)}`;
+      netEl.textContent = `${todayNet >= 0 ? '' : '-'}Rs ${formatMoney(Math.abs(todayNet))}`;
+      netEl.style.color = todayNet > 0 ? 'var(--ok)' : todayNet < 0 ? 'var(--bad)' : 'var(--tx)';
+
+      if (splitEl) {
+        splitEl.textContent = `${t('galla.cash_short')}: Rs ${formatMoney(cashSales)} • ${t('galla.digital_short')}: Rs ${formatMoney(digSales)}`;
+      }
+    }
+
+    function renderUdhaar(udhaar) {
+      const recEl = document.getElementById('udhaar-total-receivable');
+      const payEl = document.getElementById('udhaar-total-payable');
+      const box = document.getElementById('udhaar-list-container');
+      if (!box) return;
+
+      if (recEl) recEl.textContent = `Rs ${formatMoney(udhaar.total_receivable_pkr || 0)}`;
+      if (payEl) payEl.textContent = `Rs ${formatMoney(udhaar.total_payable_pkr || 0)}`;
+
+      const items = udhaar.open_entries || [];
+      if (!items.length) {
+        box.innerHTML = `<span class="budget-empty-hint font-ur">${t('udhaar.empty')}</span>`;
+        return;
+      }
+
+      box.innerHTML = '';
+      items.forEach(item => {
+        const isReceivable = item.direction === 'receivable';
+        const badgeClass = isReceivable ? 'udhaar-pill-in' : 'udhaar-pill-out';
+        const badgeLabel = isReceivable ? t('udhaar.badge_lene') : t('udhaar.badge_dene');
+        const amountColor = isReceivable ? 'var(--ok)' : 'var(--bad)';
+        const remaining = Number(item.remaining_pkr || item.amount || 0);
+
+        const waMessage = isReceivable
+          ? `السلام علیکم ${item.person_name} صاحب، آپ کے ذمے PKR ${formatMoney(remaining)} بقایا ہیں (${item.notes || 'ادھار کھاتہ'})۔ براہ کرم جلد ادائیگی فرما دیں۔ شکریہ!`
+          : `السلام علیکم ${item.person_name} صاحب، آپ کے PKR ${formatMoney(remaining)} ہمارے کھاتے میں درج ہیں۔`;
+        const cleanPhone = (item.phone_number || '').replace(/[^0-9]/g, '');
+        const waPhone = cleanPhone.startsWith('03') ? ('92' + cleanPhone.slice(1)) : cleanPhone;
+        const waHref = `https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`;
+
+        const row = document.createElement('div');
+        row.className = 'bill-row';
+        row.innerHTML = `
+          <div class="bill-main">
+            <div class="bill-title capitalize flex flex-wrap items-center gap-1.5 font-ur">
+              <span>${escapeHtml(item.person_name)}</span>
+              <span class="udhaar-pill ${badgeClass} text-[10px]">${badgeLabel}</span>
+            </div>
+            <div class="bill-sub font-ur tabular">
+              <strong style="color:${amountColor}">PKR ${formatMoney(remaining)}</strong>
+              ${item.paid_amount > 0 ? `<span class="text-mut"> (کل: ${formatMoney(item.amount)})</span>` : ''}
+              ${item.notes ? ` · <span>${escapeHtml(item.notes)}</span>` : ''}
+            </div>
+          </div>
+          <div class="bill-actions">
+            ${isReceivable ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-remind" title="${t('udhaar.btn_whatsapp')}"><i data-lucide="message-circle" class="w-3.5 h-3.5"></i></a>` : ''}
+            <button class="settle-udhaar-btn btn-mark-paid" data-id="${item.id}">
+              <i data-lucide="check" class="w-3.5 h-3.5"></i> ${t('udhaar.btn_settle')}
+            </button>
+            <button class="del-udhaar-btn btn-icon-del" data-id="${item.id}" title="${t('btn.remove')}">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        `;
+        box.appendChild(row);
+      });
+
+      box.querySelectorAll('.settle-udhaar-btn').forEach(btn => btn.addEventListener('click', async () => {
+        const res = await authFetch(`/api/udhaar/${encodeURIComponent(state.userId)}/${btn.dataset.id}/settle`, { method: 'POST' });
+        if (res.ok) {
+          showToast(t('toast.udhaar_settled'), 'success');
+          fetchDashboard();
+        }
+      }));
+
+      box.querySelectorAll('.del-udhaar-btn').forEach(btn => btn.addEventListener('click', async () => {
+        const res = await authFetch(`/api/udhaar/${encodeURIComponent(state.userId)}/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast(t('toast.udhaar_deleted'), 'info');
+          fetchDashboard();
+        }
+      }));
+
+      lucide.createIcons();
+    }
 
     function renderBudgets(budgets) {
       const box = document.getElementById('budgets-container');
@@ -1527,6 +1636,44 @@ tailwind.config = {
         } else showToast((await res.json().catch(() => ({}))).detail || 'Could not save', 'error');
         fetchDashboard();
       });
+
+      const udhaarForm = document.getElementById('udhaar-form');
+      if (udhaarForm) {
+        udhaarForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const personEl = document.getElementById('udhaar-person');
+          const amountEl = document.getElementById('udhaar-amount');
+          const dirEl = document.getElementById('udhaar-direction');
+          const notesEl = document.getElementById('udhaar-notes');
+
+          const rawNotes = notesEl ? notesEl.value.trim() : '';
+          let phone = '';
+          let notes = rawNotes;
+          const phoneMatch = rawNotes.match(/(03\d{9}|\+?923\d{9})/);
+          if (phoneMatch) {
+            phone = phoneMatch[1];
+          }
+
+          const fd = new FormData();
+          fd.append('user_id', state.userId);
+          fd.append('person_name', personEl.value);
+          fd.append('amount', amountEl.value);
+          fd.append('direction', dirEl ? dirEl.value : 'receivable');
+          if (notes) fd.append('notes', notes);
+          if (phone) fd.append('phone_number', phone);
+
+          const res = await authFetch('/api/udhaar', { method: 'POST', body: fd });
+          if (res.ok) {
+            personEl.value = '';
+            amountEl.value = '';
+            if (notesEl) notesEl.value = '';
+            showToast(t('toast.udhaar_saved'), 'success');
+          } else {
+            showToast((await res.json().catch(() => ({}))).detail || 'Could not save udhaar', 'error');
+          }
+          fetchDashboard();
+        });
+      }
     }
 
     // Register the service worker (PWA install + offline shell)

@@ -1409,6 +1409,162 @@ def test_whisper_transcription_verbose_json_and_urdu_retry(monkeypatch):
     assert result == "1500 پٹرول اور 450 دودھ"
 
 
+def test_shopkeeper_daily_sales_and_galla_isolation(client, db, auth_headers):
+    """
+    Verifies that:
+    1. `log_sale` records a Transaction with tx_type='sale' and updates galla_summary.
+    2. Sales do NOT inflate monthly_total (expenses) or trigger expense budget alerts.
+    3. `galla_summary` accurately computes today_sales_pkr, today_expenses_pkr, today_net_pkr, and cash vs digital sales.
+    """
+    from agent import get_tools_for_user
+
+    user_id = "shopkeeper_galla_user@example.com"
+    db.add(UserAccount(user_id=user_id, auth_provider="google", token_version=0))
+    db.commit()
+
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+    # Set an expense budget of 5000 PKR
+    tools["set_budget"].invoke({"monthly_limit": 5000.0, "category": "total"})
+
+    # Log an expense (stock purchase) of 2000 PKR
+    exp_res = json.loads(
+        tools["log_expense"].invoke(
+            {
+                "store_name": "wholesale market",
+                "total_amount": 2000.0,
+                "payment_method": "cash",
+            }
+        )
+    )
+    assert exp_res["status"] == "success"
+
+    # Log a cash sale of 4500 PKR and an EasyPaisa sale of 1500 PKR (Total Sales = 6000 PKR)
+    sale1 = json.loads(
+        tools["log_sale"].invoke(
+            {
+                "customer_or_note": "flour and sugar sale",
+                "total_amount": 4500.0,
+                "payment_method": "cash",
+            }
+        )
+    )
+    assert sale1["status"] == "success"
+    assert sale1["tx_type"] == "sale"
+
+    sale2 = json.loads(
+        tools["log_sale"].invoke(
+            {
+                "customer_or_note": "cooking oil sale",
+                "total_amount": 1500.0,
+                "payment_method": "easypaisa",
+            }
+        )
+    )
+    assert sale2["status"] == "success"
+
+    # Check GET /api/transactions/{user_id}
+    headers = auth_headers(user_id)
+    resp = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Expense monthly_total must be 2000.0 (NOT 8000.0)
+    assert data["monthly_total"] == 2000.0
+    assert data["budgets"][0]["spent_pkr"] == 2000.0
+
+    # Galla summary must reflect 6000 sales, 2000 expenses, +4000 net
+    galla = data["galla"]
+    assert galla["today_sales_pkr"] == 6000.0
+    assert galla["today_expenses_pkr"] == 2000.0
+    assert galla["today_net_pkr"] == 4000.0
+    assert galla["today_cash_sales_pkr"] == 4500.0
+    assert galla["today_digital_sales_pkr"] == 1500.0
+
+
+def test_shopkeeper_udhaar_khata_tools_and_endpoints(client, db, auth_headers):
+    """
+    Verifies Udhaar / Khata book via both agent tool (`manage_udhaar`) and REST endpoints (`/api/udhaar`):
+    1. Giving credit (`give_credit` / receivable - Maine Lene Hain)
+    2. Taking credit (`take_credit` / payable - Maine Dene Hain)
+    3. Partial and full settlement (`settle` / Wasooli)
+    4. Soft deletion via DELETE /api/udhaar/{user_id}/{entry_id}
+    """
+    from agent import get_tools_for_user
+
+    user_id = "shopkeeper_udhaar_user@example.com"
+    db.add(UserAccount(user_id=user_id, auth_provider="google", token_version=0))
+    db.commit()
+
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+
+    # 1. Give credit of 1500 PKR to Ali Bhai via tool
+    r1 = json.loads(
+        tools["manage_udhaar"].invoke(
+            {
+                "action": "give_credit",
+                "person_name": "Ali Bhai",
+                "amount": 1500.0,
+                "notes": "Atta aur cheeni",
+                "phone_number": "03001234567",
+            }
+        )
+    )
+    assert r1["status"] == "success"
+    assert r1["summary"]["total_receivable_pkr"] == 1500.0
+
+    # 2. Take credit of 5000 PKR from Tariq Traders via REST API
+    headers = auth_headers(user_id)
+    post_resp = client.post(
+        "/api/udhaar",
+        headers=headers,
+        data={
+            "user_id": user_id,
+            "person_name": "Tariq Traders",
+            "amount": "5000",
+            "direction": "payable",
+            "notes": "Ghee carton",
+        },
+    )
+    assert post_resp.status_code == 200
+    udhaar_state = post_resp.json()["udhaar"]
+    assert udhaar_state["total_receivable_pkr"] == 1500.0
+    assert udhaar_state["total_payable_pkr"] == 5000.0
+    assert udhaar_state["open_count"] == 2
+
+    # 3. Partial settle 500 PKR from Ali Bhai via tool
+    r_partial = json.loads(
+        tools["manage_udhaar"].invoke(
+            {
+                "action": "settle",
+                "person_name": "Ali Bhai",
+                "amount": 500.0,
+            }
+        )
+    )
+    assert r_partial["status"] == "success"
+    assert r_partial["settled_amount_pkr"] == 500.0
+    assert r_partial["remaining_balance_pkr"] == 1000.0
+    assert r_partial["summary"]["total_receivable_pkr"] == 1000.0
+
+    # 4. Full settle remaining 1000 PKR for Ali Bhai via REST API
+    ali_entry_id = r1["entry"]["id"]
+    settle_resp = client.post(
+        f"/api/udhaar/{user_id}/{ali_entry_id}/settle",
+        headers=headers,
+    )
+    assert settle_resp.status_code == 200
+    assert settle_resp.json()["udhaar"]["total_receivable_pkr"] == 0.0
+    assert settle_resp.json()["udhaar"]["open_count"] == 1
+
+    # 5. Delete Tariq Traders udhaar entry via REST API
+    tariq_entry_id = post_resp.json()["entry"]["id"]
+    del_resp = client.delete(f"/api/udhaar/{user_id}/{tariq_entry_id}", headers=headers)
+    assert del_resp.status_code == 200
+    assert del_resp.json()["udhaar"]["total_payable_pkr"] == 0.0
+    assert del_resp.json()["udhaar"]["open_count"] == 0
+
+
+
 
 
 
