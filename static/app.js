@@ -193,25 +193,6 @@ tailwind.config = {
         } else if (params.get('view') === 'chat') {
           setDesktopView('chat');
         }
-        if (params.get('preview_table') === '1') {
-          const wc = document.getElementById('welcome-card');
-          if (wc) wc.classList.add('hidden');
-          appendUserMessage('اس مہینے کا خرچہ');
-          appendAssistantMessage(`اس ماہ کا مکمل خرچ (نومبر 2026):
-
-| تاریخ | دکان | رقم (PKR) | ادائیگی |
-|---|---|---|---|
-| 2026-11-04 | لوکل اسٹور | 1,000 | نقد |
-| 2026-11-04 | ڈاکٹر | 1,000 | نقد |
-| 2026-11-04 | لوکل اسٹور | 300 | نقد |
-| 2026-11-04 | بینک ٹرانسفر | 350 | بینک ٹرانسفر |
-| 2026-11-03 | لوکل اسٹور | 600 | نقد |
-| 2026-11-03 | لوکل اسٹور | 200 | نقد |
-| 2026-11-03 | لوکل اسٹور | 4,300 | نقد |
-| 2026-11-03 | لوکل اسٹور | 1,000 | بینک ٹرانسفر |
-
-کل خریداری: 8 | مجموعی رقم: **PKR 8,750**`);
-        }
         if (params.get('modal') === 'auth' || params.get('modal') === 'signup') {
           const authModal = document.getElementById('auth-modal');
           if (authModal) authModal.classList.remove('hidden');
@@ -219,25 +200,6 @@ tailwind.config = {
             const signupTab = document.getElementById('auth-tab-signup');
             if (signupTab) setTimeout(() => signupTab.click(), 50);
           }
-        }
-        if (params.get('preview_signed_in') === '1') {
-          setTimeout(() => {
-            updateAccountUI({
-              user_id: 'abubakariqbal651@gmail.com',
-              email: 'abubakariqbal651@gmail.com',
-              display_name: 'Abu Bakar Iqbal',
-              auth_provider: 'google'
-            });
-            fetchDashboard();
-            const sBtn = document.getElementById('signin-header-btn');
-            const aBtn = document.getElementById('account-btn');
-            if (sBtn) sBtn.classList.add('hidden');
-            if (aBtn) aBtn.classList.remove('hidden');
-            if (params.get('dropdown') === '1') {
-              const drop = document.getElementById('account-dropdown');
-              if (drop) drop.classList.remove('hidden');
-            }
-          }, 150);
         }
       } catch (_) {}
       if (elements.messagesContainer) {
