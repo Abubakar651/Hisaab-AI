@@ -33,6 +33,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./expenses.db")
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
+if DATABASE_URL.startswith("sqlite:///"):
+    sqlite_file = DATABASE_URL.replace("sqlite:///", "", 1)
+    db_dir = os.path.dirname(os.path.abspath(sqlite_file))
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
 # For SQLite, check_same_thread=False allows FastAPI multi-threaded requests
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 

@@ -28,6 +28,7 @@ COPY static/ /app/static/
 
 # Create a non-privileged user and switch to it for defense-in-depth
 RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data && \
     chown -R appuser:appuser /app
 USER appuser
 
