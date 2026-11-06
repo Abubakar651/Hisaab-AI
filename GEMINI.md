@@ -11,3 +11,4 @@
 - All ledger data, daily sales (Galla), and Udhaar Khata must strictly read and write to the database.
 - Enforce Jameel Noori Nastaleeq font and proper RTL styling for all Urdu content.
 - Adhere strictly to the verification test suite before any commit.
+

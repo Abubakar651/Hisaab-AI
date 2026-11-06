@@ -128,7 +128,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
 
     auth_domain = os.getenv("FIREBASE_AUTH_DOMAIN", "").strip()
     frame_src_parts = ["https://accounts.google.com"]

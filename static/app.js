@@ -73,6 +73,14 @@ tailwind.config = {
       });
     }
 
+    function getCurrentLang() {
+      if (window.HisaabI18n) {
+        if (typeof window.HisaabI18n.getLanguage === 'function') return window.HisaabI18n.getLanguage();
+        if (typeof window.HisaabI18n.getLang === 'function') return window.HisaabI18n.getLang();
+      }
+      return document.documentElement.lang || 'ur';
+    }
+
     // DOM Elements
     const elements = {};
 
@@ -548,9 +556,7 @@ tailwind.config = {
       if (message) formData.append('message', message);
       if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
       
-      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
-        ? window.HisaabI18n.getLang()
-        : 'ur';
+      const currentLang = getCurrentLang();
       formData.append('lang', currentLang);
 
       // Pass recent conversation history for multi-turn context memory (last 4 messages to optimize token bandwidth)
@@ -588,7 +594,7 @@ tailwind.config = {
         await checkAndRenderPendingConfirmation();
       } catch (err) {
         removeLoadingBubble(loadingBubble);
-        const isUrdu = (window.HisaabI18n && window.HisaabI18n.getLang() === 'ur');
+        const isUrdu = (getCurrentLang() === 'ur');
         const defaultNetErr = isUrdu
           ? (typeof window.t === 'function' ? window.t('chat.error_network') : 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔')
           : (typeof window.t === 'function' ? window.t('chat.error_network') : 'Unable to connect to server. Please check your internet connection and try again.');
@@ -917,9 +923,7 @@ tailwind.config = {
     function appendLoadingBubble() {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant loading-bubble';
-      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
-        ? window.HisaabI18n.getLang()
-        : 'ur';
+      const currentLang = getCurrentLang();
       const isUrdu = currentLang === 'ur';
       const loadingText = (typeof window.t === 'function')
         ? window.t('chat.loading')
@@ -947,9 +951,7 @@ tailwind.config = {
     function appendErrorMessage(errorText) {
       const wrapper = document.createElement('div');
       wrapper.className = 'bubble-assistant border-bad/40 bg-bad/10';
-      const currentLang = (window.HisaabI18n && typeof window.HisaabI18n.getLang === 'function')
-        ? window.HisaabI18n.getLang()
-        : 'ur';
+      const currentLang = getCurrentLang();
       const isUrdu = currentLang === 'ur';
       const titleText = isUrdu ? 'مسئلہ پیش آیا' : 'Processing Issue';
       const fontClass = isUrdu ? 'font-ur' : '';

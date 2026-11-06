@@ -555,6 +555,7 @@
   window.HisaabI18n = {
     t: t,
     getLanguage: function () { return currentLang; },
+    getLang: function () { return currentLang; },
     setLanguage: applyLanguage,
     toggleLanguage: toggleLanguage,
     onLanguageChange: onLanguageChange,
