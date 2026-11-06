@@ -51,8 +51,8 @@ def get_groq_client():
 groq_client = get_groq_client()
 
 # Default model preference with fallback list matching active Groq account models
-PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-20b")
-MODEL_CANDIDATES = [PREFERRED_MODEL, "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
+PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b")
+MODEL_CANDIDATES = [PREFERRED_MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
 _VALIDATED_MODEL = None
 _BEDROCK_THROTTLED_UNTIL = 0.0
@@ -236,6 +236,59 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
         raise RuntimeError(f"Speech transcription failed: {str(e)}")
 
 
+
+# ---------------------------------------------------------------------------
+# Recipient & Vendor Extraction Helpers
+# ---------------------------------------------------------------------------
+def extract_recipient_or_vendor(text: str) -> str:
+    """
+    Extracts a person/recipient or vendor name from transfer and expense phrases.
+    Supports English ('to Abid Hussain', 'sent ... to Ali', 'add name Abid Hussain', 'recipient is Tariq'),
+    and Urdu / Roman Urdu ('Abid Hussain ko bheje', 'Ali ko transfer kiye', 'naam Bilal likh do').
+    Returns canonical lowercase string or empty string if not found.
+    """
+    if not text or not text.strip():
+        return ""
+    raw = text.strip()
+
+    # 1. Clarification / explicit name declaration ("add name X", "name is X", "recipient is X", "naam X hai", "naam X likho")
+    m_add = re.search(r"\b(?:add(?:\s+the)?\s+name|name\s+is|recipient\s+is|recipient:?)\s+([A-Za-z\s]+?)(?:\s*(?:please|plz|\.|$))", raw, re.I)
+    if m_add:
+        name = m_add.group(1).strip()
+        if name and name.lower() not in ("bank", "account", "the name", "my bank"):
+            return name.lower()
+
+    m_add_ur = re.search(r"(?:نام|naam)\s+([A-Za-z\u0600-\u06FF\s]+?)(?:\s*(?:hai|rakh|likh|daal|karein|ہے|لکھ|ڈال|\.|$))", raw, re.I)
+    if m_add_ur:
+        name = m_add_ur.group(1).strip()
+        if name and name.lower() not in ("bank", "account", "un", "in"):
+            return name.lower()
+
+    # 2. Transfer recipient in English ("to X", "sent to X", "paid to X", "transfer to X")
+    m_to = re.search(r"\b(?:to|paid to|sent to|transfer to)\s+([A-Za-z\s]+?)(?:\s*(?:via|through|per|par|from|for|using|with|\.|$))", raw, re.I)
+    if m_to:
+        name = m_to.group(1).strip()
+        if name.lower() not in ("bank", "account", "the bank", "my bank", "him", "her", "them", "someone", "local store"):
+            return name.lower()
+
+    # 3. Transfer recipient in Urdu / Roman Urdu ("<name> ko", "ko <name>")
+    m_ko = re.search(r"\b([A-Za-z\u0600-\u06FF\s]+?)\s+(?:ko|کو)\b", raw, re.I)
+    if m_ko:
+        name = m_ko.group(1).strip()
+        name = re.sub(r"^[\d\s,]+", "", name).strip()
+        name = re.sub(r"^(?:bheje|bheja|diye|diya|sent|transfer|pay|paid)\s+", "", name, flags=re.I).strip()
+        if name and name.lower() not in ("bank", "account", "un", "in", "us", "is"):
+            return name.lower()
+
+    m_ko_rev = re.search(r"\b(?:ko|کو)\s+([A-Za-z\u0600-\u06FF\s]+?)(?:\s*(?:bheje|bheja|diye|diya|per|par|\.|$))", raw, re.I)
+    if m_ko_rev:
+        name = m_ko_rev.group(1).strip()
+        if name and name.lower() not in ("bank", "account"):
+            return name.lower()
+
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Pydantic Schemas for Tool Arguments
 # ---------------------------------------------------------------------------
@@ -262,7 +315,7 @@ class LogExpenseInput(BaseModel):
     model_config = {"extra": "ignore"}
 
     store_name: str = Field(
-        description="Canonical lowercase English store name, e.g. 'imtiaz', 'al-fatah', 'jalal sons', 'carrefour', 'metro', 'csd', 'local store'"
+        description="Canonical lowercase English store, vendor, shop, brand, or person/recipient name for money transfers/payments, e.g. 'imtiaz', 'al-fatah', 'abid hussain', 'ali', 'petrol pump', 'local store'"
     )
     items: Optional[Any] = Field(
         default=None,
@@ -279,6 +332,31 @@ class LogExpenseInput(BaseModel):
     payment_method: Optional[str] = Field(
         default="cash",
         description="How it was paid: 'cash' (default), 'easypaisa', 'jazzcash', 'card', 'bank_transfer'. Use 'card' for debit/credit card, 'bank_transfer' for IBFT/Raast/bank app, SadaPay/NayaPay count as 'card'.",
+    )
+
+
+class UpdateLastExpenseInput(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    store_name: Optional[str] = Field(
+        default=None,
+        description="Updated store name or recipient/vendor person name (e.g. 'Abid Hussain', 'Al-Fatah', 'Ali', 'Landlord').",
+    )
+    category: Optional[str] = Field(
+        default=None,
+        description="Updated category (groceries, dairy, fuel, dining, utilities, rent, healthcare, business, other).",
+    )
+    notes_or_purpose: Optional[str] = Field(
+        default=None,
+        description="Specific purpose, description, or item name for this expense (e.g. 'house rent', 'shop stock', 'monthly fee', 'school fee').",
+    )
+    payment_method: Optional[str] = Field(
+        default=None,
+        description="Updated payment method: 'cash', 'easypaisa', 'jazzcash', 'card', 'bank_transfer'.",
+    )
+    total_amount: Optional[float] = Field(
+        default=None,
+        description="Corrected total amount in PKR if the user corrected the cost.",
     )
 
 
@@ -490,20 +568,40 @@ When reporting spending totals, summaries, or recent transaction lists:
 3. Keep the overall reply concise, clean, and easily readable on mobile screens without clutter. Never output raw code keys like 'bank_transfer' or 'local store' in Urdu replies.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
-You are equipped with real SQLite database tools: `log_expense`, `log_sale`, `manage_udhaar`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
-1. **EXPENSE LOGGING (CASH-OUT / KHARCHA / STOCK PURCHASE):** When an expense or purchase is stated ("spent", "bought", "khareeda", "kharcha", "bill diya"), CALL `log_expense`. Extract `store_name` (canonical lowercase English, default 'local store'), `items`, `date_str`, `payment_method` (default 'cash').
-2. **DAILY SALES LOGGING (CASH-IN / BIKRI / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki bikri hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
-3. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI):**
+You are equipped with real SQLite database tools: `log_expense`, `update_last_expense`, `log_sale`, `manage_udhaar`, `query_expenses`, `delete_last_transaction`, `set_budget`, `get_budget_status`, `add_recurring_expense`, `mark_recurring_paid`, and `cancel_pending_expense`.
+1. **EXPENSE LOGGING (CASH-OUT / KHARCHA / STOCK PURCHASE / TRANSFERS):** When an expense, purchase, or money transfer is stated ("spent", "bought", "khareeda", "kharcha", "bill diya", "sent 348000 to Abid Hussain via bank", "Ali ko 5000 bheje"), CALL `log_expense`. Extract `store_name` (canonical lowercase English: name of vendor, shop, or the person/recipient name if it's a transfer/payment e.g. 'abid hussain', 'ali', 'imtiaz', 'local store'), `items`, `date_str`, `payment_method` (default 'cash', or 'bank_transfer', 'easypaisa', 'jazzcash', 'card').
+2. **UPDATING RECENT EXPENSE / ANSWERING FOLLOW-UP QUESTIONS (ZERO DUPLICATES):**
+   - When the user clarifies, adds details to, or answers a follow-up question for the expense just recorded (e.g. "yes you can add name Abid Hussain", "naam Tariq hai", "actually that was for house rent", "purpose is school fee", "category is dining", "it was 3500 not 3000", "paid via easypaisa"), CALL `update_last_expense`.
+   - **CRITICAL PROHIBITION:** NEVER call `log_expense` when the user is clarifying or answering a follow-up question about the transaction just recorded! Calling `log_expense` again would create an illegal duplicate entry! Always call `update_last_expense`!
+3. **DAILY SALES LOGGING (CASH-IN / BIKRI / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki bikri hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
+4. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI):**
    - Customer took items/money on credit OR user lent money ("Ali ko 1500 ka udhaar diya", "Ali se 1500 lene hain", "lent 2000 to Bilal", "sold on credit to Kamran") -> CALL `manage_udhaar` with `action='give_credit'`.
    - User borrowed money or bought stock on credit from supplier ("wholesaler/supplier ke 10000 dene hain", "Tariq se 5000 udhaar liya", "borrowed 5000 from Ahmed") -> CALL `manage_udhaar` with `action='take_credit'`.
    - Customer paid back or user settled udhaar ("Ali ne 1000 jama karwaye", "wasooli 1500 from Ali", "Ali paid back", "udhaar chuka diya") -> CALL `manage_udhaar` with `action='settle'`.
    - User asks "kis kis se paise lene hain?", "udhaar khata dikhao", "who owes me money?" -> CALL `manage_udhaar` with `action='list'`.
-4. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
-5. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
-6. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`.
-7. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`.
-8. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, ask user to click the on-screen 'Confirm' (تصدیق کریں) button, or call `cancel_pending_expense` if they decline.
-9. **TRANSACTION ISOLATION:** Every message is independent. NEVER copy items from past messages into new transactions.
+5. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
+6. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
+7. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`.
+8. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`.
+9. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, ask user to click the on-screen 'Confirm' (تصدیق کریں) button, or call `cancel_pending_expense` if they decline.
+10. **TRANSACTION ISOLATION:** Every message is independent. NEVER copy items from past messages into new transactions.
+
+### PROACTIVE FOLLOW-UP QUESTIONS (ENGAGING & HELPFUL):
+When a transaction is successfully recorded, you may proactively ask ONE brief, polite follow-up question if key details are missing or would keep their records clean:
+1. **Unspecified Recipient on Transfers:** If user logged a money transfer without naming the recipient (e.g. "sent 5000 through bank", "bank se 10000 transfer kiye"), ask who they sent it to:
+   - English: "Who did you send this transfer to?"
+   - Urdu: "یہ رقم آپ نے کس کو بھیجی ہے؟"
+2. **Missing Purpose or Category on Large Spends:** If a payment or large expense has a generic name/store (e.g. "spent 50,000", "paid 20,000"):
+   - English: "Would you like to add a purpose or category (e.g. rent, stock, bills) for this payment?"
+   - Urdu: "کیا آپ اس ادائیگی کا مقصد یا کیٹیگری (مثلاً کرایہ، سامان، بل) درج کرنا چاہتے ہیں؟"
+3. **Missing Payment Method:** If payment method was defaulted to cash for an ambiguous or large payment:
+   - English: "Was this paid in cash, or via bank / online transfer?"
+   - Urdu: "کیا یہ نقد ادائیگی تھی یا بینک / آن لائن ٹرانسفر کے ذریعے؟"
+4. **Follow-Up Golden Rules:**
+   - Ask at most ONE short, polite question. Never overwhelm the user with multiple questions.
+   - Always match the user's language (English or natural Urdu script).
+   - If recipient and details are ALREADY fully provided (e.g. "sent 348000 to Abid Hussain via bank"), DO NOT ask who it was sent to, because you already know it is Abid Hussain! Instead, if desired, you can simply ask if they'd like to add a purpose/note (e.g., "Would you like to note the purpose for this transfer?").
+   - When the user answers your follow-up question in the next turn, CALL `update_last_expense`. DO NOT call `log_expense`!
 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
 - **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, ath sau=800, nau sau=900, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, sadhe paanch hazaar=5500, das hazaar=10000, veeh hazaar=20000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, 60 lakh=6000000, 200 lakh=20000000, 6000 hazaar=6000000, 20000 lakh=2000000000, crore=10000000.
@@ -659,11 +757,85 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     "instruction": "This expense is held in pending status on the server. Tell the user in their language that this large amount is pending confirmation and they must press the 'Confirm' button on their screen to record it, or say cancel. If they decline or say cancel, execute cancel_pending_expense. Do NOT attempt to confirm via chat."
                 }, ensure_ascii=False)
 
-            # If it was a money transfer and store defaulted to 'local store', assign clean transfer store
-            if raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send")):
+            # If canonical_store is generic or default, check if recipient or vendor is mentioned in raw_transcript
+            extracted_recip = extract_recipient_or_vendor(raw_transcript)
+            if extracted_recip:
+                if canonical_store in ("local store", "general store", "general purchase", "bank transfer", "bank_transfer", "bank_transfer transfer", "transfer", "cash", "easypaisa", "jazzcash", "card"):
+                    canonical_store = extracted_recip
+            elif raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send", "sent")):
                 if canonical_store in ("local store", "general store", "general purchase"):
                     clean_pm = final_pm.replace("_", " ")
                     canonical_store = clean_pm if "transfer" in clean_pm else f"{clean_pm} transfer"
+
+            # Duplicate / Clarification Guard:
+            # If the user recently recorded a transaction (within last 15 minutes), and this turn is a clarification,
+            # addition of a recipient name/purpose, or answering a follow-up question with identical amount,
+            # update the existing transaction instead of creating a duplicate row!
+            now_pkt = get_pkt_now()
+            recent_tx = (
+                db.query(Transaction)
+                .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
+                .order_by(Transaction.id.desc())
+                .first()
+            )
+
+            is_clarification = False
+            if recent_tx:
+                tx_age_seconds = (now_pkt - recent_tx.transaction_date).total_seconds()
+                amount_matches = (final_total == 0 or abs(recent_tx.total_amount - final_total) < 1.0)
+                
+                raw_lower = (raw_transcript or "").lower()
+                clarify_phrases = (
+                    "add name", "name is", "naam", "recipient", "actually", "correct",
+                    "change", "update", "likh do", "daal do", "bhi add", "bhi likh",
+                    "yes", "haaji", "jee", "haan", "for rent", "purpose"
+                )
+                has_clarify_signal = any(p in raw_lower for p in clarify_phrases)
+                
+                recent_was_generic = recent_tx.store_name in (
+                    "local store", "general store", "general purchase", "bank transfer",
+                    "bank_transfer transfer", "bank_transfer", "easypaisa transfer", "jazzcash transfer", "transfer"
+                )
+                new_is_specific = canonical_store not in (
+                    "local store", "general store", "general purchase", "bank transfer",
+                    "bank_transfer transfer", "bank_transfer", "easypaisa transfer", "jazzcash transfer", "transfer"
+                )
+
+                if (tx_age_seconds <= 900) and amount_matches and (has_clarify_signal or (recent_was_generic and new_is_specific)):
+                    is_clarification = True
+
+            if is_clarification and recent_tx:
+                # Update existing transaction in place
+                if canonical_store and canonical_store != recent_tx.store_name:
+                    recent_tx.store_name = canonical_store
+                if final_pm and final_pm != "cash" and recent_tx.payment_method == "cash":
+                    recent_tx.payment_method = final_pm
+                if parsed_items:
+                    for it in parsed_items:
+                        t_item = db.query(TransactionItem).filter(TransactionItem.transaction_id == recent_tx.id).first()
+                        if t_item:
+                            t_item.item_name = it["item_name"]
+                            t_item.category = it["category"]
+                            t_item.price = round(it["price"], 2)
+                db.commit()
+                db.refresh(recent_tx)
+
+                alerts = [
+                    b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                ]
+
+                return json.dumps({
+                    "status": "success",
+                    "updated_existing": True,
+                    "message": "Updated previous expense with recipient and details (no duplicate created).",
+                    "transaction_id": recent_tx.id,
+                    "user_id": user_id,
+                    "store_name": recent_tx.store_name,
+                    "total_amount_pkr": round(recent_tx.total_amount, 2),
+                    "payment_method": recent_tx.payment_method,
+                    "date": recent_tx.transaction_date.strftime("%Y-%m-%d"),
+                    "budget_alerts": alerts,
+                }, ensure_ascii=False)
 
             # Create Transaction record
             tx = Transaction(
@@ -744,6 +916,91 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         except Exception as e:
             db.rollback()
             logger.error(f"Error logging expense for user {user_id}: {e}")
+            return json.dumps({"status": "error", "message": str(e)})
+        finally:
+            db.close()
+
+    @tool("update_last_expense", args_schema=UpdateLastExpenseInput)
+    def update_last_expense(
+        store_name: Optional[str] = None,
+        category: Optional[str] = None,
+        notes_or_purpose: Optional[str] = None,
+        payment_method: Optional[str] = None,
+        total_amount: Optional[float] = None,
+    ) -> str:
+        """Updates the user's most recent active expense transaction (e.g. adding recipient name, purpose/category, or correcting payment method/amount) without creating a duplicate entry."""
+        db: Session = SessionLocal()
+        try:
+            latest_tx = (
+                db.query(Transaction)
+                .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
+                .order_by(Transaction.id.desc())
+                .first()
+            )
+            if not latest_tx:
+                return json.dumps({"status": "error", "message": "No active recent transaction found to update."})
+
+            # Check if store_name / recipient was passed or can be extracted from raw_transcript
+            clean_store = (store_name or "").strip().lower()
+            if not clean_store and raw_transcript:
+                clean_store = extract_recipient_or_vendor(raw_transcript)
+
+            if clean_store:
+                latest_tx.store_name = clean_store
+
+            # Payment method
+            if payment_method and payment_method.strip():
+                latest_tx.payment_method = detect_payment_method(payment_method, raw_transcript)
+
+            # Amount
+            if total_amount is not None and float(total_amount) > 0:
+                try:
+                    val_total = validate_transaction_amount(float(total_amount))
+                    latest_tx.total_amount = round(val_total, 2)
+                except ValueError as ve:
+                    return json.dumps({"status": "error", "message": str(ve)})
+
+            # Update TransactionItem records (category, purpose/notes)
+            items = db.query(TransactionItem).filter(TransactionItem.transaction_id == latest_tx.id).all()
+            if category or notes_or_purpose or total_amount:
+                if items:
+                    for it in items:
+                        if category and category.strip():
+                            it.category = category.strip().lower()
+                        if notes_or_purpose and notes_or_purpose.strip():
+                            it.item_name = notes_or_purpose.strip().lower()
+                        if total_amount is not None and len(items) == 1:
+                            it.price = round(latest_tx.total_amount, 2)
+                else:
+                    new_item = TransactionItem(
+                        transaction_id=latest_tx.id,
+                        item_name=(notes_or_purpose or "general purchase").strip().lower(),
+                        category=(category or "other").strip().lower(),
+                        price=latest_tx.total_amount,
+                        quantity=1.0,
+                    )
+                    db.add(new_item)
+
+            db.commit()
+            db.refresh(latest_tx)
+
+            alerts = [
+                b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+            ]
+
+            return json.dumps({
+                "status": "success",
+                "message": "Expense transaction updated successfully.",
+                "transaction_id": latest_tx.id,
+                "store_name": latest_tx.store_name,
+                "total_amount_pkr": round(latest_tx.total_amount, 2),
+                "payment_method": latest_tx.payment_method,
+                "date": latest_tx.transaction_date.strftime("%Y-%m-%d"),
+                "budget_alerts": alerts,
+            }, ensure_ascii=False)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating last expense for user {user_id}: {e}")
             return json.dumps({"status": "error", "message": str(e)})
         finally:
             db.close()
@@ -1298,6 +1555,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
 
     return [
         log_expense,
+        update_last_expense,
         log_sale,
         manage_udhaar,
         query_expenses,
@@ -1407,17 +1665,21 @@ def run_agent(
 
         return reply_text
     except Exception as e:
-        global _BEDROCK_THROTTLED_UNTIL
+        global _BEDROCK_THROTTLED_UNTIL, _VALIDATED_MODEL
         logger.error(f"Agent execution error: {e}")
-        # Trip Bedrock circuit breaker on throttling/validation error so subsequent turns don't hang
         err_str = str(e)
+        if "429" in err_str or "rate_limit" in err_str.lower() or "too many tokens" in err_str.lower():
+            _VALIDATED_MODEL = None
+        # Trip Bedrock circuit breaker on throttling/validation error so subsequent turns don't hang
         if "ThrottlingException" in err_str or "ValidationException" in err_str or "Too many tokens" in err_str:
             _BEDROCK_THROTTLED_UNTIL = time.time() + 300.0
             logger.warning("AWS Bedrock throttled. Fast fallback to Groq active for 5 minutes.")
 
-        # Graceful fallback attempt
+        # Graceful fallback attempt with alternate candidate model
         try:
-            fallback_model = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-20b")
+            curr_model = getattr(llm, "model_name", getattr(llm, "model", ""))
+            alt_candidates = [m for m in MODEL_CANDIDATES if m and m != curr_model]
+            fallback_model = alt_candidates[0] if alt_candidates else "qwen/qwen3.8-27b"
             llm_fallback = ChatGroq(
                 model=fallback_model,
                 temperature=0,
@@ -1431,7 +1693,7 @@ def run_agent(
             )
             fallback_res = fallback_agent.invoke({"messages": messages})
             fallback_reply = fallback_res["messages"][-1].content
-            return fallback_reply
+            return ensure_urdu_script(fallback_reply)
         except Exception as e2:
             logger.error(f"Fallback agent execution error: {e2}")
             err_str2 = str(e2)
