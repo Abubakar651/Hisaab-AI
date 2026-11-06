@@ -447,6 +447,21 @@ html[lang="ur"] .bubble-user[dir="rtl"] *,
   font-family: var(--ur) !important;
 }
 
+/* App header and its buttons strictly keep Figtree English font and LTR geometry */
+html[lang="ur"] .app-header,
+html[lang="ur"] .app-header *,
+html[lang="ur"] .app-header [data-i18n],
+html[lang="ur"] .app-header button,
+html[lang="ur"] .view-switcher-bar,
+html[lang="ur"] .view-switcher-bar *,
+html[lang="ur"] #theme-toggle-btn,
+html[lang="ur"] #lang-toggle-btn,
+html[lang="ur"] #signin-header-btn,
+html[lang="ur"] #account-btn {
+  font-family: var(--ui) !important;
+  direction: ltr !important;
+}
+
 /* Never italicize Nastaliq script — preserve authentic calligraphy geometry */
 html[lang="ur"] *,
 [lang="ur"] {
@@ -465,6 +480,9 @@ html[lang="en"] .font-nastaleeq:not([lang="ur"]) {
 
 /* Zero-Shift Chat Subheader Bar (Locked 48px Height in Both UR & EN) */
 .chat-subheader-bar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   height: 48px !important;
   min-height: 48px !important;
   max-height: 48px !important;
@@ -578,7 +596,30 @@ html[lang="en"] .composer-input::placeholder {
   }
 }
 
-/* Zero-Shift Suggestion Chips (Locked 40px Pill Height in Both UR & EN) */
+/* Zero-Shift Suggestion Chips (Locked 42px Pill Height in Both UR & EN) */
+.chat-suggestions-box,
+html[lang="ur"] .chat-suggestions-box,
+html[lang="en"] .chat-suggestions-box {
+  direction: ltr !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.prompt-chip {
+  flex-shrink: 0 !important;
+  direction: ltr !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+}
+
 html[lang="en"] .prompt-chip {
   font-family: var(--ui) !important;
   font-size: 13.5px !important;
@@ -586,25 +627,16 @@ html[lang="en"] .prompt-chip {
   line-height: 1 !important;
   letter-spacing: normal !important;
   word-spacing: normal !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
   padding: 0 16px !important;
 }
 
 html[lang="ur"] .prompt-chip {
   font-family: var(--ur) !important;
-  font-size: 17px !important;
+  font-size: 16.5px !important;
   font-weight: 600 !important;
   line-height: 1.4 !important;
   word-spacing: 1.5px !important;
-  height: 42px !important;
-  min-height: 42px !important;
   padding: 0 16px !important;
-}
-
-html[lang="ur"] .chat-suggestions-box {
-  direction: rtl !important;
 }
 
 /* Zero-Shift Tip Footer (Locked 38px Height in Both UR & EN) */
@@ -649,8 +681,23 @@ html[lang="ur"] .chat-welcome-title {
   line-height: 1.9 !important;
 }
 
+.welcome-bubble {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  width: 100% !important;
+  max-width: 94% !important;
+  direction: ltr !important;
+}
+
+.welcome-title-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  direction: ltr !important;
+}
+
 html[lang="ur"] .welcome-bubble {
-  direction: rtl !important;
+  direction: ltr !important;
   text-align: right !important;
 }
 
@@ -1462,8 +1509,8 @@ html[lang="en"] .lang-code-ur {
 
 .bubble-user {
   max-width: 82%;
-  margin-inline-start: auto;
-  margin-inline-end: 0;
+  margin-left: auto !important;
+  margin-right: 0 !important;
   background-color: #2a2418;
   border: 1px solid #4a3d22;
   border-radius: 14px;
@@ -1478,8 +1525,8 @@ html[lang="en"] .lang-code-ur {
 
 .bubble-assistant {
   max-width: 88%;
-  margin-inline-end: auto;
-  margin-inline-start: 0;
+  margin-left: 0 !important;
+  margin-right: auto !important;
   background-color: var(--s2);
   border: 1px solid var(--rule);
   border-radius: 14px;
@@ -1493,7 +1540,11 @@ html[lang="en"] .lang-code-ur {
 }
 
 .welcome-bubble {
-  max-width: 94%;
+  max-width: 94% !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+}
   width: 100%;
 }
 
@@ -1920,6 +1971,26 @@ html[lang="en"] .lang-code-ur {
   font-family: var(--ur) !important;
   font-size: 21px !important;
   line-height: 2.3 !important;
+}
+
+.ledger-section-header {
+  display: flex !important;
+  min-height: 32px;
+}
+@media (min-width: 640px) {
+  .ledger-section-header {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+}
+@media (max-width: 639px) {
+  .ledger-section-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+  }
 }
 
 /* Dashed row divider */
@@ -2482,6 +2553,79 @@ html[lang="en"] .lang-code-ur {
   direction: ltr !important;
 }
 
+#auth-modal .modal-panel-420 {
+  padding: 22px 24px !important;
+}
+
+#auth-modal-title {
+  min-height: 28px;
+  line-height: 1.35 !important;
+}
+
+html[lang="ur"] #auth-modal-title {
+  font-family: var(--ur) !important;
+  font-size: 19px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="en"] #auth-modal-title {
+  font-family: var(--ui) !important;
+  font-size: 17.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+}
+
+#auth-modal .modal-subtitle {
+  margin-bottom: 12px !important;
+}
+
+html[lang="ur"] #auth-modal .modal-subtitle {
+  font-family: var(--ur) !important;
+  font-size: 14.5px !important;
+  line-height: 1.4 !important;
+}
+
+html[lang="en"] #auth-modal .modal-subtitle {
+  font-family: var(--ui) !important;
+  font-size: 12.5px !important;
+  line-height: 1.35 !important;
+}
+
+#auth-modal p[data-i18n="auth.desc"] {
+  margin-bottom: 14px !important;
+}
+
+html[lang="ur"] #auth-modal p[data-i18n="auth.desc"] {
+  font-family: var(--ur) !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+html[lang="en"] #auth-modal p[data-i18n="auth.desc"] {
+  font-family: var(--ui) !important;
+  font-size: 12.5px !important;
+  line-height: 1.4 !important;
+}
+
+#auth-modal .input-base,
+html[lang="ur"] #auth-modal .input-base,
+html[lang="en"] #auth-modal .input-base {
+  min-height: 44px !important;
+  height: 44px !important;
+  font-size: 13.5px !important;
+  line-height: 20px !important;
+  padding: 8px 14px !important;
+  box-sizing: border-box !important;
+}
+
+#auth-modal .btn-primary-brass,
+#auth-modal #google-signin-btn,
+html[lang="ur"] #auth-modal .btn-primary-brass,
+html[lang="ur"] #auth-modal #google-signin-btn {
+  min-height: 44px !important;
+  height: 44px !important;
+}
+
 #auth-email,
 #auth-password {
   direction: ltr !important;
@@ -2779,7 +2923,7 @@ html[lang="en"] .lang-code-ur {
   }
 
   .pane-ledger {
-    padding: 18px 16px 36px !important;
+    padding: 18px 16px 88px !important;
   }
 
   .ledger-hero-card {

@@ -222,6 +222,9 @@ tailwind.config = {
         HisaabI18n.onLanguageChange(() => {
           if (state.lastDashboardData) {
             renderDashboard(state.lastDashboardData);
+          } else {
+            renderGalla({});
+            renderUdhaar({ items: [], total_receivable_pkr: 0, total_payable_pkr: 0 });
           }
           if (window.Chart) {
             Chart.defaults.plugins.tooltip.rtl = (HisaabI18n.getLanguage() === 'ur');

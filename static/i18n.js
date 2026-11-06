@@ -136,7 +136,7 @@
       'confirm.btn_no': 'منسوخ کریں (Cancel)',
 
       // Modals (Auth & Mic)
-      'auth.title': 'لاگ ان HisaabAI',
+      'auth.title': 'حساب اے آئی (HisaabAI) لاگ ان',
       'auth.subtitle': 'کثیر لسانی آواز اور تحریر کا کھاتہ',
       'auth.desc': 'اپنے اخراجات کو محفوظ رکھنے اور کسی بھی ڈیوائس پر سنک کرنے کے لیے لاگ ان کریں یا نیا اکاؤنٹ بنائیں۔',
       'auth.tab_signin': 'لاگ ان',

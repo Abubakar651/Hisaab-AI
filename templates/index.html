@@ -354,7 +354,7 @@
 
         <!-- Welcome Message -->
         <div id="welcome-card" class="bubble-assistant welcome-bubble">
-          <div class="flex items-center gap-2 mb-2 text-brass">
+          <div class="welcome-title-row flex items-center gap-2 mb-2 text-brass">
             <i data-lucide="wallet" class="w-5 h-5 shrink-0"></i>
             <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">السلام علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
           </div>
@@ -441,9 +441,13 @@
 
       <!-- Shopkeeper Daily Galla (Today's Cash Drawer) -->
       <section class="ledger-section">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-2.5">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="galla.title">آج کا گلہ (روزانہ بکری اور خرچہ)</h2>
-          <span id="galla-cash-split" class="text-xs text-mut font-ur">نقد: Rs 0 • ڈیجیٹل: Rs 0</span>
+          <span id="galla-cash-split" class="text-xs text-mut font-ur">
+            <span class="inline-flex items-center gap-1"><span class="font-ur" data-i18n="galla.cash_short">نقد</span>: <span class="font-num font-semibold" dir="ltr">Rs 0</span></span>
+            <span class="text-mut px-1">•</span>
+            <span class="inline-flex items-center gap-1"><span class="font-ur" data-i18n="galla.digital_short">ڈیجیٹل</span>: <span class="font-num font-semibold" dir="ltr">Rs 0</span></span>
+          </span>
         </div>
         <div class="grid grid-cols-3 gap-2.5 font-ur">
           <div class="galla-stat-box galla-stat-in">
@@ -463,7 +467,7 @@
 
       <!-- Udhaar / Khata Book (Lend & Borrow Money) -->
       <section class="ledger-section">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-3">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="udhaar.title">ادھار کھاتہ (لین دین)</h2>
           <div class="flex items-center gap-2 text-xs font-ur">
             <span class="udhaar-pill udhaar-pill-in">
