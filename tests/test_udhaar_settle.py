@@ -172,3 +172,98 @@ def test_soft_deleted_entries_ignored(db):
     entry_after = db.query(UdhaarEntry).filter_by(id=entry_id).first()
     assert entry_after.paid_amount == 0.0
     assert entry_after.status == "open"
+
+
+def test_overpayment_not_applied_silently(db):
+    user_id = "user_overpay_1"
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=2000.0, direction="receivable")
+
+    res = settle_udhaar(db, user_id=user_id, person_name="Ali", payment_amount=5000.0)
+    assert res["status"] == "overpaid"
+    assert res["open_balance_pkr"] == 2000.0
+    assert res["overpaid_by_pkr"] == 3000.0
+
+    db.expire_all()
+    entry = db.query(UdhaarEntry).filter_by(user_id=user_id).first()
+    assert entry.paid_amount == 0.0
+    assert entry.status == "open"
+
+
+def test_overpayment_confirmed_settles_open_balance_and_reports_extra(db):
+    user_id = "user_overpay_2"
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=2000.0, direction="receivable")
+
+    res = settle_udhaar(
+        db,
+        user_id=user_id,
+        person_name="Ali",
+        payment_amount=5000.0,
+        confirm_overpay=True,
+    )
+    assert res["status"] == "success"
+    assert res["settled_amount_pkr"] == 2000.0
+    assert res["remaining_balance_pkr"] == 0.0
+    assert res["overpaid_by_pkr"] == 3000.0
+    assert res["fully_settled"] is True
+
+    db.expire_all()
+    entry = db.query(UdhaarEntry).filter_by(user_id=user_id).first()
+    assert entry.paid_amount == 2000.0
+    assert entry.status == "settled"
+
+
+def test_full_settle_without_amount_still_works(db):
+    user_id = "user_full_settle"
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=1200.0, direction="receivable")
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=800.0, direction="receivable")
+
+    res = settle_udhaar(db, user_id=user_id, person_name="Ali", payment_amount=None)
+    assert res["status"] == "success"
+    assert res["settled_amount_pkr"] == 2000.0
+    assert res["remaining_balance_pkr"] == 0.0
+    assert res["fully_settled"] is True
+
+    db.expire_all()
+    for e in db.query(UdhaarEntry).filter_by(user_id=user_id).all():
+        assert e.paid_amount == e.amount
+        assert e.status == "settled"
+
+
+def test_concurrent_settles_never_exceed_amount(db):
+    import threading
+    import database
+
+    user_id = "user_concurrent_settle"
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=600.0, direction="receivable")
+
+    barrier = threading.Barrier(2)
+    results = []
+    lock = threading.Lock()
+
+    def worker():
+        s = database.SessionLocal()
+        try:
+            barrier.wait(timeout=5.0)
+            r = settle_udhaar(s, user_id=user_id, person_name="Ali", payment_amount=500.0)
+            with lock:
+                results.append(r)
+        finally:
+            s.close()
+
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join(timeout=10.0)
+    t2.join(timeout=10.0)
+
+    db.expire_all()
+    entry = db.query(UdhaarEntry).filter_by(user_id=user_id).first()
+    assert entry.paid_amount <= 600.0
+    assert entry.paid_amount == 500.0
+    successes = [r for r in results if r.get("status") == "success"]
+    non_successes = [r for r in results if r.get("status") in ("conflict", "overpaid")]
+    assert len(successes) == 1
+    assert successes[0]["settled_amount_pkr"] == 500.0
+    assert len(non_successes) == 1
+

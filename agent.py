@@ -479,6 +479,10 @@ class ManageUdhaarInput(BaseModel):
         default=None,
         description="Optional direction for settle: 'receivable' (customer paid user / wasooli) or 'payable' (user paid supplier / udhaar chukaya)",
     )
+    confirm_overpay: bool = Field(
+        default=False,
+        description="Set true only after user explicitly confirms settling an overpayment",
+    )
     notes: Optional[str] = Field(
         default=None,
         description="Optional items or note, e.g. 'atta aur cheeni'",
@@ -1503,6 +1507,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         person_name: Optional[str] = None,
         amount: Optional[float] = None,
         direction: Optional[str] = None,
+        confirm_overpay: bool = False,
         notes: Optional[str] = None,
         phone_number: Optional[str] = None,
     ) -> str:
@@ -1547,6 +1552,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     person_name=person_name,
                     payment_amount=float(amount) if amount is not None and float(amount) > 0 else None,
                     direction=direction,
+                    confirm_overpay=bool(confirm_overpay),
                 )
                 res["summary"] = udhaar_summary(db, user_id)
                 return json.dumps(res, ensure_ascii=False)
