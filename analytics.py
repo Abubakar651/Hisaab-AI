@@ -443,43 +443,106 @@ def add_udhaar_entry(
     return {"status": "success", "entry": entry.to_dict()}
 
 
+def _norm(s: Optional[str]) -> str:
+    return " ".join((s or "").lower().split())
+
+
 def settle_udhaar(
     db: Session,
     user_id: str,
     person_name: Optional[str] = None,
     entry_id: Optional[int] = None,
     payment_amount: Optional[float] = None,
+    direction: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Settles full or partial Udhaar balance by entry_id or person_name (FIFO across open entries).
     """
     now = get_pkt_now()
-    query = db.query(UdhaarEntry).filter(
-        UdhaarEntry.user_id == user_id,
-        UdhaarEntry.deleted_at.is_(None),
-        UdhaarEntry.status == "open",
+    clean_dir: Optional[str] = None
+    if direction and str(direction).strip():
+        d_low = str(direction).strip().lower()
+        if d_low in ("payable", "borrow", "dene", "dene_hain", "liya", "owed", "take_credit"):
+            clean_dir = "payable"
+        elif d_low in ("receivable", "lend", "lene", "lene_hain", "diya", "give_credit"):
+            clean_dir = "receivable"
+        else:
+            return {"status": "error", "message": f"Invalid direction '{direction}'. Use 'receivable' or 'payable'."}
+
+    entries = (
+        db.query(UdhaarEntry)
+        .filter(
+            UdhaarEntry.user_id == user_id,
+            UdhaarEntry.deleted_at.is_(None),
+            UdhaarEntry.status == "open",
+        )
+        .order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc())
+        .all()
     )
 
+    open_people = sorted({e.person_name for e in entries if (e.person_name or "").strip()})
+
     if entry_id is not None:
-        query = query.filter(UdhaarEntry.id == int(entry_id))
-    elif person_name:
-        clean_p = person_name.strip().lower()
-        query = query.filter(UdhaarEntry.person_name.ilike(f"%{clean_p}%"))
+        matched = [e for e in entries if e.id == int(entry_id)]
+        if clean_dir:
+            matched = [e for e in matched if e.direction == clean_dir]
+    elif person_name and _norm(person_name):
+        pool = [e for e in entries if e.direction == clean_dir] if clean_dir else entries
+        exact = [e for e in pool if _norm(e.person_name) == _norm(person_name)]
+        if exact:
+            matched = exact
+        else:
+            toks = set(_norm(person_name).split())
+            cands = [e for e in pool if toks and toks <= set(_norm(e.person_name).split())]  # whole words only
+            names = {_norm(e.person_name) for e in cands}
+            if len(names) > 1:
+                return {
+                    "status": "ambiguous",
+                    "candidates": sorted({e.person_name for e in cands}),
+                    "message": f"Multiple open Udhaar records match '{person_name}'. Please specify which person.",
+                }
+            matched = cands
     else:
         return {"status": "error", "message": "Provide person_name or entry_id to settle Udhaar."}
 
-    entries = query.order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc()).all()
-    if not entries:
+    if not matched:
         return {
             "status": "not_found",
+            "open_people": open_people,
             "message": f"No open Udhaar record found for '{person_name or entry_id}'.",
         }
 
-    total_open_before = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in entries)
+    distinct_names = {_norm(e.person_name) for e in matched}
+    if len(distinct_names) > 1:
+        return {
+            "status": "ambiguous",
+            "candidates": sorted({e.person_name for e in matched}),
+            "message": f"Multiple open Udhaar records match '{person_name}'. Please specify which person.",
+        }
+
+    directions_present = {e.direction for e in matched}
+    if clean_dir is None and len(directions_present) > 1:
+        receivable_pkr = round(
+            sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in matched if e.direction == "receivable"),
+            2,
+        )
+        payable_pkr = round(
+            sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in matched if e.direction == "payable"),
+            2,
+        )
+        return {
+            "status": "ambiguous_direction",
+            "person_name": matched[0].person_name,
+            "receivable_pkr": receivable_pkr,
+            "payable_pkr": payable_pkr,
+            "message": f"'{matched[0].person_name}' has both receivable and payable open balances. Please specify direction.",
+        }
+
+    total_open_before = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in matched)
     if payment_amount is None or float(payment_amount) <= 0 or float(payment_amount) >= total_open_before:
         # Full settlement of matching entries
         applied = total_open_before
-        for e in entries:
+        for e in matched:
             e.paid_amount = float(e.amount or 0.0)
             e.status = "settled"
             e.updated_at = now
@@ -487,7 +550,7 @@ def settle_udhaar(
         # Partial settlement FIFO
         remaining_to_apply = round(float(payment_amount), 2)
         applied = 0.0
-        for e in entries:
+        for e in matched:
             if remaining_to_apply <= 0:
                 break
             entry_rem = round(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)), 2)
@@ -504,14 +567,14 @@ def settle_udhaar(
             e.updated_at = now
 
     db.commit()
-    total_open_after = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in entries)
-    matched_person = entries[0].person_name
-    direction = entries[0].direction
+    total_open_after = sum(max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0)) for e in matched)
+    matched_person = matched[0].person_name
+    final_direction = matched[0].direction
 
     return {
         "status": "success",
         "person_name": matched_person,
-        "direction": direction,
+        "direction": final_direction,
         "settled_amount_pkr": round(applied, 2),
         "remaining_balance_pkr": round(total_open_after, 2),
         "fully_settled": total_open_after <= 0.01,
