@@ -27,3 +27,6 @@ __pycache__/
 Thumbs.db
 .idea/
 .vscode/
+
+# Graphify
+graphify-out/
