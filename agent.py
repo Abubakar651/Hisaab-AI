@@ -44,8 +44,41 @@ from analytics import (
 load_dotenv()
 logger = logging.getLogger("hisaab_ai.agent")
 
-def get_groq_client():
-    return Groq(api_key=os.getenv("GROQ_API_KEY", "").strip())
+def get_groq_api_keys() -> List[str]:
+    """
+    Returns ordered, deduplicated list of active Groq API keys.
+    Order: GROQ_API_KEY, GROQ_API_KEY_2, followed by any comma-separated keys in GROQ_API_KEYS.
+    Empty/whitespace strings are discarded.
+    """
+    keys = []
+    seen = set()
+
+    k1 = (os.getenv("GROQ_API_KEY") or "").strip()
+    if k1 and k1 not in seen:
+        keys.append(k1)
+        seen.add(k1)
+
+    k2 = (os.getenv("GROQ_API_KEY_2") or "").strip()
+    if k2 and k2 not in seen:
+        keys.append(k2)
+        seen.add(k2)
+
+    extra_str = os.getenv("GROQ_API_KEYS", "") or ""
+    if extra_str.strip():
+        for piece in extra_str.split(","):
+            p = piece.strip()
+            if p and p not in seen:
+                keys.append(p)
+                seen.add(p)
+
+    return keys
+
+
+def get_groq_client(api_key: Optional[str] = None):
+    if api_key is None:
+        keys = get_groq_api_keys()
+        api_key = keys[0] if keys else ""
+    return Groq(api_key=api_key.strip())
 
 # Initialize Groq client for Whisper ASR
 groq_client = get_groq_client()
@@ -58,16 +91,16 @@ _VALIDATED_MODEL = None
 _BEDROCK_THROTTLED_UNTIL = 0.0
 
 
-def get_chat_llm():
+def get_chat_llm(api_key: Optional[str] = None):
     """
     Initializes Chat LLM.
-    Priority 1: AWS Bedrock (if configured, not throttled, and LLM_PROVIDER != 'groq').
+    Priority 1: AWS Bedrock (if configured, not throttled, LLM_PROVIDER != 'groq', and api_key is None).
     Priority 2: Groq Chat LLM with pre-validated model fallback.
     """
     global _BEDROCK_THROTTLED_UNTIL
     provider = os.getenv("LLM_PROVIDER", "").strip().lower()
 
-    if provider != "groq":
+    if provider != "groq" and api_key is None:
         aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
         aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
         bedrock_model = os.getenv("BEDROCK_MODEL_ID", "").strip()
@@ -96,6 +129,11 @@ def get_chat_llm():
                 except Exception as e:
                     logger.warning(f"Failed to initialize AWS Bedrock LLM ({bedrock_model}): {e}. Falling back to Groq.")
 
+    effective_groq_key = api_key
+    if effective_groq_key is None:
+        groq_keys = get_groq_api_keys()
+        effective_groq_key = groq_keys[0] if groq_keys else ""
+
     global _VALIDATED_MODEL
     if _VALIDATED_MODEL:
         return ChatGroq(
@@ -103,7 +141,7 @@ def get_chat_llm():
             temperature=0,
             max_tokens=800,
             max_retries=3,
-            groq_api_key=os.getenv("GROQ_API_KEY"),
+            groq_api_key=effective_groq_key,
         )
 
     for candidate in MODEL_CANDIDATES:
@@ -114,7 +152,7 @@ def get_chat_llm():
                 model=candidate,
                 temperature=0,
                 max_tokens=10,
-                groq_api_key=os.getenv("GROQ_API_KEY"),
+                groq_api_key=effective_groq_key,
             )
             test_llm.invoke("ping")
             _VALIDATED_MODEL = candidate
@@ -124,7 +162,7 @@ def get_chat_llm():
                 temperature=0,
                 max_tokens=800,
                 max_retries=3,
-                groq_api_key=os.getenv("GROQ_API_KEY"),
+                groq_api_key=effective_groq_key,
             )
         except Exception as e:
             logger.info(f"Groq model candidate '{candidate}' not available: {e}")
@@ -135,7 +173,7 @@ def get_chat_llm():
         model=_VALIDATED_MODEL,
         temperature=0,
         max_tokens=800,
-        groq_api_key=os.getenv("GROQ_API_KEY"),
+        groq_api_key=effective_groq_key,
     )
 
 
@@ -185,6 +223,7 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
     Transcribes audio using Groq whisper-large-v3 with domain prompt injection
     for accurate Pakistani store names, prices, and code-switched Urdu/Punjabi.
     Enforces Pakistani Urdu script (Nastaliq), preventing Hindi Devanagari, Gurmukhi, or Latin transliteration.
+    Automatically rotates to secondary Groq API key upon 429 rate limit.
     """
     if not file_bytes or len(file_bytes) < 100:
         logger.warning("Empty or very short audio payload received.")
@@ -198,43 +237,53 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
         "ادھار، کھاتہ، کھاتے میں، وصولی، ادھار دیا، ادھار لیا، گاہک، فروخت، گلا، کیش، بینک ٹرانسفر، روپے، PKR"
     )
 
-    try:
-        client = get_groq_client()
-        transcription = client.audio.transcriptions.create(
-            file=(filename, file_bytes),
-            model="whisper-large-v3",
-            prompt=domain_prompt,
-            temperature=0.0,
-            response_format="verbose_json",
-        )
-        raw_text = getattr(transcription, "text", "") or (transcription.get("text", "") if isinstance(transcription, dict) else "")
-        raw_text = raw_text.strip()
-        detected_lang = getattr(transcription, "language", "") or (transcription.get("language", "") if isinstance(transcription, dict) else "")
-
-        # If spoken Urdu/Punjabi/regional dialect was detected but transcribed in non-Arabic script (e.g. Latin transliteration or Devanagari),
-        # perform at most ONE retry with explicit language="ur".
-        if detected_lang in REGIONAL_LANGS and not bool(ARABIC_SCRIPT_REGEX.search(raw_text)):
+    keys = get_groq_api_keys() or [""]
+    for idx, k in enumerate(keys):
+        try:
             try:
-                retry_transcription = client.audio.transcriptions.create(
-                    file=(filename, file_bytes),
-                    model="whisper-large-v3",
-                    prompt=domain_prompt,
-                    temperature=0.0,
-                    language="ur",
-                    response_format="verbose_json",
-                )
-                retry_text = getattr(retry_transcription, "text", "") or (retry_transcription.get("text", "") if isinstance(retry_transcription, dict) else "")
-                if retry_text and retry_text.strip():
-                    raw_text = retry_text.strip()
-            except Exception as retry_err:
-                # On 429 or any retry error, safely fall back to the first transcript
-                logger.warning(f"Whisper Urdu retry failed, using initial transcript: {retry_err}")
+                client = get_groq_client(api_key=k)
+            except TypeError:
+                client = get_groq_client()
+            transcription = client.audio.transcriptions.create(
+                file=(filename, file_bytes),
+                model="whisper-large-v3",
+                prompt=domain_prompt,
+                temperature=0.0,
+                response_format="verbose_json",
+            )
+            raw_text = getattr(transcription, "text", "") or (transcription.get("text", "") if isinstance(transcription, dict) else "")
+            raw_text = raw_text.strip()
+            detected_lang = getattr(transcription, "language", "") or (transcription.get("language", "") if isinstance(transcription, dict) else "")
 
-        # Final guarantee that Urdu/Punjabi text is formatted in authentic Urdu script, never Hindi Devanagari
-        return ensure_urdu_script(raw_text)
-    except Exception as e:
-        logger.error(f"Whisper transcription failed: {e}")
-        raise RuntimeError(f"Speech transcription failed: {str(e)}")
+            # If spoken Urdu/Punjabi/regional dialect was detected but transcribed in non-Arabic script (e.g. Latin transliteration or Devanagari),
+            # perform at most ONE retry with explicit language="ur".
+            if detected_lang in REGIONAL_LANGS and not bool(ARABIC_SCRIPT_REGEX.search(raw_text)):
+                try:
+                    retry_transcription = client.audio.transcriptions.create(
+                        file=(filename, file_bytes),
+                        model="whisper-large-v3",
+                        prompt=domain_prompt,
+                        temperature=0.0,
+                        language="ur",
+                        response_format="verbose_json",
+                    )
+                    retry_text = getattr(retry_transcription, "text", "") or (retry_transcription.get("text", "") if isinstance(retry_transcription, dict) else "")
+                    if retry_text and retry_text.strip():
+                        raw_text = retry_text.strip()
+                except Exception as retry_err:
+                    # On 429 or any retry error, safely fall back to the first transcript
+                    logger.warning(f"Whisper Urdu retry failed, using initial transcript: {retry_err}")
+
+            # Final guarantee that Urdu/Punjabi text is formatted in authentic Urdu script, never Hindi Devanagari
+            return ensure_urdu_script(raw_text)
+        except Exception as e:
+            err_msg = str(e)
+            is_429 = "429" in err_msg or "rate_limit" in err_msg.lower()
+            if is_429 and idx + 1 < len(keys):
+                logger.warning(f"Whisper transcription rate limit (429) on key index {idx}; rotating to next Groq key...")
+                continue
+            logger.error(f"Whisper transcription failed: {e}")
+            raise RuntimeError(f"Speech transcription failed: {str(e)}")
 
 
 
@@ -638,11 +687,33 @@ When a transaction is successfully recorded, you may proactively ask ONE brief, 
 # ---------------------------------------------------------------------------
 # Tool Factory Function (Tenant Isolation via Closure)
 # ---------------------------------------------------------------------------
-def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
+def get_tools_for_user(
+    user_id: str,
+    raw_transcript: str = "",
+    turn_state: Optional[Dict[str, Any]] = None,
+) -> list:
     """
     Creates user-scoped LangChain tools bound via Python closure to user_id.
     Guarantees strict tenant isolation: the LLM never supplies or controls user_id.
     """
+
+    def check_idempotent_cache(tool_name: str) -> Optional[str]:
+        if turn_state is not None and turn_state.get("attempt", 0) > 0:
+            cached = turn_state.get("mutations_by_tool", {}).get(tool_name)
+            if cached:
+                logger.info(f"Returning cached mutation result for {tool_name} on attempt {turn_state.get('attempt')}")
+                return cached
+        return None
+
+    def record_idempotent_result(tool_name: str, res_str: str) -> str:
+        if turn_state is not None and isinstance(res_str, str):
+            try:
+                parsed = json.loads(res_str)
+                if isinstance(parsed, dict) and parsed.get("status") in ("success", "needs_confirmation", "cancelled"):
+                    turn_state.setdefault("mutations_by_tool", {})[tool_name] = res_str
+            except Exception:
+                pass
+        return res_str
 
     @tool("log_expense", args_schema=LogExpenseInput)
     def log_expense(
@@ -653,6 +724,30 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         payment_method: Optional[str] = "cash",
     ) -> str:
         """Logs an expense transaction with line items into the database for the current user."""
+        cached = check_idempotent_cache("log_expense")
+        if cached:
+            return cached
+
+        # Complaint / Reclassification Guard:
+        # If user is reporting a misclassification, requesting udhaar or deletion,
+        # log_expense must NOT execute or insert a new transaction row.
+        raw_lower = (raw_transcript or "").lower()
+        complaint_signals = (
+            "ادھار", "ادار", "خطہ", "کھاتہ", "غلط", "wrong", "mistake",
+            "udhaar", "khata", "not an expense", "delete", "remove", "undo", "مٹا", "منسوخ"
+        )
+        cash_overrides = ("نقد", "naqd", "کیش")
+        has_complaint = any(sig in raw_lower for sig in complaint_signals)
+        has_cash_override = any(co in raw_lower for co in cash_overrides)
+        if has_complaint and not has_cash_override:
+            return json.dumps(
+                {
+                    "status": "rejected_complaint",
+                    "message": "User is reporting a misclassification or requesting Udhaar/deletion. Do not call log_expense; follow the confirmation/reclassification flow.",
+                },
+                ensure_ascii=False,
+            )
+
         db: Session = SessionLocal()
         try:
             canonical_store = (store_name or "general store").strip().lower()
@@ -769,16 +864,19 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 )
                 db.add(pending)
                 db.commit()
-                return json.dumps({
-                    "status": "needs_confirmation",
-                    "pending_id": pending.id,
-                    "amount": round(final_total, 2),
-                    "payment_method": final_pm,
-                    "store_name": canonical_store,
-                    "message": plausibility["reason"],
-                    "expires_in_seconds": 300,
-                    "instruction": "This expense is held in pending status on the server. Tell the user in their language that this large amount is pending confirmation and they must press the 'Confirm' button on their screen to record it, or say cancel. If they decline or say cancel, execute cancel_pending_expense. Do NOT attempt to confirm via chat."
-                }, ensure_ascii=False)
+                return record_idempotent_result(
+                    "log_expense",
+                    json.dumps({
+                        "status": "needs_confirmation",
+                        "pending_id": pending.id,
+                        "amount": round(final_total, 2),
+                        "payment_method": final_pm,
+                        "store_name": canonical_store,
+                        "message": plausibility["reason"],
+                        "expires_in_seconds": 300,
+                        "instruction": "This expense is held in pending status on the server. Tell the user in their language that this large amount is pending confirmation and they must press the 'Confirm' button on their screen to record it, or say cancel. If they decline or say cancel, execute cancel_pending_expense. Do NOT attempt to confirm via chat."
+                    }, ensure_ascii=False),
+                )
 
             # If canonical_store is generic or default, check if recipient or vendor is mentioned in raw_transcript
             extracted_recip = extract_recipient_or_vendor(raw_transcript)
@@ -854,18 +952,21 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
                 ]
 
-                return json.dumps({
-                    "status": "success",
-                    "updated_existing": True,
-                    "message": "Updated previous expense with recipient and details (no duplicate created).",
-                    "transaction_id": recent_tx.id,
-                    "user_id": user_id,
-                    "store_name": recent_tx.store_name,
-                    "total_amount_pkr": round(recent_tx.total_amount, 2),
-                    "payment_method": recent_tx.payment_method,
-                    "date": recent_tx.transaction_date.strftime("%Y-%m-%d"),
-                    "budget_alerts": alerts,
-                }, ensure_ascii=False)
+                return record_idempotent_result(
+                    "log_expense",
+                    json.dumps({
+                        "status": "success",
+                        "updated_existing": True,
+                        "message": "Updated previous expense with recipient and details (no duplicate created).",
+                        "transaction_id": recent_tx.id,
+                        "user_id": user_id,
+                        "store_name": recent_tx.store_name,
+                        "total_amount_pkr": round(recent_tx.total_amount, 2),
+                        "payment_method": recent_tx.payment_method,
+                        "date": recent_tx.transaction_date.strftime("%Y-%m-%d"),
+                        "budget_alerts": alerts,
+                    }, ensure_ascii=False),
+                )
 
             # Create Transaction record
             tx = Transaction(
@@ -942,7 +1043,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "items": logged_items,
                 "budget_alerts": alerts,
             }
-            return json.dumps(result, ensure_ascii=False)
+            return record_idempotent_result("log_expense", json.dumps(result, ensure_ascii=False))
         except Exception as e:
             db.rollback()
             logger.error(f"Error logging expense for user {user_id}: {e}")
@@ -959,6 +1060,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         total_amount: Optional[float] = None,
     ) -> str:
         """Updates the user's most recent active expense transaction (e.g. adding recipient name, purpose/category, or correcting payment method/amount) without creating a duplicate entry."""
+        cached = check_idempotent_cache("update_last_expense")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             latest_tx = (
@@ -1018,16 +1123,19 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
             ]
 
-            return json.dumps({
-                "status": "success",
-                "message": "Expense transaction updated successfully.",
-                "transaction_id": latest_tx.id,
-                "store_name": latest_tx.store_name,
-                "total_amount_pkr": round(latest_tx.total_amount, 2),
-                "payment_method": latest_tx.payment_method,
-                "date": latest_tx.transaction_date.strftime("%Y-%m-%d"),
-                "budget_alerts": alerts,
-            }, ensure_ascii=False)
+            return record_idempotent_result(
+                "update_last_expense",
+                json.dumps({
+                    "status": "success",
+                    "message": "Expense transaction updated successfully.",
+                    "transaction_id": latest_tx.id,
+                    "store_name": latest_tx.store_name,
+                    "total_amount_pkr": round(latest_tx.total_amount, 2),
+                    "payment_method": latest_tx.payment_method,
+                    "date": latest_tx.transaction_date.strftime("%Y-%m-%d"),
+                    "budget_alerts": alerts,
+                }, ensure_ascii=False),
+            )
         except Exception as e:
             db.rollback()
             logger.error(f"Error updating last expense for user {user_id}: {e}")
@@ -1177,6 +1285,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
     @tool("delete_last_transaction", args_schema=DeleteLastTransactionInput)
     def delete_last_transaction(confirm: bool = True) -> str:
         """Soft-deletes the most recent expense transaction logged for the current user."""
+        cached = check_idempotent_cache("delete_last_transaction")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             tx = (
@@ -1204,13 +1316,16 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             tx.deleted_at = get_pkt_now()
             db.commit()
 
-            return json.dumps(
-                {
-                    "status": "success",
-                    "message": "Most recent transaction was successfully deleted.",
-                    "deleted_transaction": deleted_info,
-                },
-                ensure_ascii=False,
+            return record_idempotent_result(
+                "delete_last_transaction",
+                json.dumps(
+                    {
+                        "status": "success",
+                        "message": "Most recent transaction was successfully deleted.",
+                        "deleted_transaction": deleted_info,
+                    },
+                    ensure_ascii=False,
+                ),
             )
         except Exception as e:
             db.rollback()
@@ -1222,6 +1337,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
     @tool("set_budget", args_schema=SetBudgetInput)
     def set_budget(monthly_limit: float, category: Optional[str] = "total") -> str:
         """Sets (or updates) the monthly budget for the current user, overall ('total') or for one category, and returns live usage."""
+        cached = check_idempotent_cache("set_budget")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             cat = (category or "total").strip().lower()
@@ -1240,9 +1359,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 db.add(Budget(user_id=user_id, category=cat, monthly_limit=float(monthly_limit)))
             db.commit()
             status = [s for s in budget_status(db, user_id) if s["category"] == cat]
-            return json.dumps(
-                {"status": "success", "message": "Budget saved.", "budget": status[0] if status else None},
-                ensure_ascii=False,
+            return record_idempotent_result(
+                "set_budget",
+                json.dumps(
+                    {"status": "success", "message": "Budget saved.", "budget": status[0] if status else None},
+                    ensure_ascii=False,
+                ),
             )
         except Exception as e:
             db.rollback()
@@ -1278,6 +1400,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         category: Optional[str] = "utilities",
     ) -> str:
         """Registers a monthly recurring obligation (rent, bill, school fee, BC committee) with its due day."""
+        cached = check_idempotent_cache("add_recurring_expense")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             clean_title = (title or "").strip().lower()
@@ -1304,9 +1430,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     )
                 )
             db.commit()
-            return json.dumps(
-                {"status": "success", "message": "Recurring expense saved.", "recurring": recurring_status(db, user_id)},
-                ensure_ascii=False,
+            return record_idempotent_result(
+                "add_recurring_expense",
+                json.dumps(
+                    {"status": "success", "message": "Recurring expense saved.", "recurring": recurring_status(db, user_id)},
+                    ensure_ascii=False,
+                ),
             )
         except Exception as e:
             db.rollback()
@@ -1318,6 +1447,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
     @tool("mark_recurring_paid", args_schema=MarkRecurringPaidInput)
     def mark_recurring_paid(title: str) -> str:
         """Marks a recurring obligation as paid for the current month AND automatically logs it as an expense using its saved amount. NEVER ask the user for the amount."""
+        cached = check_idempotent_cache("mark_recurring_paid")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             needle = (title or "").strip().lower()
@@ -1328,9 +1461,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
             )
             if not item:
                 return json.dumps({"status": "not_found", "message": f"No recurring expense matching '{title}'."})
-            return json.dumps(
-                pay_recurring(db, user_id, item, raw_transcript=raw_transcript),
-                ensure_ascii=False,
+            return record_idempotent_result(
+                "mark_recurring_paid",
+                json.dumps(
+                    pay_recurring(db, user_id, item, raw_transcript=raw_transcript),
+                    ensure_ascii=False,
+                ),
             )
         except Exception as e:
             db.rollback()
@@ -1342,10 +1478,14 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
     @tool("cancel_pending_expense", args_schema=CancelPendingInput)
     def cancel_pending_expense() -> str:
         """Cancels and discards the currently pending expense transaction for the user."""
+        cached = check_idempotent_cache("cancel_pending_expense")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             res = analytics.cancel_pending_transaction(db, user_id)
-            return json.dumps(res, ensure_ascii=False)
+            return record_idempotent_result("cancel_pending_expense", json.dumps(res, ensure_ascii=False))
         except Exception as e:
             logger.error(f"Error cancelling pending expense for {user_id}: {e}")
             return json.dumps({"status": "error", "message": "Failed to cancel pending expense."})
@@ -1361,6 +1501,10 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         payment_method: Optional[str] = "cash",
     ) -> str:
         """Logs a daily shop sale (farokht / cash-in) into the database for the current user and updates Aaj Ka Galla."""
+        cached = check_idempotent_cache("log_sale")
+        if cached:
+            return cached
+
         db: Session = SessionLocal()
         try:
             canonical_store = (customer_or_note or "daily sale").strip().lower()
@@ -1514,7 +1658,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                 "items": logged_items,
                 "galla": galla_summary(db, user_id),
             }
-            return json.dumps(result, ensure_ascii=False)
+            return record_idempotent_result("log_sale", json.dumps(result, ensure_ascii=False))
         except Exception as e:
             db.rollback()
             logger.error(f"Error logging sale for user {user_id}: {e}")
@@ -1532,9 +1676,14 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         phone_number: Optional[str] = None,
     ) -> str:
         """Manages the shopkeeper's Udhaar / Khata book: give_credit (lene hain), take_credit (dene hain), settle (wasooli), or list."""
+        clean_action = (action or "list").strip().lower()
+        if clean_action != "list":
+            cached = check_idempotent_cache("manage_udhaar")
+            if cached:
+                return cached
+
         db: Session = SessionLocal()
         try:
-            clean_action = (action or "list").strip().lower()
             if clean_action in ("give_credit", "receivable", "lend", "lene_hain", "udhaar_diya", "credit", "udhaar", "khata", "saaman_diya", "maal_diya"):
                 if not person_name or amount is None:
                     return json.dumps({"status": "error", "message": "person_name and amount are required to record udhaar."})
@@ -1548,7 +1697,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     phone_number=phone_number,
                 )
                 res["summary"] = udhaar_summary(db, user_id)
-                return json.dumps(res, ensure_ascii=False)
+                return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("take_credit", "payable", "borrow", "dene_hain", "udhaar_liya"):
                 if not person_name or amount is None:
                     return json.dumps({"status": "error", "message": "person_name and amount are required to record udhaar."})
@@ -1562,7 +1711,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     phone_number=phone_number,
                 )
                 res["summary"] = udhaar_summary(db, user_id)
-                return json.dumps(res, ensure_ascii=False)
+                return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("settle", "wasooli", "pay", "paid"):
                 if not person_name:
                     return json.dumps({"status": "error", "message": "person_name is required to settle udhaar."})
@@ -1575,7 +1724,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     confirm_overpay=False,
                 )
                 res["summary"] = udhaar_summary(db, user_id)
-                return json.dumps(res, ensure_ascii=False)
+                return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             else:
                 summary = udhaar_summary(db, user_id)
                 return json.dumps({"status": "success", "udhaar": summary}, ensure_ascii=False)
@@ -1628,8 +1777,10 @@ def run_agent(
         return "Please provide an expense message or voice note."
 
     clean_user_id = user_id.strip() or "default"
-    tools = get_tools_for_user(clean_user_id, raw_transcript=raw_transcript)
+    turn_state = {"attempt": 0, "mutations_by_tool": {}}
+    tools = get_tools_for_user(clean_user_id, raw_transcript=raw_transcript, turn_state=turn_state)
     system_prompt = build_system_prompt(ui_lang=ui_lang)
+    groq_keys = get_groq_api_keys() or [""]
     llm = get_chat_llm()
 
     # Construct conversation history (treat client-supplied history as untrusted)
@@ -1672,14 +1823,21 @@ def run_agent(
     try:
         response = None
         for attempt in range(2):
+            turn_state["attempt"] = attempt
             try:
                 response = agent.invoke({"messages": messages})
                 break
             except Exception as invoke_err:
                 err_text = str(invoke_err)
                 if ("429" in err_text or "rate_limit" in err_text.lower() or "too many tokens" in err_text.lower()) and attempt == 0:
-                    logger.warning(f"Groq rate limit 429 encountered, backing off 3.5s before retry (attempt {attempt+1})...")
-                    time.sleep(3.5)
+                    turn_state["attempt"] = attempt + 1
+                    if len(groq_keys) > 1:
+                        logger.warning("Groq rate limit 429 encountered, rotating to secondary key immediately...")
+                        llm = get_chat_llm(api_key=groq_keys[1])
+                        agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
+                    else:
+                        logger.warning(f"Groq rate limit 429 encountered, backing off 3.5s before retry (attempt {attempt+1})...")
+                        time.sleep(3.5)
                     continue
                 raise invoke_err
 
@@ -1710,14 +1868,16 @@ def run_agent(
 
         # Graceful fallback attempt with alternate candidate model
         try:
+            turn_state["attempt"] += 1
             curr_model = getattr(llm, "model_name", getattr(llm, "model", ""))
             alt_candidates = [m for m in MODEL_CANDIDATES if m and m != curr_model]
             fallback_model = alt_candidates[0] if alt_candidates else "qwen/qwen3.8-27b"
+            fallback_groq_key = groq_keys[1] if len(groq_keys) > 1 else (groq_keys[0] if groq_keys else "")
             llm_fallback = ChatGroq(
                 model=fallback_model,
                 temperature=0,
                 max_tokens=600,
-                groq_api_key=os.getenv("GROQ_API_KEY"),
+                groq_api_key=fallback_groq_key,
             )
             fallback_agent = create_agent(
                 model=llm_fallback,
