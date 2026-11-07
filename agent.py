@@ -194,7 +194,8 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
     domain_prompt = (
         "امتیاز، الفتح، جلال سنز، کیارفور، میٹرو، چیس اپ، شاہین کیمسٹ، "
         "پٹرول، ڈیزل، دودھ، دہی، انڈے، ڈبل روٹی، چینی، چاول، دال، آٹا، "
-        "راشن، کریانہ، گوشت، سبزی، پھل، بل، بجلی، گیس، پانی، فیس، کرایہ، PKR، روپے"
+        "راشن، کریانہ، گوشت، سبزی، پھل، بل، بجلی، گیس، پانی، فیس، کرایہ، تنخواہ، "
+        "ادھار، کھاتہ، کھاتے میں، وصولی، ادھار دیا، ادھار لیا، گاہک، فروخت، گلا، کیش، بینک ٹرانسفر، روپے، PKR"
     )
 
     try:
@@ -475,6 +476,10 @@ class ManageUdhaarInput(BaseModel):
         default=None,
         description="Amount in PKR (for give_credit, take_credit, or partial/full settle; omit on settle to settle full balance)",
     )
+    direction: Optional[str] = Field(
+        default=None,
+        description="Optional direction for settle: 'receivable' (customer paid user / wasooli) or 'payable' (user paid supplier / udhaar chukaya)",
+    )
     notes: Optional[str] = Field(
         default=None,
         description="Optional items or note, e.g. 'atta aur cheeni'",
@@ -519,9 +524,9 @@ def build_system_prompt(ui_lang: Optional[str] = None) -> str:
 {lang_pref_clause}
 
 ### STRICT DOMAIN BOUNDARY & OUT-OF-DOMAIN REFUSAL:
-You are EXCLUSIVELY a personal/shop finance, expense tracking, daily sales (bikri/galla), udhaar khata (lend/borrow), and budget assistant for Pakistan.
+You are EXCLUSIVELY a personal/shop finance, expense tracking, daily sales (farokht/galla), udhaar khata (lend/borrow), and budget assistant for Pakistan.
 1. **IN-DOMAIN TOPICS (ALLOWED):**
-   - Logging, querying, summarizing, or deleting expenses, shop sales (bikri), galla (cash drawer), udhaar/khata (credit given/taken & wasooli), bills, receipts, recurring payments, and monthly budgets.
+   - Logging, querying, summarizing, or deleting expenses, shop sales (farokht), galla (cash drawer), udhaar/khata (credit given/taken & wasooli), bills, receipts, recurring payments, and monthly budgets.
    - Natural conversational greetings, thank yous, app capability questions, and questions about the creator/developer of HisaabAI.
 2. **CREATOR & DEVELOPER ATTRIBUTION (MANDATORY CREDIT):**
    - When asked "Who created this app?", "Who made you?", "Who built HisaabAI?", "Who is your developer?", "Yeh app kis ne banai hai?", "Creator kaun hai?", "Developer kaun hai?", "یہ ایپ کس نے بنائی ہے؟", or any question about who authored or built this application:
@@ -573,14 +578,29 @@ You are equipped with real SQLite database tools: `log_expense`, `update_last_ex
 2. **UPDATING RECENT EXPENSE / ANSWERING FOLLOW-UP QUESTIONS (ZERO DUPLICATES):**
    - When the user clarifies, adds details to, or answers a follow-up question for the expense just recorded (e.g. "yes you can add name Abid Hussain", "naam Tariq hai", "actually that was for house rent", "purpose is school fee", "category is dining", "it was 3500 not 3000", "paid via easypaisa"), CALL `update_last_expense`.
    - **CRITICAL PROHIBITION:** NEVER call `log_expense` when the user is clarifying or answering a follow-up question about the transaction just recorded! Calling `log_expense` again would create an illegal duplicate entry! Always call `update_last_expense`!
-3. **DAILY SALES LOGGING (CASH-IN / BIKRI / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki bikri hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
-4. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI):**
-   - Customer took items/money on credit OR user lent money ("Ali ko 1500 ka udhaar diya", "Ali se 1500 lene hain", "lent 2000 to Bilal", "sold on credit to Kamran") -> CALL `manage_udhaar` with `action='give_credit'`.
+3. **DAILY SALES LOGGING (CASH-IN / FAROKHT / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki farokht hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
+4. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI - COMPLETE DETAILS MANDATORY):**
+   - **MANDATORY COMPLETE DETAILS REQUIREMENT:** Both `person_name` AND `amount` are strictly required to record credit. If either the person's name or the amount is missing or ambiguous, or if it is unclear whether credit was given or taken: DO NOT call `manage_udhaar` and DO NOT guess! Politely ask the user for the missing details first (Urdu: "براہ کرم بتائیں کہ یہ ادھار کس کو دیا/کس سے لیا ہے اور کتنی رقم ہے؟", English: "Please specify who this credit was given to / taken from and the amount in PKR.").
+   - **CUSTOMER CREDIT SALES VS EXPENSES (ZERO MISCLASSIFICATIONS):** When someone takes items or goods from the user/shop on credit ("mere se saaman/sabziyan/maal le gaya", "falana ko maal diya", "maal udhaar diya", "khate mein likh do", or phonetic STT variations like "ادار دیا", "خاتم لکھ دو", "خطہ میں لکھ دو"): This is ALWAYS a customer credit sale (`action='give_credit'`). It is NEVER an expense! Extract person name and amount, put items in `notes`, and call `manage_udhaar(action='give_credit')`.
+   - Customer took items/money on credit OR user lent money ("falana ko 1500 ka udhaar diya", "falana se 1500 lene hain", "lent 2000 to Bilal", "sold on credit to Kamran") -> CALL `manage_udhaar` with `action='give_credit'`.
    - User borrowed money or bought stock on credit from supplier ("wholesaler/supplier ke 10000 dene hain", "Tariq se 5000 udhaar liya", "borrowed 5000 from Ahmed") -> CALL `manage_udhaar` with `action='take_credit'`.
    - Customer paid back or user settled udhaar ("Ali ne 1000 jama karwaye", "wasooli 1500 from Ali", "Ali paid back", "udhaar chuka diya") -> CALL `manage_udhaar` with `action='settle'`.
+   - On settle status `ambiguous`, `ambiguous_direction`, `direction_mismatch`, or `overpaid`, inform the user clearly and ask them to specify the exact person, confirm the right direction, or settle the exact open balance—never guess.
    - User asks "kis kis se paise lene hain?", "udhaar khata dikhao", "who owes me money?" -> CALL `manage_udhaar` with `action='list'`.
 5. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
-6. **UNDO / DELETE:** "delete my last entry" / "undo" -> CALL `delete_last_transaction`.
+6. **UNDO, DELETE & MISTAKEN ENTRY RECLASSIFICATION (CONFIRM BEFORE DELETING):**
+   - **CONFIRM BEFORE DELETING:** Deleting data is permanent. Always confirm with the user before deleting records.
+     - If the user says an entry was logged in the WRONG ledger (e.g. "ye kharche me nahi udhaar me tha", "ye khata me add karna tha tum ne transaction me add kar diya", "ye farokht me daalna tha"):
+       - DO NOT call `update_last_expense`!
+       - ALWAYS ask for confirmation before deleting the mistaken entry:
+         In Urdu: "کیا میں پچھلا [رقم] روپے کا خرچہ منسوخ کر کے [شخص] کے نام ادھار کھاتے میں درج کر دوں؟"
+         In English: "Would you like me to cancel the previous PKR [amount] expense and record it under [Person] in Udhaar Khata?"
+       - Once the user confirms (e.g. "ہاں", "جی", "کر دو", "yes", "confirm"):
+         CALL `delete_last_transaction` to remove the incorrect expense, then CALL `manage_udhaar` to record it in Udhaar Khata, and confirm both to the user.
+     - If the user explicitly commands deletion in their prompt (e.g. "pichla kharcha delete kar ke udhaar me likho" / "delete my last entry and add to udhaar"):
+       Execute `delete_last_transaction`, then call `manage_udhaar`, and report both clearly.
+     - If the user simply says "delete my last entry" or "undo" without details:
+       Call `delete_last_transaction` and confirm the deleted transaction details.
 7. **BUDGETS:** "mera mahana budget 50000 hai" -> CALL `set_budget`. "kitna bacha hai" -> CALL `get_budget_status`.
 8. **RECURRING BILLS:** "har mahine kiraya" -> CALL `add_recurring_expense`. "bill ada kar diya" -> CALL `mark_recurring_paid`.
 9. **LARGE EXPENSE CONFIRMATION:** If `log_expense` returns status `needs_confirmation`, ask user to click the on-screen 'Confirm' (تصدیق کریں) button, or call `cancel_pending_expense` if they decline.
@@ -602,10 +622,13 @@ When a transaction is successfully recorded, you may proactively ask ONE brief, 
    - Always match the user's language (English or natural Urdu script).
    - If recipient and details are ALREADY fully provided (e.g. "sent 348000 to Abid Hussain via bank"), DO NOT ask who it was sent to, because you already know it is Abid Hussain! Instead, if desired, you can simply ask if they'd like to add a purpose/note (e.g., "Would you like to note the purpose for this transfer?").
    - When the user answers your follow-up question in the next turn, CALL `update_last_expense`. DO NOT call `log_expense`!
+   - **STRICT PROHIBITION (COMPLAINTS & CORRECTIONS):** NEVER ask proactive follow-up questions when the user is reporting an error, complaining, correcting a misclassification, or when recording an Udhaar entry. Address their issue directly.
+   - **NO PARROTING:** NEVER repeat, echo, or parrot the user's prompt text back to them. Always reply with your own polite, helpful words.
 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
+- **Phonetic & STT Aliases:** Voice notes may transcribe 'ادھار' as 'ادار' or 'ادارہ دیا' (meaning gave credit / udhaar), and 'کھاتہ' as 'خاتم' or 'خطہ' (meaning khata ledger). If a user spells out a name letter-by-letter (e.g. 'دال الف واو حمزہ دال' -> داؤد), reconstruct the name letters. Never use whole complaint sentences as a store/person name!
 - **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, ath sau=800, nau sau=900, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, sadhe paanch hazaar=5500, das hazaar=10000, veeh hazaar=20000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, 60 lakh=6000000, 200 lakh=20000000, 6000 hazaar=6000000, 20000 lakh=2000000000, crore=10000000.
-- **Shopkeeper & Punjabi Terms:** bikri/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), ton=from, lita/layi/khareedya=bought (`log_expense`), ditte=paid, kharcha/hisaab=expense.
+- **Shopkeeper & Punjabi Terms:** farokht/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), ton=from, lita/layi/khareedya=bought (`log_expense`), ditte=paid, kharcha/hisaab=expense.
 - **Stores/Categories:** imtiaz, al-fatah, jalal sons, carrefour, metro, csd, shaheen, local store, petrol pump, dairy shop, sabzi market, butcher shop. Categories: groceries, dairy, fuel, utilities, dining, healthcare, clothing, transport, personal, transfer, sale.
 - **Relative Dates:** "aaj" / "today" -> {today_str}, "kal" / "yesterday" -> {yesterday_str}, "pichle 2 din" -> start_date: {two_days_ago_str}, "pichle 3 din" -> start_date: {three_days_ago_str}, "is hafte" -> start_date: {seven_days_ago_str}, "is mahine" -> start_date: {month_start_str}, end_date: {today_str}.
 - **Currency & Tone:** Always Pakistani Rupees (PKR / روپے). Concise, polite, friendly confirmation.
@@ -790,7 +813,12 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     "change", "update", "likh do", "daal do", "bhi add", "bhi likh",
                     "yes", "haaji", "jee", "haan", "for rent", "purpose"
                 )
-                has_clarify_signal = any(p in raw_lower for p in clarify_phrases)
+                complaint_phrases = (
+                    "ادھار", "ادار", "خطہ", "کھاتہ", "غلط", "نہیں", "wrong", "mistake",
+                    "udhaar", "khata", "not an expense", "delete", "remove", "undo", "مٹا", "منسوخ"
+                )
+                has_complaint_signal = any(p in raw_lower for p in complaint_phrases)
+                has_clarify_signal = any(p in raw_lower for p in clarify_phrases) and not has_complaint_signal
                 
                 recent_was_generic = recent_tx.store_name in (
                     "local store", "general store", "general purchase", "bank transfer",
@@ -801,13 +829,15 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     "bank_transfer transfer", "bank_transfer", "easypaisa transfer", "jazzcash transfer", "transfer"
                 )
 
-                if (tx_age_seconds <= 900) and amount_matches and (has_clarify_signal or (recent_was_generic and new_is_specific)):
+                if (tx_age_seconds <= 900) and amount_matches and not has_complaint_signal and (has_clarify_signal or (recent_was_generic and new_is_specific)):
                     is_clarification = True
 
             if is_clarification and recent_tx:
                 # Update existing transaction in place
+                # Never accept long sentences or complaint text as a store name
                 if canonical_store and canonical_store != recent_tx.store_name:
-                    recent_tx.store_name = canonical_store
+                    if len(canonical_store.split()) <= 4 and not any(cp in canonical_store for cp in ("غلط", "نہیں", "بولا", "ایڈ کر", "ٹرانزیکشن")):
+                        recent_tx.store_name = canonical_store
                 if final_pm and final_pm != "cash" and recent_tx.payment_method == "cash":
                     recent_tx.payment_method = final_pm
                 if parsed_items:
@@ -1330,7 +1360,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         date_str: Optional[str] = None,
         payment_method: Optional[str] = "cash",
     ) -> str:
-        """Logs a daily shop sale (bikri / cash-in) into the database for the current user and updates Aaj Ka Galla."""
+        """Logs a daily shop sale (farokht / cash-in) into the database for the current user and updates Aaj Ka Galla."""
         db: Session = SessionLocal()
         try:
             canonical_store = (customer_or_note or "daily sale").strip().lower()
@@ -1474,7 +1504,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
 
             result = {
                 "status": "success",
-                "message": "Daily sale (bikri) recorded.",
+                "message": "Daily sale (farokht) recorded.",
                 "transaction_id": tx.id,
                 "tx_type": "sale",
                 "customer_or_note": canonical_store,
@@ -1497,6 +1527,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         action: str,
         person_name: Optional[str] = None,
         amount: Optional[float] = None,
+        direction: Optional[str] = None,
         notes: Optional[str] = None,
         phone_number: Optional[str] = None,
     ) -> str:
@@ -1504,7 +1535,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         db: Session = SessionLocal()
         try:
             clean_action = (action or "list").strip().lower()
-            if clean_action in ("give_credit", "receivable", "lend", "lene_hain", "udhaar_diya"):
+            if clean_action in ("give_credit", "receivable", "lend", "lene_hain", "udhaar_diya", "credit", "udhaar", "khata", "saaman_diya", "maal_diya"):
                 if not person_name or amount is None:
                     return json.dumps({"status": "error", "message": "person_name and amount are required to record udhaar."})
                 res = add_udhaar_entry(
@@ -1540,6 +1571,8 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     user_id=user_id,
                     person_name=person_name,
                     payment_amount=float(amount) if amount is not None and float(amount) > 0 else None,
+                    direction=direction,
+                    confirm_overpay=False,
                 )
                 res["summary"] = udhaar_summary(db, user_id)
                 return json.dumps(res, ensure_ascii=False)
