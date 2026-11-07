@@ -195,7 +195,7 @@ def transcribe_audio(file_bytes: bytes, filename: str = "voice_note.webm") -> st
         "امتیاز، الفتح، جلال سنز، کیارفور، میٹرو، چیس اپ، شاہین کیمسٹ، "
         "پٹرول، ڈیزل، دودھ، دہی، انڈے، ڈبل روٹی، چینی، چاول، دال، آٹا، "
         "راشن، کریانہ، گوشت، سبزی، پھل، بل، بجلی، گیس، پانی، فیس، کرایہ، تنخواہ، "
-        "ادھار، کھاتہ، کھاتے میں، وصولی، ادھار دیا، ادھار لیا، گاہک، بکری، گلا، کیش، بینک ٹرانسفر، روپے، PKR"
+        "ادھار، کھاتہ، کھاتے میں، وصولی، ادھار دیا، ادھار لیا، گاہک، فروخت، گلا، کیش، بینک ٹرانسفر، روپے، PKR"
     )
 
     try:
@@ -528,9 +528,9 @@ def build_system_prompt(ui_lang: Optional[str] = None) -> str:
 {lang_pref_clause}
 
 ### STRICT DOMAIN BOUNDARY & OUT-OF-DOMAIN REFUSAL:
-You are EXCLUSIVELY a personal/shop finance, expense tracking, daily sales (bikri/galla), udhaar khata (lend/borrow), and budget assistant for Pakistan.
+You are EXCLUSIVELY a personal/shop finance, expense tracking, daily sales (farokht/galla), udhaar khata (lend/borrow), and budget assistant for Pakistan.
 1. **IN-DOMAIN TOPICS (ALLOWED):**
-   - Logging, querying, summarizing, or deleting expenses, shop sales (bikri), galla (cash drawer), udhaar/khata (credit given/taken & wasooli), bills, receipts, recurring payments, and monthly budgets.
+   - Logging, querying, summarizing, or deleting expenses, shop sales (farokht), galla (cash drawer), udhaar/khata (credit given/taken & wasooli), bills, receipts, recurring payments, and monthly budgets.
    - Natural conversational greetings, thank yous, app capability questions, and questions about the creator/developer of HisaabAI.
 2. **CREATOR & DEVELOPER ATTRIBUTION (MANDATORY CREDIT):**
    - When asked "Who created this app?", "Who made you?", "Who built HisaabAI?", "Who is your developer?", "Yeh app kis ne banai hai?", "Creator kaun hai?", "Developer kaun hai?", "یہ ایپ کس نے بنائی ہے؟", or any question about who authored or built this application:
@@ -582,7 +582,7 @@ You are equipped with real SQLite database tools: `log_expense`, `update_last_ex
 2. **UPDATING RECENT EXPENSE / ANSWERING FOLLOW-UP QUESTIONS (ZERO DUPLICATES):**
    - When the user clarifies, adds details to, or answers a follow-up question for the expense just recorded (e.g. "yes you can add name Abid Hussain", "naam Tariq hai", "actually that was for house rent", "purpose is school fee", "category is dining", "it was 3500 not 3000", "paid via easypaisa"), CALL `update_last_expense`.
    - **CRITICAL PROHIBITION:** NEVER call `log_expense` when the user is clarifying or answering a follow-up question about the transaction just recorded! Calling `log_expense` again would create an illegal duplicate entry! Always call `update_last_expense`!
-3. **DAILY SALES LOGGING (CASH-IN / BIKRI / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki bikri hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
+3. **DAILY SALES LOGGING (CASH-IN / FAROKHT / SOLD TODAY):** When the user says they SOLD something or received daily sales ("I sold this today", "sold 2 bags of flour for 5400", "aaj 15000 ki farokht hui", "3000 ka saaman becha"), CALL `log_sale`. Never log a sale as an expense!
 4. **UDHAAR / KHATA BOOK (LEND & BORROW / WASOOLI - COMPLETE DETAILS MANDATORY):**
    - **MANDATORY COMPLETE DETAILS REQUIREMENT:** Both `person_name` AND `amount` are strictly required to record credit. If either the person's name or the amount is missing or ambiguous, or if it is unclear whether credit was given or taken: DO NOT call `manage_udhaar` and DO NOT guess! Politely ask the user for the missing details first (Urdu: "براہ کرم بتائیں کہ یہ ادھار کس کو دیا/کس سے لیا ہے اور کتنی رقم ہے؟", English: "Please specify who this credit was given to / taken from and the amount in PKR.").
    - **CUSTOMER CREDIT SALES VS EXPENSES (ZERO MISCLASSIFICATIONS):** When someone takes items or goods from the user/shop on credit ("mere se saaman/sabziyan/maal le gaya", "falana ko maal diya", "maal udhaar diya", "khate mein likh do", or phonetic STT variations like "ادار دیا", "خاتم لکھ دو", "خطہ میں لکھ دو"): This is ALWAYS a customer credit sale (`action='give_credit'`). It is NEVER an expense! Extract person name and amount, put items in `notes`, and call `manage_udhaar(action='give_credit')`.
@@ -594,7 +594,7 @@ You are equipped with real SQLite database tools: `log_expense`, `update_last_ex
 5. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
 6. **UNDO, DELETE & MISTAKEN ENTRY RECLASSIFICATION (CONFIRM BEFORE DELETING):**
    - **CONFIRM BEFORE DELETING:** Deleting data is permanent. Always confirm with the user before deleting records.
-     - If the user says an entry was logged in the WRONG ledger (e.g. "ye kharche me nahi udhaar me tha", "ye khata me add karna tha tum ne transaction me add kar diya", "ye bikri me daalna tha"):
+     - If the user says an entry was logged in the WRONG ledger (e.g. "ye kharche me nahi udhaar me tha", "ye khata me add karna tha tum ne transaction me add kar diya", "ye farokht me daalna tha"):
        - DO NOT call `update_last_expense`!
        - ALWAYS ask for confirmation before deleting the mistaken entry:
          In Urdu: "کیا میں پچھلا [رقم] روپے کا خرچہ منسوخ کر کے [شخص] کے نام ادھار کھاتے میں درج کر دوں؟"
@@ -632,7 +632,7 @@ When a transaction is successfully recorded, you may proactively ask ONE brief, 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
 - **Phonetic & STT Aliases:** Voice notes may transcribe 'ادھار' as 'ادار' or 'ادارہ دیا' (meaning gave credit / udhaar), and 'کھاتہ' as 'خاتم' or 'خطہ' (meaning khata ledger). If a user spells out a name letter-by-letter (e.g. 'دال الف واو حمزہ دال' -> داؤد), reconstruct the name letters. Never use whole complaint sentences as a store/person name!
 - **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, ath sau=800, nau sau=900, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, sadhe paanch hazaar=5500, das hazaar=10000, veeh hazaar=20000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, 60 lakh=6000000, 200 lakh=20000000, 6000 hazaar=6000000, 20000 lakh=2000000000, crore=10000000.
-- **Shopkeeper & Punjabi Terms:** bikri/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), ton=from, lita/layi/khareedya=bought (`log_expense`), ditte=paid, kharcha/hisaab=expense.
+- **Shopkeeper & Punjabi Terms:** farokht/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), ton=from, lita/layi/khareedya=bought (`log_expense`), ditte=paid, kharcha/hisaab=expense.
 - **Stores/Categories:** imtiaz, al-fatah, jalal sons, carrefour, metro, csd, shaheen, local store, petrol pump, dairy shop, sabzi market, butcher shop. Categories: groceries, dairy, fuel, utilities, dining, healthcare, clothing, transport, personal, transfer, sale.
 - **Relative Dates:** "aaj" / "today" -> {today_str}, "kal" / "yesterday" -> {yesterday_str}, "pichle 2 din" -> start_date: {two_days_ago_str}, "pichle 3 din" -> start_date: {three_days_ago_str}, "is hafte" -> start_date: {seven_days_ago_str}, "is mahine" -> start_date: {month_start_str}, end_date: {today_str}.
 - **Currency & Tone:** Always Pakistani Rupees (PKR / روپے). Concise, polite, friendly confirmation.
@@ -1364,7 +1364,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         date_str: Optional[str] = None,
         payment_method: Optional[str] = "cash",
     ) -> str:
-        """Logs a daily shop sale (bikri / cash-in) into the database for the current user and updates Aaj Ka Galla."""
+        """Logs a daily shop sale (farokht / cash-in) into the database for the current user and updates Aaj Ka Galla."""
         db: Session = SessionLocal()
         try:
             canonical_store = (customer_or_note or "daily sale").strip().lower()
@@ -1508,7 +1508,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
 
             result = {
                 "status": "success",
-                "message": "Daily sale (bikri) recorded.",
+                "message": "Daily sale (farokht) recorded.",
                 "transaction_id": tx.id,
                 "tx_type": "sale",
                 "customer_or_note": canonical_store,

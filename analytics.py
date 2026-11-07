@@ -302,7 +302,7 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
 def galla_summary(db: Session, user_id: str) -> Dict[str, Any]:
     """
     Computes deterministic 'Aaj Ka Galla' (Today's Cash Drawer) and Monthly Cash-In vs Cash-Out.
-    - Sales (tx_type='sale'): Cash-In / Bikri
+    - Sales (tx_type='sale'): Cash-In / Farokht
     - Expenses (tx_type='expense'): Cash-Out / Kharcha
     """
     now = get_pkt_now()

@@ -12,7 +12,7 @@ def test_whisper_domain_prompt_has_generic_bookkeeping_and_no_hardcoded_names():
     assert "ادھار" in src
     assert "کھاتہ" in src
     assert "وصولی" in src
-    assert "بکری" in src
+    assert "فروخت" in src
     assert "گلا" in src
     # Must NOT hardcode scenario person names
     assert "داؤد" not in src

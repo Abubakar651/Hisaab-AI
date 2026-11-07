@@ -48,7 +48,7 @@
       'chat.chip_3days': 'پچھلے ۳ دن',
       'chat.chip_3days_prompt': 'پچھلے ۳ دن میں کتنا خرچ ہوا؟',
       'chat.chip_galla': 'آج کا گلہ',
-      'chat.chip_galla_prompt': 'آج کا گلہ اور بکری بتائیں',
+      'chat.chip_galla_prompt': 'آج کا گلہ اور فروخت بتائیں',
       'chat.chip_udhaar': 'ادھار کھاتہ',
       'chat.chip_udhaar_prompt': 'ادھار کھاتہ دکھائیں کس سے پیسے لینے ہیں؟',
       'chat.chip_budget': 'بجٹ سیٹ کریں',
@@ -182,8 +182,8 @@
       'toast.account_created': 'اکاؤنٹ بن گیا! تصدیق کے لیے اپنا ای میل چیک کریں۔',
 
       // Shopkeeper: Galla & Udhaar Khata
-      'galla.title': 'آج کا گلہ (روزانہ بکری اور خرچہ)',
-      'galla.today_sales': 'آج کی بکری (In)',
+      'galla.title': 'آج کا گلہ (روزانہ فروخت اور خرچہ)',
+      'galla.today_sales': 'آج کی فروخت (In)',
       'galla.today_expenses': 'آج کا خرچہ (Out)',
       'galla.today_net': 'خالص گلہ (Net)',
       'galla.cash_short': 'نقد',
@@ -201,7 +201,7 @@
       'udhaar.notes_placeholder': 'تفصیل / فون نمبر (اختیاری)',
       'udhaar.btn_settle': 'وصول / چکتا',
       'udhaar.btn_whatsapp': 'واٹس ایپ یاد دہانی',
-      'tx.sale_badge': 'بکری (Sale)',
+      'tx.sale_badge': 'فروخت (Sale)',
       'toast.udhaar_saved': 'ادھار کھاتہ اپ ڈیٹ ہو گیا',
       'toast.udhaar_settled': 'ادھار چکتا کر دیا گیا',
       'toast.udhaar_deleted': 'ادھار کا اندراج مٹا دیا گیا'
@@ -395,7 +395,7 @@
       'udhaar.notes_placeholder': 'Notes / Phone Number (Optional)',
       'udhaar.btn_settle': 'Mark Settled',
       'udhaar.btn_whatsapp': 'WhatsApp Reminder',
-      'tx.sale_badge': 'Sale (Bikri)',
+      'tx.sale_badge': 'Sale',
       'toast.udhaar_saved': 'Udhaar Khata updated',
       'toast.udhaar_settled': 'Udhaar marked as settled',
       'toast.udhaar_deleted': 'Udhaar entry removed'
