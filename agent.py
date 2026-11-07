@@ -480,10 +480,6 @@ class ManageUdhaarInput(BaseModel):
         default=None,
         description="Optional direction for settle: 'receivable' (customer paid user / wasooli) or 'payable' (user paid supplier / udhaar chukaya)",
     )
-    confirm_overpay: bool = Field(
-        default=False,
-        description="Set true only after user explicitly confirms settling an overpayment",
-    )
     notes: Optional[str] = Field(
         default=None,
         description="Optional items or note, e.g. 'atta aur cheeni'",
@@ -589,7 +585,7 @@ You are equipped with real SQLite database tools: `log_expense`, `update_last_ex
    - Customer took items/money on credit OR user lent money ("falana ko 1500 ka udhaar diya", "falana se 1500 lene hain", "lent 2000 to Bilal", "sold on credit to Kamran") -> CALL `manage_udhaar` with `action='give_credit'`.
    - User borrowed money or bought stock on credit from supplier ("wholesaler/supplier ke 10000 dene hain", "Tariq se 5000 udhaar liya", "borrowed 5000 from Ahmed") -> CALL `manage_udhaar` with `action='take_credit'`.
    - Customer paid back or user settled udhaar ("Ali ne 1000 jama karwaye", "wasooli 1500 from Ali", "Ali paid back", "udhaar chuka diya") -> CALL `manage_udhaar` with `action='settle'`.
-   - On settle status `ambiguous`, `ambiguous_direction`, or `overpaid`, ask the user which person, direction, or overpayment confirmation they want—never guess.
+   - On settle status `ambiguous`, `ambiguous_direction`, `direction_mismatch`, or `overpaid`, inform the user clearly and ask them to specify the exact person, confirm the right direction, or settle the exact open balance—never guess.
    - User asks "kis kis se paise lene hain?", "udhaar khata dikhao", "who owes me money?" -> CALL `manage_udhaar` with `action='list'`.
 5. **SPENDING & GALLA QUERIES (ZERO MENTAL MATH):** When asked for totals, galla (cash drawer), or hisaab, ALWAYS call `query_expenses`. NEVER calculate sums from chat history. Report exact tool numbers.
 6. **UNDO, DELETE & MISTAKEN ENTRY RECLASSIFICATION (CONFIRM BEFORE DELETING):**
@@ -1532,7 +1528,6 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
         person_name: Optional[str] = None,
         amount: Optional[float] = None,
         direction: Optional[str] = None,
-        confirm_overpay: bool = False,
         notes: Optional[str] = None,
         phone_number: Optional[str] = None,
     ) -> str:
@@ -1577,7 +1572,7 @@ def get_tools_for_user(user_id: str, raw_transcript: str = "") -> list:
                     person_name=person_name,
                     payment_amount=float(amount) if amount is not None and float(amount) > 0 else None,
                     direction=direction,
-                    confirm_overpay=bool(confirm_overpay),
+                    confirm_overpay=False,
                 )
                 res["summary"] = udhaar_summary(db, user_id)
                 return json.dumps(res, ensure_ascii=False)

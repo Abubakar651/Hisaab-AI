@@ -231,39 +231,174 @@ def test_full_settle_without_amount_still_works(db):
 
 def test_concurrent_settles_never_exceed_amount(db):
     import threading
+    from sqlalchemy import event
     import database
 
     user_id = "user_concurrent_settle"
     add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=600.0, direction="receivable")
 
-    barrier = threading.Barrier(2)
+    select_barrier = threading.Barrier(2)
     results = []
     lock = threading.Lock()
+
+    def after_select(conn, cursor, statement, parameters, context, executemany):
+        if (
+            "SELECT" in statement.upper()
+            and "udhaar_entries" in statement
+            and threading.current_thread().name.startswith("cas_worker")
+        ):
+            select_barrier.wait(timeout=5.0)
+
+    event.listen(database.engine, "after_cursor_execute", after_select)
 
     def worker():
         s = database.SessionLocal()
         try:
-            barrier.wait(timeout=5.0)
             r = settle_udhaar(s, user_id=user_id, person_name="Ali", payment_amount=500.0)
             with lock:
                 results.append(r)
         finally:
             s.close()
 
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join(timeout=10.0)
-    t2.join(timeout=10.0)
+    try:
+        t1 = threading.Thread(target=worker, name="cas_worker_1")
+        t2 = threading.Thread(target=worker, name="cas_worker_2")
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+    finally:
+        event.remove(database.engine, "after_cursor_execute", after_select)
 
     db.expire_all()
     entry = db.query(UdhaarEntry).filter_by(user_id=user_id).first()
     assert entry.paid_amount <= 600.0
     assert entry.paid_amount == 500.0
     successes = [r for r in results if r.get("status") == "success"]
-    non_successes = [r for r in results if r.get("status") in ("conflict", "overpaid")]
+    conflicts = [r for r in results if r.get("status") == "conflict"]
     assert len(successes) == 1
     assert successes[0]["settled_amount_pkr"] == 500.0
-    assert len(non_successes) == 1
+    assert len(conflicts) == 1
+
+
+def test_ambiguous_person_across_different_directions_is_caught_even_when_direction_specified(db):
+    user_id = "user_ambig_cross_dir"
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali Raza", amount=1000.0, direction="payable")
+    add_udhaar_entry(db, user_id=user_id, person_name="Ali Hassan", amount=1500.0, direction="receivable")
+
+    res = settle_udhaar(
+        db,
+        user_id=user_id,
+        person_name="Ali",
+        payment_amount=500.0,
+        direction="receivable",
+    )
+    assert res["status"] == "ambiguous"
+    assert res["candidates"] == ["Ali Hassan", "Ali Raza"]
+
+    db.expire_all()
+    for e in db.query(UdhaarEntry).filter_by(user_id=user_id).all():
+        assert e.paid_amount == 0.0
+        assert e.status == "open"
+
+
+def test_direction_mismatch_returns_explicit_status(db):
+    user_id = "user_dir_mismatch"
+    add_udhaar_entry(db, user_id=user_id, person_name="Bilal", amount=1000.0, direction="payable")
+
+    res = settle_udhaar(
+        db,
+        user_id=user_id,
+        person_name="Bilal",
+        payment_amount=500.0,
+        direction="receivable",
+    )
+    assert res["status"] == "direction_mismatch"
+    assert res["person_name"] == "Bilal"
+    assert res["open_directions"] == ["payable"]
+
+    db.expire_all()
+    entry = db.query(UdhaarEntry).filter_by(user_id=user_id).first()
+    assert entry.paid_amount == 0.0
+    assert entry.status == "open"
+
+
+def test_multi_entry_conflict_rolls_back_earlier_entries_in_loop(db):
+    from sqlalchemy import event
+    import database
+
+    user_id = "user_multi_rollback"
+    r_a = add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=300.0, direction="receivable")
+    r_b = add_udhaar_entry(db, user_id=user_id, person_name="Ali", amount=300.0, direction="receivable")
+    id_a = r_a["entry"]["id"]
+    id_b = r_b["entry"]["id"]
+
+    triggered = {"done": False}
+
+    def after_select(conn, cursor, statement, parameters, context, executemany):
+        if not triggered["done"] and "SELECT" in statement.upper() and "udhaar_entries" in statement:
+            triggered["done"] = True
+            s2 = database.SessionLocal()
+            try:
+                s2.query(UdhaarEntry).filter_by(id=id_b).update(
+                    {"status": "settled", "paid_amount": 300.0},
+                    synchronize_session=False,
+                )
+                s2.commit()
+            finally:
+                s2.close()
+
+    event.listen(database.engine, "after_cursor_execute", after_select)
+    try:
+        res = settle_udhaar(db, user_id=user_id, person_name="Ali", payment_amount=500.0)
+    finally:
+        event.remove(database.engine, "after_cursor_execute", after_select)
+
+    assert res["status"] == "conflict"
+
+    fresh = database.SessionLocal()
+    try:
+        entry_a = fresh.query(UdhaarEntry).filter_by(id=id_a).first()
+        assert entry_a.paid_amount == 0.0
+        assert entry_a.status == "open"
+    finally:
+        fresh.close()
+
+
+def test_manage_udhaar_tool_schema_does_not_expose_confirm_overpay(clean_db):
+    import json
+    import database
+    from agent import ManageUdhaarInput, get_tools_for_user
+
+    assert "confirm_overpay" not in ManageUdhaarInput.model_fields
+
+    user_id = "user_no_llm_overpay@example.com"
+    s = database.SessionLocal()
+    try:
+        add_udhaar_entry(s, user_id=user_id, person_name="Ali", amount=2000.0, direction="receivable")
+    finally:
+        s.close()
+
+    tools = {t.name: t for t in get_tools_for_user(user_id)}
+    manage_tool = tools["manage_udhaar"]
+    res = json.loads(
+        manage_tool.invoke(
+            {
+                "action": "settle",
+                "person_name": "Ali",
+                "amount": 5000.0,
+                "confirm_overpay": True,
+            }
+        )
+    )
+    assert res["status"] == "overpaid"
+
+    s_check = database.SessionLocal()
+    try:
+        entry = s_check.query(UdhaarEntry).filter_by(user_id=user_id).first()
+        assert entry.paid_amount == 0.0
+        assert entry.status == "open"
+    finally:
+        s_check.close()
+
 

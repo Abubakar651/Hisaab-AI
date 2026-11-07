@@ -490,13 +490,12 @@ def settle_udhaar(
             if clean_dir:
                 matched = [e for e in matched if e.direction == clean_dir]
         elif person_name and _norm(person_name):
-            pool = [e for e in entries if e.direction == clean_dir] if clean_dir else entries
-            exact = [e for e in pool if _norm(e.person_name) == _norm(person_name)]
+            exact = [e for e in entries if _norm(e.person_name) == _norm(person_name)]
             if exact:
-                matched = exact
+                person_matched = exact
             else:
                 toks = set(_norm(person_name).split())
-                cands = [e for e in pool if toks and toks <= set(_norm(e.person_name).split())]  # whole words only
+                cands = [e for e in entries if toks and toks <= set(_norm(e.person_name).split())]  # whole words only
                 names = {_norm(e.person_name) for e in cands}
                 if len(names) > 1:
                     return {
@@ -504,7 +503,32 @@ def settle_udhaar(
                         "candidates": sorted({e.person_name for e in cands}),
                         "message": f"Multiple open Udhaar records match '{person_name}'. Please specify which person.",
                     }
-                matched = cands
+                person_matched = cands
+
+            if not person_matched:
+                return {
+                    "status": "not_found",
+                    "open_people": open_people,
+                    "message": f"No open Udhaar record found for '{person_name}'.",
+                }
+
+            matched_person = person_matched[0].person_name
+            directions_present = {e.direction for e in person_matched}
+            if clean_dir is not None:
+                matched = [e for e in person_matched if e.direction == clean_dir]
+                if not matched:
+                    return {
+                        "status": "direction_mismatch",
+                        "person_name": matched_person,
+                        "requested_direction": clean_dir,
+                        "open_directions": sorted(directions_present),
+                        "message": (
+                            f"'{matched_person}' has no open '{clean_dir}' Udhaar balance "
+                            f"(open directions: {', '.join(sorted(directions_present))})."
+                        ),
+                    }
+            else:
+                matched = person_matched
         else:
             return {"status": "error", "message": "Provide person_name or entry_id to settle Udhaar."}
 
