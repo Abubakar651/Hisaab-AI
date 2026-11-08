@@ -119,11 +119,19 @@ app = FastAPI(
     title="HisaabAI — Voice & Text Expense Tracker",
     description="Multilingual (Urdu, English) Expense Tracker powered by Groq and LangChain",
     version="1.0.0",
+    docs_url="/docs" if IS_DEV else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if IS_DEV else None,
 )
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     """Enforces strict defense-in-depth security headers (CSP, nosniff, frame denial)."""
+    if request.url.path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+        curr_env = os.getenv("APP_ENV", APP_ENV).strip().lower()
+        if curr_env not in ("dev", "development", "test"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -495,7 +503,7 @@ async def chat_endpoint(
                     audio_bytes,
                     filename=audio.filename or "recording.webm",
                 )
-                logger.info(f"Whisper transcript: '{transcript_text}'")
+                logger.info(f"Whisper transcription completed ({len(transcript_text or '')} chars) for user '{effective_user_id}'")
         except HTTPException:
             raise
         except Exception as e:

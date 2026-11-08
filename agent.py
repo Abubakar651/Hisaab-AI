@@ -44,6 +44,9 @@ from analytics import (
 load_dotenv()
 logger = logging.getLogger("hisaab_ai.agent")
 
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30.0"))
+AGENT_RECURSION_LIMIT = int(os.getenv("AGENT_RECURSION_LIMIT", "6"))
+
 def get_groq_api_keys() -> List[str]:
     """
     Returns ordered, deduplicated list of active Groq API keys.
@@ -111,7 +114,11 @@ def get_chat_llm(api_key: Optional[str] = None):
                 try:
                     from botocore.config import Config
                     # Fast failover config to avoid 15s retry hang when AWS throttles
-                    cfg = Config(retries={"max_attempts": 1, "mode": "standard"})
+                    cfg = Config(
+                        retries={"max_attempts": 1, "mode": "standard"},
+                        connect_timeout=10,
+                        read_timeout=int(LLM_TIMEOUT_SECONDS),
+                    )
                     model_id = bedrock_model or "us.meta.llama3-3-70b-instruct-v1:0"
                     region = os.getenv("AWS_REGION", "us-east-1").strip() or "us-east-1"
                     kwargs = {
@@ -141,6 +148,7 @@ def get_chat_llm(api_key: Optional[str] = None):
             temperature=0,
             max_tokens=800,
             max_retries=3,
+            timeout=LLM_TIMEOUT_SECONDS,
             groq_api_key=effective_groq_key,
         )
 
@@ -152,6 +160,7 @@ def get_chat_llm(api_key: Optional[str] = None):
                 model=candidate,
                 temperature=0,
                 max_tokens=10,
+                timeout=LLM_TIMEOUT_SECONDS,
                 groq_api_key=effective_groq_key,
             )
             test_llm.invoke("ping")
@@ -162,6 +171,7 @@ def get_chat_llm(api_key: Optional[str] = None):
                 temperature=0,
                 max_tokens=800,
                 max_retries=3,
+                timeout=LLM_TIMEOUT_SECONDS,
                 groq_api_key=effective_groq_key,
             )
         except Exception as e:
@@ -173,6 +183,7 @@ def get_chat_llm(api_key: Optional[str] = None):
         model=_VALIDATED_MODEL,
         temperature=0,
         max_tokens=800,
+        timeout=LLM_TIMEOUT_SECONDS,
         groq_api_key=effective_groq_key,
     )
 
@@ -1825,7 +1836,7 @@ def run_agent(
         for attempt in range(2):
             turn_state["attempt"] = attempt
             try:
-                response = agent.invoke({"messages": messages})
+                response = agent.invoke({"messages": messages}, config={"recursion_limit": AGENT_RECURSION_LIMIT})
                 break
             except Exception as invoke_err:
                 err_text = str(invoke_err)
@@ -1877,6 +1888,7 @@ def run_agent(
                 model=fallback_model,
                 temperature=0,
                 max_tokens=600,
+                timeout=LLM_TIMEOUT_SECONDS,
                 groq_api_key=fallback_groq_key,
             )
             fallback_agent = create_agent(
@@ -1884,7 +1896,7 @@ def run_agent(
                 tools=tools,
                 system_prompt=system_prompt,
             )
-            fallback_res = fallback_agent.invoke({"messages": messages})
+            fallback_res = fallback_agent.invoke({"messages": messages}, config={"recursion_limit": AGENT_RECURSION_LIMIT})
             fallback_reply = fallback_res["messages"][-1].content
             return ensure_urdu_script(fallback_reply)
         except Exception as e2:
