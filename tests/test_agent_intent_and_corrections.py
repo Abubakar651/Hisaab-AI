@@ -119,7 +119,7 @@ def test_run_agent_429_retry_does_not_duplicate_logged_expense(clean_db, monkeyp
         tool_map = {t.name: t for t in tools}
         mock_agent = MagicMock()
 
-        def fake_invoke(inputs):
+        def fake_invoke(inputs, *args, **kwargs):
             curr_attempt = attempt_counter["count"]
             attempt_counter["count"] += 1
             if curr_attempt == 0:
@@ -164,14 +164,14 @@ def test_run_agent_fallback_model_does_not_duplicate_logged_expense_or_udhaar(cl
 
         if curr_call == 0:
             # Primary agent
-            def fake_invoke_primary(inputs):
+            def fake_invoke_primary(inputs, *args, **kwargs):
                 tool_map["log_expense"].invoke({"store_name": "al-fatah", "total_amount": 2500.0})
                 raise RuntimeError("ThrottlingException: Too many tokens")
 
             mock_agent.invoke.side_effect = fake_invoke_primary
         else:
             # Fallback agent
-            def fake_invoke_fallback(inputs):
+            def fake_invoke_fallback(inputs, *args, **kwargs):
                 tool_map["log_expense"].invoke({"store_name": "al fatah store", "total_amount": 2500.0})
                 return {"messages": [AIMessage(content="Recorded 2500 PKR.")]}
 
@@ -265,7 +265,7 @@ def test_run_agent_429_rotates_to_second_groq_key_without_duplicate_writes(clean
         tool_map = {t.name: t for t in tools}
         mock_agent = MagicMock()
 
-        def fake_invoke(inputs):
+        def fake_invoke(inputs, *args, **kwargs):
             curr_attempt = attempt_counter["count"]
             attempt_counter["count"] += 1
             if curr_attempt == 0:
@@ -330,4 +330,103 @@ def test_transcribe_audio_rotates_to_second_groq_key_on_429(monkeypatch):
     result = transcribe_audio(b"0" * 200, "voice.webm")
     assert "پٹرول 1500" in result
     assert attempted_keys == ["gsk_test_key_1", "gsk_test_key_2"]
+
+
+def test_openapi_and_docs_disabled_in_production_mode(client, monkeypatch):
+    """Verify /docs, /redoc, and /openapi.json are disabled (404) in production, but active in dev."""
+    monkeypatch.setenv("APP_ENV", "production")
+    for endpoint in ("/docs", "/redoc", "/openapi.json"):
+        res = client.get(endpoint)
+        assert res.status_code == 404, f"{endpoint} should return 404 in production, got {res.status_code}"
+
+    monkeypatch.setenv("APP_ENV", "development")
+    res_dev = client.get("/openapi.json")
+    assert res_dev.status_code == 200, f"/openapi.json should return 200 in development, got {res_dev.status_code}"
+
+
+def test_raw_voice_transcript_is_not_logged_to_info(client, auth_headers, monkeypatch, caplog):
+    """Verify raw voice transcript content is never logged to INFO level logs."""
+    import io
+    import logging
+    import main
+
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(main, "transcribe_audio", lambda *args, **kwargs: "SECRET_PRIVATE_TRANSCRIPT_9988")
+    monkeypatch.setattr(main, "run_agent", lambda *args, **kwargs: "logged")
+
+    headers = auth_headers("privacy_user@example.com")
+    dummy_audio = io.BytesIO(b"0" * 200)
+    files = {"audio": ("voice.webm", dummy_audio, "audio/webm")}
+    res = client.post("/api/chat", headers=headers, files=files)
+    assert res.status_code == 200
+    assert "SECRET_PRIVATE_TRANSCRIPT_9988" not in caplog.text
+
+
+def test_agent_enforces_recursion_limit_and_llm_timeout(clean_db, monkeypatch):
+    """Verify agent enforces recursion_limit=6 and LLM timeout=30.0s."""
+    from unittest.mock import MagicMock
+    from langchain_core.messages import AIMessage
+    import agent
+
+    # 1. Assert agent.LLM_TIMEOUT_SECONDS == 30.0 and agent.AGENT_RECURSION_LIMIT == 6
+    assert hasattr(agent, "LLM_TIMEOUT_SECONDS") and agent.LLM_TIMEOUT_SECONDS == 30.0
+    assert hasattr(agent, "AGENT_RECURSION_LIMIT") and agent.AGENT_RECURSION_LIMIT == 6
+
+    # 2. Verify get_chat_llm(api_key="gsk_test") passes timeout=agent.LLM_TIMEOUT_SECONDS to ChatGroq
+    captured_kwargs = []
+
+    class MockChatGroq(MagicMock):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            captured_kwargs.append(kwargs)
+
+    monkeypatch.setattr(agent, "ChatGroq", MockChatGroq)
+    monkeypatch.setattr(agent, "_VALIDATED_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+
+    llm = agent.get_chat_llm(api_key="gsk_test")
+    assert len(captured_kwargs) > 0
+    assert captured_kwargs[-1].get("timeout") == agent.LLM_TIMEOUT_SECONDS
+
+    # 3. Verify run_agent invokes agent.invoke (and fallback_agent.invoke on fallback) with config={"recursion_limit": agent.AGENT_RECURSION_LIMIT}
+    invoked_configs = []
+
+    def fake_create_agent(model, tools, system_prompt):
+        mock_agent = MagicMock()
+
+        def fake_invoke(inputs, *args, **kwargs):
+            invoked_configs.append(kwargs.get("config"))
+            return {"messages": [AIMessage(content="Expense recorded.")]}
+
+        mock_agent.invoke.side_effect = fake_invoke
+        return mock_agent
+
+    monkeypatch.setattr(agent, "create_agent", fake_create_agent)
+
+    agent.run_agent(user_id="timeout_user@example.com", user_text="Spent 200 on chai")
+    assert len(invoked_configs) > 0
+    assert invoked_configs[0] == {"recursion_limit": agent.AGENT_RECURSION_LIMIT}
+
+    # Verify fallback invokes with config
+    fallback_configs = []
+    call_idx = {"val": 0}
+
+    def fake_create_fallback_agent(model, tools, system_prompt):
+        mock_agent = MagicMock()
+
+        def fake_invoke_fb(inputs, *args, **kwargs):
+            call_idx["val"] += 1
+            if call_idx["val"] <= 2:
+                raise RuntimeError("429 rate limit exceeded")
+            fallback_configs.append(kwargs.get("config"))
+            return {"messages": [AIMessage(content="Fallback recorded.")]}
+
+        mock_agent.invoke.side_effect = fake_invoke_fb
+        return mock_agent
+
+    monkeypatch.setattr(agent, "create_agent", fake_create_fallback_agent)
+    agent.run_agent(user_id="timeout_user2@example.com", user_text="Spent 300 on fruit")
+    assert len(fallback_configs) > 0
+    assert fallback_configs[0] == {"recursion_limit": agent.AGENT_RECURSION_LIMIT}
+
 
