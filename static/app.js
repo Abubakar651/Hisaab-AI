@@ -286,7 +286,7 @@ tailwind.config = {
       // Refresh Dashboard
       elements.refreshDashboardBtn.addEventListener('click', () => {
         fetchDashboard();
-        showToast('Ledger refreshed', 'info');
+        showToast(t('toast.ledger_refreshed'), 'info');
       });
 
       // Export CSV with Authorization
@@ -306,7 +306,7 @@ tailwind.config = {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
-            showToast('CSV export downloaded', 'success');
+            showToast(t('toast.csv_downloaded'), 'success');
           } catch (err) {
             showToast(err.message, 'error');
           }
@@ -685,7 +685,7 @@ tailwind.config = {
             const origPlaceholder = (typeof t === 'function' ? t('chat.placeholder') : null) || "اردو یا انگریزی میں بولیں یا لکھیں...";
             elements.messageInput.placeholder = (typeof t === 'function' ? t('chat.transcribing_placeholder') : null) || "آواز تحریر میں تبدیل ہو رہی ہے...";
             elements.messageInput.disabled = true;
-            showToast("آواز تحریر میں تبدیل ہو رہی ہے...", "info");
+            showToast(t('toast.mic_transcribing'), "info");
 
             try {
               const formData = new FormData();
@@ -847,7 +847,7 @@ tailwind.config = {
     function cancelRecording() {
       stopRecording(false);
       state.audioChunks = [];
-      showToast('Recording cancelled', 'info');
+      showToast(t('toast.recording_cancelled'), 'info');
     }
 
     function updateRecordingTimer() {
@@ -1011,12 +1011,12 @@ tailwind.config = {
             const resData = await resp.json();
             if (resp.ok) {
               appendAssistantMessage(`✅ آپ کا خرچہ درج کر لیا گیا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
-              showToast(resData.message || 'Expense confirmed', 'success');
+              showToast(resData.message || t('toast.expense_confirmed'), 'success');
               fetchDashboard();
             } else {
               if (resp.status === 409) {
                 appendAssistantMessage(`⚠️ یہ خرچہ پہلے ہی تصدیق، کینسل یا ختم ہو چکا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
-                showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
+                showToast(resData.detail || t('toast.conflict_409') || 'Already confirmed, cancelled, or expired.', 'warning');
                 fetchDashboard();
               } else {
                 showToast(resData.detail || 'Failed to confirm', 'error');
@@ -1031,10 +1031,10 @@ tailwind.config = {
             const resData = await resp.json();
             if (resp.ok) {
               appendAssistantMessage(`❌ خرچہ کینسل کر دیا گیا ہے: **PKR ${formatMoney(p.total_amount)}** (${escapeHtml(p.store_name)})۔`);
-              showToast('Expense cancelled', 'info');
+              showToast(t('toast.expense_cancelled'), 'info');
             } else {
               if (resp.status === 409) {
-                showToast(resData.detail || 'Already confirmed, cancelled, or expired.', 'warning');
+                showToast(resData.detail || t('toast.conflict_409') || 'Already confirmed, cancelled, or expired.', 'warning');
                 fetchDashboard();
               } else {
                 showToast(resData.detail || 'Failed to cancel', 'error');
@@ -1214,7 +1214,7 @@ tailwind.config = {
           throw new Error(errData.detail || 'Delete failed');
         }
 
-        showToast(`Transaction #${transactionId} deleted`, 'success');
+        showToast(t('toast.tx_deleted', { id: transactionId }), 'success');
         fetchDashboard();
       } catch (err) {
         showToast(err.message, 'error');
@@ -1281,8 +1281,14 @@ tailwind.config = {
           ? `السلام علیکم ${item.person_name} صاحب، آپ کے ذمے PKR ${formatMoney(remaining)} بقایا ہیں (${item.notes || 'ادھار کھاتہ'})۔ براہ کرم جلد ادائیگی فرما دیں۔ شکریہ!`
           : `السلام علیکم ${item.person_name} صاحب، آپ کے PKR ${formatMoney(remaining)} ہمارے کھاتے میں درج ہیں۔`;
         const cleanPhone = (item.phone_number || '').replace(/[^0-9]/g, '');
-        const waPhone = cleanPhone.startsWith('03') ? ('92' + cleanPhone.slice(1)) : cleanPhone;
-        const waHref = `https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`;
+        let waPhone = cleanPhone;
+        if (waPhone.startsWith('0092')) {
+          waPhone = waPhone.slice(2);
+        } else if (waPhone.startsWith('03')) {
+          waPhone = '92' + waPhone.slice(1);
+        }
+        const hasValidPhone = /^923\d{9}$/.test(waPhone);
+        const waHref = hasValidPhone ? `https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}` : `https://wa.me/?text=${encodeURIComponent(waMessage)}`;
 
         const row = document.createElement('div');
         row.className = 'bill-row';
@@ -1659,7 +1665,7 @@ tailwind.config = {
         let cat = selVal;
         if (selVal === 'custom') {
           if (!customVal) {
-            showToast('براہ کرم کسٹم بجٹ کا نام درج کریں (Please enter a custom budget name)', 'error');
+            showToast(t('toast.budget_name_required'), 'error');
             if (customInput) customInput.focus();
             return;
           }
@@ -1678,7 +1684,7 @@ tailwind.config = {
             customInput.required = false;
           }
           if (budgetCategorySelect) budgetCategorySelect.value = 'total';
-          showToast('Budget saved', 'success');
+          showToast(t('toast.budget_saved'), 'success');
         } else {
           showToast((await res.json().catch(() => ({}))).detail || 'Could not save budget', 'error');
         }
@@ -1695,7 +1701,7 @@ tailwind.config = {
         if (res.ok) {
           document.getElementById('rec-title').value = '';
           document.getElementById('rec-amount').value = '';
-          showToast('Recurring bill saved', 'success');
+          showToast(t('toast.recurring_saved'), 'success');
         } else showToast((await res.json().catch(() => ({}))).detail || 'Could not save', 'error');
         fetchDashboard();
       });

@@ -430,3 +430,74 @@ def test_agent_enforces_recursion_limit_and_llm_timeout(clean_db, monkeypatch):
     assert fallback_configs[0] == {"recursion_limit": agent.AGENT_RECURSION_LIMIT}
 
 
+def test_app_js_toasts_use_i18n_keys_instead_of_hardcoded_strings():
+    """Verify app.js toasts use i18n keys instead of hardcoded strings."""
+    with open("static/app.js", "r", encoding="utf-8") as f:
+        src = f.read()
+
+    forbidden_strings = [
+        "showToast('Ledger refreshed'",
+        "showToast('CSV export downloaded'",
+        'showToast("آواز تحریر میں تبدیل ہو رہی ہے..."',
+        "showToast('Recording cancelled'",
+        "showToast('Expense cancelled'",
+        "showToast('Budget saved'",
+        "showToast('Recurring bill saved'",
+        "showToast('براہ کرم کسٹم بجٹ کا نام درج کریں (Please enter a custom budget name)'",
+        "showToast(`Transaction #${transactionId} deleted`",
+    ]
+
+    for s in forbidden_strings:
+        assert s not in src, f"Hardcoded toast found in static/app.js: {s}"
+
+    required_i18n_calls = [
+        "t('toast.ledger_refreshed')",
+        "t('toast.csv_downloaded')",
+        "t('toast.mic_transcribing')",
+        "t('toast.recording_cancelled')",
+        "t('toast.expense_cancelled')",
+        "t('toast.budget_name_required')",
+        "t('toast.budget_saved')",
+        "t('toast.recurring_saved')",
+        "t('toast.tx_deleted'",
+    ]
+
+    for req in required_i18n_calls:
+        assert req in src, f"Missing required i18n toast call in static/app.js: {req}"
+
+
+def test_whatsapp_reminder_link_supports_contact_picker_fallback_without_phone():
+    """Verify renderUdhaar supports contact picker fallback when phone is omitted or invalid."""
+    with open("static/app.js", "r", encoding="utf-8") as f:
+        src = f.read()
+
+    assert "/^923\\d{9}$/.test(waPhone)" in src
+    assert "https://wa.me/?text=" in src
+    assert "https://wa.me/${waPhone}?text=" in src
+    assert "btn-whatsapp-remind" in src
+
+
+def test_dashboard_top_transaction_metric_reflects_single_largest_expense(client, auth_headers):
+    """Verify top_store metric in dashboard reflects the single largest expense, not cumulative store sum."""
+    user_id = "hero_metric_user@example.com"
+    headers = auth_headers(user_id)
+
+    db = SessionLocal()
+    # Seed 2 small transactions at imtiaz (sum = 1200 PKR)
+    tx1 = Transaction(user_id=user_id, store_name="imtiaz", total_amount=600.0, payment_method="cash")
+    tx2 = Transaction(user_id=user_id, store_name="imtiaz", total_amount=600.0, payment_method="cash")
+    # Seed 1 single larger transaction at al-fatah (1000 PKR)
+    tx3 = Transaction(user_id=user_id, store_name="al-fatah", total_amount=1000.0, payment_method="cash")
+    db.add_all([tx1, tx2, tx3])
+    db.commit()
+    db.close()
+
+    res = client.get(f"/api/transactions/{user_id}", headers=headers)
+    assert res.status_code == 200
+    top_store = res.json().get("top_store")
+    assert top_store is not None
+    assert "Al-Fatah" in top_store
+    assert "1,000" in top_store
+
+
+
