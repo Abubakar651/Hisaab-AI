@@ -243,38 +243,43 @@
 
   // Handle successful sign-in
   async function handleUserSignedIn(user) {
+    if (!user) return;
+
+    // 1. Immediately update UI with Firebase auth credentials so the user is never left hanging
+    let userData = {
+      email: user.email,
+      display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
+      photo_url: user.photoURL,
+    };
+    updateUserUI(userData);
+
+    // Close auth modal
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.classList.add('hidden');
+
+    // 2. Sync backend user profile with SQLite
     try {
-      // Sync backend user profile
       const meRes = await authFetch('/api/auth/me', { method: 'POST' });
-      let userData = {
-        email: user.email,
-        display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
-        photo_url: user.photoURL,
-      };
-      if (meRes.ok) {
+      if (meRes && meRes.ok) {
         const body = await meRes.json();
-        userData = body.user || {
-          email: user.email,
-          display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
-          photo_url: user.photoURL,
-        };
-      }
-
-      updateUserUI(userData);
-
-      // Close modal
-      const modal = document.getElementById('auth-modal');
-      if (modal) modal.classList.add('hidden');
-
-      // Dispatch event or callback for app to refresh ledger
-      if (window.HisaabApp && typeof window.HisaabApp.onUserChanged === 'function') {
-        const targetEmail = userData.email || user.email;
-        if (targetEmail) {
-          window.HisaabApp.onUserChanged(targetEmail);
+        if (body && body.user) {
+          userData = body.user;
+          updateUserUI(userData);
         }
       }
     } catch (err) {
-      console.error('Failed to sync user on sign-in:', err);
+      console.warn('Backend sync warning (server offline or unreachable):', err);
+      if (window.showToast) {
+        window.showToast('Signed in via Firebase. Backend server is unreachable.', 'warning');
+      }
+    }
+
+    // 3. Dispatch event for app to refresh ledger
+    if (window.HisaabApp && typeof window.HisaabApp.onUserChanged === 'function') {
+      const targetEmail = userData.email || user.email;
+      if (targetEmail) {
+        window.HisaabApp.onUserChanged(targetEmail);
+      }
     }
   }
 

@@ -119,16 +119,24 @@ app = FastAPI(
     title="HisaabAI — Voice & Text Expense Tracker",
     description="Multilingual (Urdu, English) Expense Tracker powered by Groq and LangChain",
     version="1.0.0",
+    docs_url="/docs" if IS_DEV else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if IS_DEV else None,
 )
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     """Enforces strict defense-in-depth security headers (CSP, nosniff, frame denial)."""
+    if request.url.path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+        curr_env = os.getenv("APP_ENV", APP_ENV).strip().lower()
+        if curr_env not in ("dev", "development", "test"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
 
     auth_domain = os.getenv("FIREBASE_AUTH_DOMAIN", "").strip()
     frame_src_parts = ["https://accounts.google.com"]
@@ -495,7 +503,7 @@ async def chat_endpoint(
                     audio_bytes,
                     filename=audio.filename or "recording.webm",
                 )
-                logger.info(f"Whisper transcript: '{transcript_text}'")
+                logger.info(f"Whisper transcription completed ({len(transcript_text or '')} chars) for user '{effective_user_id}'")
         except HTTPException:
             raise
         except Exception as e:
@@ -755,7 +763,22 @@ async def get_user_transactions(
         for s in store_stats
     ]
 
-    top_store = store_breakdown[0]["store_name"] if store_breakdown else "N/A"
+    largest_tx = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == clean_user_id,
+            Transaction.transaction_date >= month_start,
+            Transaction.deleted_at.is_(None),
+            analytics._is_expense_clause(),
+        )
+        .order_by(Transaction.total_amount.desc(), Transaction.id.desc())
+        .first()
+    )
+    top_store = (
+        f"{largest_tx.store_name.title()} (PKR {largest_tx.total_amount:,.0f})"
+        if largest_tx and largest_tx.store_name
+        else None
+    )
 
     # 3. Recent 25 transactions with line items
     recent_txs = (

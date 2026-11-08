@@ -1567,6 +1567,128 @@ def test_shopkeeper_udhaar_khata_tools_and_endpoints(client, db, auth_headers):
     assert del_resp.json()["udhaar"]["open_count"] == 0
 
 
+def test_recipient_extraction_from_transcripts():
+    """
+    Verifies regex extraction of person/recipient and vendor names from transfer
+    phrases in English and Urdu / Roman Urdu.
+    """
+    from agent import extract_recipient_or_vendor
+
+    # English phrases
+    assert extract_recipient_or_vendor("i have sent thorugh bank 348000 to abid hussain") == "abid hussain"
+    assert extract_recipient_or_vendor("348000 to abid hussain through bank") == "abid hussain"
+    assert extract_recipient_or_vendor("yes you can add name Abid hussain") == "abid hussain"
+    assert extract_recipient_or_vendor("add name Muhammad Bilal") == "muhammad bilal"
+    assert extract_recipient_or_vendor("recipient is Tariq Khan") == "tariq khan"
+    assert extract_recipient_or_vendor("sent 2000 to brother for rent") == "brother"
+
+    # Urdu / Roman Urdu phrases
+    assert extract_recipient_or_vendor("Ali ko 5000 bheje") == "ali"
+    assert extract_recipient_or_vendor("5000 Ali ko bheje") == "ali"
+    assert extract_recipient_or_vendor("عابد حسین کو 15000 بھیجے") == "عابد حسین"
+    assert extract_recipient_or_vendor("naam Tariq likh do") == "tariq"
+    assert extract_recipient_or_vendor("نام عابد حسین لکھ دو") == "عابد حسین"
+
+
+def test_multi_turn_expense_clarification_no_duplicate(db):
+    """
+    Verifies that when a user records a transfer or expense and then follows up
+    with a clarification (e.g. 'yes you can add name Abid hussain'),
+    only ONE transaction is stored in the database without creating a duplicate.
+    """
+    from agent import get_tools_for_user
+
+    user_id = "test_multi_turn_dedup@example.com"
+    db.query(TransactionItem).filter(TransactionItem.transaction_id.in_(
+        db.query(Transaction.id).filter(Transaction.user_id == user_id)
+    )).delete(synchronize_session=False)
+    db.query(Transaction).filter(Transaction.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+
+    # Turn 1: Initial transfer logged under generic or default name
+    t1_text = "i have sent thorugh bank 348000 to abid hussain"
+    tools_t1 = {t.name: t for t in get_tools_for_user(user_id, raw_transcript=t1_text)}
+    res1 = json.loads(tools_t1["log_expense"].invoke({
+        "store_name": "local store",
+        "total_amount": 348000.0,
+        "payment_method": "bank_transfer"
+    }))
+    assert res1["status"] == "success"
+    assert res1["store_name"] == "abid hussain"
+
+    # Turn 2: User clarification "yes you can add name Abid hussain" via log_expense
+    t2_text = "yes you can add name Abid hussain"
+    tools_t2 = {t.name: t for t in get_tools_for_user(user_id, raw_transcript=t2_text)}
+    res2 = json.loads(tools_t2["log_expense"].invoke({
+        "store_name": "Abid Hussain",
+        "total_amount": 348000.0,
+        "payment_method": "bank_transfer"
+    }))
+    assert res2["status"] == "success"
+    assert res2.get("updated_existing") is True
+
+    # Database must contain exactly 1 active transaction of 348,000 PKR
+    active_txs = db.query(Transaction).filter(
+        Transaction.user_id == user_id,
+        Transaction.deleted_at == None
+    ).all()
+    assert len(active_txs) == 1
+    assert active_txs[0].total_amount == 348000.0
+    assert active_txs[0].store_name == "abid hussain"
+    assert active_txs[0].payment_method == "bank_transfer"
+
+
+def test_update_last_expense_tool(db):
+    """
+    Verifies that `update_last_expense` properly updates store_name, category,
+    notes_or_purpose, payment_method, and total_amount of the latest active transaction.
+    """
+    from agent import get_tools_for_user
+    from database import get_pkt_now
+
+    user_id = "test_update_tool_user@example.com"
+    db.query(TransactionItem).filter(TransactionItem.transaction_id.in_(
+        db.query(Transaction.id).filter(Transaction.user_id == user_id)
+    )).delete(synchronize_session=False)
+    db.query(Transaction).filter(Transaction.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+
+    # Pre-populate an initial transaction
+    tx = Transaction(
+        user_id=user_id,
+        store_name="bank transfer",
+        total_amount=5000.0,
+        transaction_date=get_pkt_now(),
+        payment_method="bank_transfer",
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+
+    tools = {t.name: t for t in get_tools_for_user(user_id, raw_transcript="yes add name Ali Khan")}
+    res = json.loads(tools["update_last_expense"].invoke({
+        "store_name": "Ali Khan",
+        "category": "rent",
+        "notes_or_purpose": "house rent",
+        "payment_method": "bank_transfer",
+        "total_amount": 5500.0,
+    }))
+    assert res["status"] == "success"
+    assert res["store_name"] == "ali khan"
+    assert res["total_amount_pkr"] == 5500.0
+
+    # Verify changes in DB
+    db.expire_all()
+    updated = db.query(Transaction).filter(Transaction.id == tx.id).first()
+    assert updated.store_name == "ali khan"
+    assert updated.total_amount == 5500.0
+    items = db.query(TransactionItem).filter(TransactionItem.transaction_id == tx.id).all()
+    assert len(items) == 1
+    assert items[0].category == "rent"
+    assert items[0].item_name == "house rent"
+    assert items[0].price == 5500.0
+
+
 
 
 
