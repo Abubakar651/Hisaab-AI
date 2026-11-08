@@ -763,7 +763,22 @@ async def get_user_transactions(
         for s in store_stats
     ]
 
-    top_store = store_breakdown[0]["store_name"] if store_breakdown else "N/A"
+    largest_tx = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == clean_user_id,
+            Transaction.transaction_date >= month_start,
+            Transaction.deleted_at.is_(None),
+            analytics._is_expense_clause(),
+        )
+        .order_by(Transaction.total_amount.desc(), Transaction.id.desc())
+        .first()
+    )
+    top_store = (
+        f"{largest_tx.store_name.title()} (PKR {largest_tx.total_amount:,.0f})"
+        if largest_tx and largest_tx.store_name
+        else None
+    )
 
     # 3. Recent 25 transactions with line items
     recent_txs = (
