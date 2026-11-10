@@ -3,7 +3,7 @@
  * - /api/* is NEVER cached: ledger numbers must always come live from SQLite.
  * Upgrades from hisaabai-shell-v1 and hisaabai-shell-v12 to hisaabai-shell-v17 to ensure immediate script updates.
  */
-const CACHE = 'hisaabai-shell-v23';
+const CACHE = 'hisaabai-shell-v24';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -16,6 +16,10 @@ const SHELL = [
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'
 ];
+
+function safeOfflineResponse() {
+  return new Response('Offline', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+}
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.action === 'clear-cache') {
@@ -54,11 +58,17 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req, { cache: 'no-cache' })
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('/', copy));
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('/', copy));
+          }
           return res;
         })
-        .catch(() => caches.match('/'))
+        .catch(() =>
+          caches.match(req, { ignoreSearch: true })
+            .then((hit) => hit || caches.match('/'))
+            .then((hit) => hit || safeOfflineResponse())
+        )
     );
     return;
   }
@@ -74,11 +84,19 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         })
-        .catch(() => caches.match(req))
+        .catch(() =>
+          caches.match(req, { ignoreSearch: true })
+            .then((hit) => hit || safeOfflineResponse())
+        )
     );
     return;
   }
 
   // Cache-first for images, fonts, and manifest icons.
-  event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+  event.respondWith(
+    caches.match(req, { ignoreSearch: true })
+      .then((hit) => hit || fetch(req))
+      .then((res) => res || safeOfflineResponse())
+      .catch(() => safeOfflineResponse())
+  );
 });

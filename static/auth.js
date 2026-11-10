@@ -13,6 +13,8 @@
   let isConfigured = false;
   let authMode = 'signin'; // 'signin' or 'signup'
   let resendCooldownTimer = null;
+  let signInSyncPromise = null;
+  let signInSyncUid = null;
 
   // Map Firebase error codes to user-friendly messages
   function mapAuthError(err) {
@@ -37,7 +39,7 @@
       case 'auth/popup-blocked':
         return 'Sign-in popup was blocked. Redirecting to Google...';
       case 'auth/unauthorized-domain':
-        return 'Domain not authorized in Firebase Console (Authentication > Settings > Authorized domains).';
+        return `Domain "${window.location.hostname}" is not authorized in Firebase Console -> Authentication -> Settings -> Authorized domains.`;
       case 'auth/operation-not-allowed':
         return 'Email/Password sign-in is disabled in Firebase Console. Enable it under Authentication > Sign-in method > Email/Password.';
       default:
@@ -204,6 +206,15 @@
       firebaseAuth = firebase.auth();
       isConfigured = true;
 
+      // Pre-warm Firebase popup/redirect iframe resolver on page load so mobile tap gestures never expire before window.open()
+      try {
+        const delegate = firebaseAuth._delegate || firebaseAuth;
+        const resolver = delegate && delegate._popupRedirectResolver;
+        if (resolver && typeof resolver._initialize === 'function') {
+          resolver._initialize(delegate).catch(() => {});
+        }
+      } catch (_) {}
+
       // Set persistence to LOCAL so user stays signed in across reloads
       await firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
@@ -241,46 +252,59 @@
     }
   }
 
-  // Handle successful sign-in
+  // Handle successful sign-in (deduplicated across concurrent onAuthStateChanged + signInWithPopup calls)
   async function handleUserSignedIn(user) {
     if (!user) return;
+    const uid = user.uid || user.email || 'active';
+    if (signInSyncPromise && signInSyncUid === uid) {
+      return signInSyncPromise;
+    }
 
-    // 1. Immediately update UI with Firebase auth credentials so the user is never left hanging
-    let userData = {
-      email: user.email,
-      display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
-      photo_url: user.photoURL,
-    };
-    updateUserUI(userData);
+    signInSyncUid = uid;
+    signInSyncPromise = (async () => {
+      try {
+        // 1. Immediately update UI with Firebase auth credentials so the user is never left hanging
+        let userData = {
+          email: user.email,
+          display_name: user.displayName || (user.email ? user.email.split('@')[0] : ''),
+          photo_url: user.photoURL,
+        };
+        updateUserUI(userData);
 
-    // Close auth modal
-    const modal = document.getElementById('auth-modal');
-    if (modal) modal.classList.add('hidden');
+        // Close auth modal
+        const modal = document.getElementById('auth-modal');
+        if (modal) modal.classList.add('hidden');
 
-    // 2. Sync backend user profile with SQLite
-    try {
-      const meRes = await authFetch('/api/auth/me', { method: 'POST' });
-      if (meRes && meRes.ok) {
-        const body = await meRes.json();
-        if (body && body.user) {
-          userData = body.user;
-          updateUserUI(userData);
+        // 2. Sync backend user profile with SQLite
+        try {
+          const meRes = await authFetch('/api/auth/me', { method: 'POST' });
+          if (meRes && meRes.ok) {
+            const body = await meRes.json();
+            if (body && body.user) {
+              userData = body.user;
+              updateUserUI(userData);
+            }
+          }
+        } catch (err) {
+          console.warn('Backend sync warning (server offline or unreachable):', err);
+          if (window.showToast) {
+            window.showToast('Signed in via Firebase. Backend server is unreachable.', 'warning');
+          }
         }
-      }
-    } catch (err) {
-      console.warn('Backend sync warning (server offline or unreachable):', err);
-      if (window.showToast) {
-        window.showToast('Signed in via Firebase. Backend server is unreachable.', 'warning');
-      }
-    }
 
-    // 3. Dispatch event for app to refresh ledger
-    if (window.HisaabApp && typeof window.HisaabApp.onUserChanged === 'function') {
-      const targetEmail = userData.email || user.email;
-      if (targetEmail) {
-        window.HisaabApp.onUserChanged(targetEmail);
+        // 3. Dispatch event for app to refresh ledger
+        if (currentUser && window.HisaabApp && typeof window.HisaabApp.onUserChanged === 'function') {
+          const targetEmail = userData.email || user.email;
+          if (targetEmail) {
+            window.HisaabApp.onUserChanged(targetEmail);
+          }
+        }
+      } finally {
+        signInSyncPromise = null;
       }
-    }
+    })();
+
+    return signInSyncPromise;
   }
 
   // Handle sign-out
@@ -486,30 +510,17 @@
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
-    // Detect mobile or standalone PWA environment where popup is unreliable or blocked
-    const isMobileOrPWA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                          window.matchMedia('(display-mode: standalone)').matches ||
-                          Boolean(navigator.standalone);
-
-    if (isMobileOrPWA) {
-      try {
-        setAuthMessage(window.t ? window.t('auth.redirecting_google') : 'Connecting to Google...', 'info');
-        await firebaseAuth.signInWithRedirect(provider);
-        return;
-      } catch (redirErr) {
-        console.warn('Direct signInWithRedirect failed, attempting popup:', redirErr);
-      }
-    }
-
     try {
       const res = await firebaseAuth.signInWithPopup(provider);
       if (res && res.user) {
         currentUser = res.user;
         await handleUserSignedIn(res.user);
-        const modal = document.getElementById('auth-modal');
-        if (modal) modal.classList.add('hidden');
+        if (currentUser) {
+          const modal = document.getElementById('auth-modal');
+          if (modal) modal.classList.add('hidden');
+          if (window.showToast) window.showToast('Successfully signed in!', 'success');
+        }
       }
-      if (window.showToast) window.showToast('Successfully signed in!', 'success');
     } catch (err) {
       console.error('Google Sign-In failed:', err);
       // If popup was blocked or closed or unsupported, immediately fall back to redirect!
@@ -593,7 +604,8 @@
 
       if (!isEmailNotVerified) {
         try {
-          token = await currentUser.getIdToken(true); // force refresh
+          await new Promise((r) => setTimeout(r, 600));
+          token = await currentUser.getIdToken(true); // force refresh after brief clock-skew settle delay
           opts.headers['Authorization'] = `Bearer ${token}`;
           res = await fetch(url, opts);
         } catch (refreshErr) {

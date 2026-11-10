@@ -146,6 +146,7 @@ async def add_security_headers(request: Request, call_next):
         else:
             frame_src_parts.append(auth_domain)
     frame_src = " ".join(frame_src_parts)
+    connect_extra = " ".join(["https://apis.google.com", "https://accounts.google.com", *frame_src_parts[1:]])
 
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -153,7 +154,7 @@ async def add_security_headers(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
         "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://unpkg.com data:; "
         "img-src 'self' data: https:; "
-        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net; "
+        f"connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net {connect_extra}; "
         f"frame-src {frame_src}; "
         "object-src 'none'; "
         "base-uri 'self'; "
@@ -245,16 +246,20 @@ def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
     # 1. Primary verification via Firebase Admin SDK (skip unmocked call if local ADC is absent to avoid 12s GCE metadata timeout)
     if is_mocked or not _ADMIN_SDK_CREDENTIALS_MISSING:
         try:
-            claims = admin_auth.verify_id_token(token.strip(), check_revoked=False)
+            try:
+                claims = admin_auth.verify_id_token(token.strip(), check_revoked=False, clock_skew_seconds=60)
+            except TypeError:
+                claims = admin_auth.verify_id_token(token.strip(), check_revoked=False)
         except Exception as admin_err:
             if "DefaultCredentialsError" in type(admin_err).__name__:
                 _ADMIN_SDK_CREDENTIALS_MISSING = True
-            # 2. Resilient fallback via google-auth with CacheControl session
+            # 2. Resilient fallback via google-auth with CacheControl session (60s clock skew tolerance for fresh tokens)
             try:
                 claims = google_id_token.verify_firebase_token(
                     token.strip(),
                     _cached_request_adapter,
                     audience=project_id if project_id else None,
+                    clock_skew_in_seconds=60,
                 )
             except Exception as ga_err:
                 logger.warning(f"Firebase token verification failed (admin: {admin_err}, fallback: {ga_err})")
@@ -269,6 +274,7 @@ def verify_firebase_token_claims(token: str) -> Dict[str, Any]:
                 token.strip(),
                 _cached_request_adapter,
                 audience=project_id if project_id else None,
+                clock_skew_in_seconds=60,
             )
         except Exception as ga_err:
             logger.warning(f"Firebase token verification failed (google_id_token: {ga_err})")
@@ -878,9 +884,85 @@ async def get_user_profile(
     }
 
 
+@app.delete("/api/auth/account")
+async def delete_my_account(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Purges all tenant data across all tables and clears in-memory agent session history.
+    """
+    user_str = str(current_user).strip()
+    tx_ids = [t_id for (t_id,) in db.query(Transaction.id).filter(Transaction.user_id == user_str).all()]
+    if tx_ids:
+        db.query(TransactionItem).filter(TransactionItem.transaction_id.in_(tx_ids)).delete(synchronize_session=False)
+    db.query(Transaction).filter(Transaction.user_id == user_str).delete(synchronize_session=False)
+    db.query(UdhaarEntry).filter(UdhaarEntry.user_id == user_str).delete(synchronize_session=False)
+    db.query(Budget).filter(Budget.user_id == user_str).delete(synchronize_session=False)
+    db.query(RecurringExpense).filter(RecurringExpense.user_id == user_str).delete(synchronize_session=False)
+    db.query(PendingTransaction).filter(PendingTransaction.user_id == user_str).delete(synchronize_session=False)
+    db.query(UserAccount).filter(UserAccount.user_id == user_str).delete(synchronize_session=False)
+    db.commit()
+    clear_user_history(user_str)
+    return {"status": "success", "deleted_user_id": user_str}
+
+
 # ---------------------------------------------------------------------------
 # API: Export (CSV opens directly in Excel; UTF-8 BOM keeps Urdu text intact)
 # ---------------------------------------------------------------------------
+@app.get("/api/export/{user_id}/udhaar")
+async def export_udhaar_csv(
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    clean_user_id = current_user
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(analytics.UDHAAR_EXPORT_HEADER)
+    writer.writerows(analytics.export_udhaar_rows(db, clean_user_id))
+    filename = f"hisaabai_udhaar_{clean_user_id}_{get_pkt_now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export/{user_id}/full")
+async def export_full_json(
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    clean_user_id = current_user
+    txs = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == clean_user_id, Transaction.deleted_at.is_(None))
+        .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+        .all()
+    )
+    udhaars = (
+        db.query(UdhaarEntry)
+        .filter(UdhaarEntry.user_id == clean_user_id, UdhaarEntry.deleted_at.is_(None))
+        .order_by(UdhaarEntry.created_at.desc(), UdhaarEntry.id.desc())
+        .all()
+    )
+    budgets = db.query(Budget).filter(Budget.user_id == clean_user_id).all()
+    recurring = db.query(RecurringExpense).filter(RecurringExpense.user_id == clean_user_id).all()
+
+    return {
+        "status": "success",
+        "user_id": clean_user_id,
+        "transactions": [t.to_dict() for t in txs],
+        "udhaar": [u.to_dict() for u in udhaars],
+        "budgets": [b.to_dict() for b in budgets],
+        "recurring": [r.to_dict() for r in recurring],
+    }
+
+
 @app.get("/api/export/{user_id}")
 async def export_csv(
     user_id: str,
@@ -1080,6 +1162,51 @@ async def create_udhaar(
     )
     if res.get("status") == "error":
         raise HTTPException(status_code=400, detail=res.get("message", "Invalid udhaar entry"))
+    return {"status": "success", "entry": res["entry"], "udhaar": analytics.udhaar_summary(db, current_user)}
+
+
+@app.patch("/api/udhaar/{user_id}/{entry_id}")
+async def update_udhaar_item(
+    user_id: str,
+    entry_id: int,
+    request: Request,
+    amount: Optional[float] = Form(None),
+    notes: Optional[str] = Form(None),
+    phone_number: Optional[str] = Form(None),
+    direction: Optional[str] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_user_access(user_id, current_user)
+    ct = request.headers.get("content-type", "")
+    if "application/json" in ct:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                if amount is None and "amount" in body and body["amount"] is not None:
+                    amount = float(body["amount"])
+                if notes is None and "notes" in body:
+                    notes = body["notes"]
+                if phone_number is None and "phone_number" in body:
+                    phone_number = body["phone_number"]
+                if direction is None and "direction" in body:
+                    direction = body["direction"]
+        except Exception:
+            pass
+
+    res = analytics.update_udhaar_entry(
+        db,
+        user_id=current_user,
+        entry_id=entry_id,
+        amount=amount,
+        notes=notes,
+        phone_number=phone_number,
+        direction=direction,
+    )
+    if res.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=res.get("message", "Udhaar entry not found"))
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message", "Invalid udhaar update"))
     return {"status": "success", "entry": res["entry"], "udhaar": analytics.udhaar_summary(db, current_user)}
 
 
