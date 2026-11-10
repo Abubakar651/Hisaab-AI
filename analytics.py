@@ -650,6 +650,110 @@ def settle_udhaar(
         raise
 
 
+def update_udhaar_entry(
+    db: Session,
+    user_id: str,
+    entry_id: Optional[int] = None,
+    person_name: Optional[str] = None,
+    amount: Optional[float] = None,
+    notes: Optional[str] = None,
+    phone_number: Optional[str] = None,
+    direction: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Locates an open UdhaarEntry by entry_id or most recent open entry matching person_name.
+    Validates amount, updates fields, commits, and returns the updated entry.
+    """
+    entry = None
+    if entry_id is not None:
+        entry = (
+            db.query(UdhaarEntry)
+            .filter(
+                UdhaarEntry.user_id == user_id,
+                UdhaarEntry.id == int(entry_id),
+                UdhaarEntry.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not entry:
+            return {"status": "not_found", "message": f"Udhaar entry #{entry_id} not found."}
+    elif person_name and _norm(person_name):
+        open_entries = (
+            db.query(UdhaarEntry)
+            .filter(
+                UdhaarEntry.user_id == user_id,
+                UdhaarEntry.deleted_at.is_(None),
+                UdhaarEntry.status == "open",
+            )
+            .order_by(UdhaarEntry.created_at.desc(), UdhaarEntry.id.desc())
+            .all()
+        )
+        exact = [e for e in open_entries if _norm(e.person_name) == _norm(person_name)]
+        if exact:
+            entry = exact[0]
+        else:
+            toks = set(_norm(person_name).split())
+            cands = [e for e in open_entries if toks and toks <= set(_norm(e.person_name).split())]
+            names = {_norm(e.person_name) for e in cands}
+            if len(names) > 1:
+                return {
+                    "status": "ambiguous",
+                    "message": f"Multiple people match '{person_name}'.",
+                    "candidates": sorted({e.person_name for e in cands}),
+                }
+            if cands:
+                entry = cands[0]
+        if not entry:
+            return {"status": "not_found", "message": f"No open Udhaar entry found matching '{person_name}'."}
+    else:
+        return {"status": "not_found", "message": "Either entry_id or person_name is required."}
+
+    if amount is not None:
+        try:
+            val = validate_transaction_amount(amount)
+        except ValueError as ve:
+            return {"status": "error", "message": str(ve)}
+        already_paid = float(entry.paid_amount or 0.0)
+        if val < already_paid - 0.01:
+            return {"status": "error", "message": "New amount cannot be less than already paid amount."}
+        entry.amount = val
+        entry.status = "settled" if val <= already_paid + 0.01 else "open"
+
+    if notes is not None:
+        entry.notes = notes.strip() or None
+
+    if phone_number is not None:
+        entry.phone_number = phone_number.strip() or None
+
+    if direction and str(direction).strip():
+        d_low = str(direction).strip().lower()
+        if d_low in ("payable", "borrow", "dene", "dene_hain", "liya", "owed", "take_credit"):
+            entry.direction = "payable"
+        elif d_low in ("receivable", "lend", "lene", "lene_hain", "diya", "give_credit"):
+            entry.direction = "receivable"
+
+    entry.updated_at = get_pkt_now()
+    db.commit()
+    db.refresh(entry)
+    return {"status": "success", "entry": entry.to_dict()}
+
+
+def undo_last_udhaar_entry(db: Session, user_id: str) -> Dict[str, Any]:
+    """Soft-deletes the most recently created active UdhaarEntry for the user."""
+    entry = (
+        db.query(UdhaarEntry)
+        .filter(UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None))
+        .order_by(UdhaarEntry.id.desc())
+        .first()
+    )
+    if not entry:
+        return {"status": "not_found", "message": "No Udhaar entry found to undo."}
+
+    entry.deleted_at = get_pkt_now()
+    db.commit()
+    return {"status": "success", "deleted_entry": entry.to_dict()}
+
+
 def recurring_status(db: Session, user_id: str) -> List[Dict]:
     items = (
         db.query(RecurringExpense)
@@ -766,6 +870,47 @@ EXPORT_HEADER = [
     "Payment Method",
     "Transaction Total (PKR)",
 ]
+
+UDHAAR_EXPORT_HEADER = [
+    "ID",
+    "Date",
+    "Person",
+    "Phone",
+    "Direction",
+    "Total Amount (PKR)",
+    "Paid Amount (PKR)",
+    "Remaining Balance (PKR)",
+    "Status",
+    "Notes",
+]
+
+
+def export_udhaar_rows(db: Session, user_id: str) -> List[List]:
+    """Generates sanitized rows for Udhaar CSV export."""
+    entries = (
+        db.query(UdhaarEntry)
+        .filter(UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None))
+        .order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc())
+        .all()
+    )
+    rows: List[List] = []
+    for e in entries:
+        rem = round(float(e.amount or 0.0) - float(e.paid_amount or 0.0), 2)
+        date_str = e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else ""
+        raw_row = [
+            e.id,
+            date_str,
+            e.person_name,
+            e.phone_number or "",
+            e.direction,
+            e.amount,
+            e.paid_amount or 0.0,
+            rem,
+            e.status,
+            e.notes or "",
+        ]
+        rows.append([sanitize_csv_cell(c) for c in raw_row])
+    return rows
 
 
 def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:

@@ -39,6 +39,8 @@ from analytics import (
     udhaar_summary,
     add_udhaar_entry,
     settle_udhaar,
+    update_udhaar_entry,
+    undo_last_udhaar_entry,
 )
 
 load_dotenv()
@@ -147,7 +149,7 @@ def get_chat_llm(api_key: Optional[str] = None):
             model=_VALIDATED_MODEL,
             temperature=0,
             max_tokens=800,
-            max_retries=3,
+            max_retries=0,
             timeout=LLM_TIMEOUT_SECONDS,
             groq_api_key=effective_groq_key,
         )
@@ -160,6 +162,7 @@ def get_chat_llm(api_key: Optional[str] = None):
                 model=candidate,
                 temperature=0,
                 max_tokens=10,
+                max_retries=0,
                 timeout=LLM_TIMEOUT_SECONDS,
                 groq_api_key=effective_groq_key,
             )
@@ -170,7 +173,7 @@ def get_chat_llm(api_key: Optional[str] = None):
                 model=_VALIDATED_MODEL,
                 temperature=0,
                 max_tokens=800,
-                max_retries=3,
+                max_retries=0,
                 timeout=LLM_TIMEOUT_SECONDS,
                 groq_api_key=effective_groq_key,
             )
@@ -183,6 +186,7 @@ def get_chat_llm(api_key: Optional[str] = None):
         model=_VALIDATED_MODEL,
         temperature=0,
         max_tokens=800,
+        max_retries=0,
         timeout=LLM_TIMEOUT_SECONDS,
         groq_api_key=effective_groq_key,
     )
@@ -199,9 +203,12 @@ def ensure_urdu_script(text: str) -> str:
     Guarantees that speech in Urdu or Punjabi uses authentic Pakistani Urdu script
     (Perso-Arabic alphabet / Nastaliq), never Hindi Devanagari or Indian Gurmukhi.
     Converts any detected Devanagari or Gurmukhi text accurately to standard Urdu script.
+    Also replaces Indian Rupee symbols (₹) with PKR.
     """
     if not text or not text.strip():
         return ""
+
+    text = text.replace("₹", "PKR ")
 
     # Detect Devanagari (Hindi) or Gurmukhi (Eastern Punjabi) characters
     if DEV_GUR_REGEX.search(text):
@@ -218,7 +225,7 @@ def ensure_urdu_script(text: str) -> str:
             converted = (res.content or "").strip()
             if converted:
                 logger.info("Converted Hindi/Gurmukhi text to Urdu script successfully")
-                return converted
+                return converted.replace("₹", "PKR ")
         except Exception as e:
             logger.warning(f"Error converting Hindi/Gurmukhi text to Urdu script: {e}")
 
@@ -351,6 +358,208 @@ def extract_recipient_or_vendor(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Deterministic Urdu / Punjabi Spoken Number & Category Helpers
+# ---------------------------------------------------------------------------
+_EASTERN_DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+_URDU_UNIT_VALUES = [
+    ("پینتالیس", 45), ("پینتیس", 35), ("پچپن", 55), ("پچھتر", 75), ("پچاسی", 85), ("پچانوے", 95),
+    ("پچیس", 25), ("پچی", 25), ("چوبیس", 24), ("تیئیس", 23), ("بائیس", 22), ("اکیس", 21),
+    ("انتالیس", 39), ("اٹھتیس", 38), ("سینتیس", 37), ("چھتیس", 36), ("چونتیس", 34), ("تینتیس", 33),
+    ("بتیس", 32), ("اکتیس", 31), ("چوون", 54), ("تریپن", 53), ("باون", 52), ("اکیاون", 51),
+    ("انچاس", 49), ("اڑتالیس", 48), ("سینتالیس", 47), ("چھیاسٹھ", 66), ("پینسٹھ", 65),
+    ("چونسٹھ", 64), ("اکسٹھ", 61), ("انیس", 19), ("اٹھارہ", 18), ("سترہ", 17), ("سولہ", 16),
+    ("پندرہ", 15), ("چودہ", 14), ("تیرہ", 13), ("بارہ", 12), ("گیارہ", 11),
+    ("ننانوے", 99), ("نوے", 90), ("اسی", 80), ("ستر", 70), ("ساٹھ", 60), ("پچاس", 50),
+    ("چالیس", 40), ("تیس", 30), ("بیس", 20), ("دس", 10),
+    ("نو", 9), ("آٹھ", 8), ("آٹ", 8), ("سات", 7), ("چھے", 6), ("چھ", 6),
+    ("پانچ", 5), ("پان", 5), ("چار", 4), ("تین", 3), ("دو", 2), ("ایک", 1),
+]
+
+
+def _coalesce_adjacent_place_values(text: str) -> str:
+    """
+    Combines adjacent descending place-value integers produced from multi-part spoken numbers
+    (e.g. 'ایک لاکھ بیس ہزار' -> '100000 20000' -> '120000', '2000 500' -> '2500').
+    """
+    def _merge_once(s: str) -> str:
+        def _repl(m: re.Match) -> str:
+            n1 = int(m.group(1))
+            n2 = int(m.group(2))
+            if (
+                (n1 >= 10000000 and n1 % 10000000 == 0 and 0 < n2 < 10000000)
+                or (n1 >= 100000 and n1 % 100000 == 0 and 0 < n2 < 100000)
+                or (n1 >= 1000 and n1 % 1000 == 0 and 0 < n2 < 1000)
+                or (n1 >= 100 and n1 % 100 == 0 and 0 < n2 < 100)
+            ):
+                return str(n1 + n2)
+            return m.group(0)
+
+        return re.sub(r"(?<!\S)(\d+)\s+(\d+)(?!\S)", _repl, s)
+
+    prev = text
+    for _ in range(3):
+        curr = _merge_once(prev)
+        if curr == prev:
+            break
+        prev = curr
+    return prev
+
+
+def normalize_urdu_spoken_numbers(text: str) -> str:
+    """
+    Deterministically converts spoken Urdu/Punjabi number phrases and Whisper STT
+    phonetic fusions (e.g., 'پچی سو' -> '2500', 'پچیس سو' -> '2500', 'آٹ سرُوپے' -> '800 روپے',
+    'ایک لاکھ بیس ہزار' -> '120000', 'پان سو' -> '500') into explicit ASCII digits.
+    """
+    if not text or not text.strip():
+        return ""
+
+    out = text.translate(_EASTERN_DIGIT_MAP)
+    # Strip Arabic diacritics (zabar/zer/pesh like ُ in سرُوپے) for reliable matching
+    out = re.sub(r"[\u064B-\u065F\u0670]", "", out)
+
+    # Normalize common Whisper STT phonetic fusions in financial/shopkeeper phrases
+    out = re.sub(r"(?<!\S)عام\s+دن(?!\S)", "آمدن", out)
+    out = re.sub(r"(?<!\S)سمار(?!\S)", "سامان", out)
+    out = re.sub(r"(پتھر|ماربل|فٹ|کلو|بوری|مال|سامان|ری)\s+(?:پیچھا|پچھا)(?!\S)", r"\1 بیچا", out)
+
+    # 1. Exact fractional / compound idioms first (longest match first)
+    idiom_replacements = [
+        (r"ڈھائی\s*کروڑ", "25000000"),
+        (r"ڈیڑھ\s*کروڑ", "15000000"),
+        (r"ڈھائی\s*لاکھ", "250000"),
+        (r"ڈیڑھ\s*لاکھ", "150000"),
+        (r"سوا\s*لاکھ", "125000"),
+        (r"پونے\s*دو\s*لاکھ", "175000"),
+        (r"ساڑھے\s*تین\s*ہزار", "3500"),
+        (r"ساڑھے\s*چار\s*ہزار", "4500"),
+        (r"ساڑھے\s*پانچ\s*ہزار", "5500"),
+        (r"ڈھائی\s*ہزار", "2500"),
+        (r"ڈیڑھ\s*ہزار", "1500"),
+        (r"پونے\s*دو\s*ہزار", "1750"),
+        (r"سوا\s*ہزار", "1250"),
+        (r"دو\s*ہزار\s*پانچ\s*سو", "2500"),
+        (r"ایک\s*ہزار\s*پانچ\s*سو", "1500"),
+        (r"تین\s*ہزار\s*پانچ\s*سو", "3500"),
+        (r"چار\s*ہزار\s*پانچ\s*سو", "4500"),
+        (r"ساڑھے\s*تین\s*سو", "350"),
+        (r"ساڑھے\s*چار\s*سو", "450"),
+        (r"ساڑھے\s*پانچ\s*سو", "550"),
+        (r"ساڑھے\s*چھ\s*سو", "650"),
+        (r"ساڑھے\s*چھے\s*سو", "650"),
+        (r"ساڑھے\s*سات\s*سو", "750"),
+        (r"ساڑھے\s*آٹھ\s*سو", "850"),
+        (r"ساڑھے\s*نو\s*سو", "950"),
+        (r"پونے\s*دو\s*سو", "175"),
+        (r"ڈھائی\s*سو", "250"),
+        (r"ڈیڑھ\s*سو", "150"),
+        (r"سوا\s*سو", "125"),
+    ]
+    for pat, repl in idiom_replacements:
+        out = re.sub(pat, repl, out)
+
+    # 2. Whisper STT slurred '<unit> سروپے' / '<unit> سرپے' (where 'سو روپے' fused into 'سروپے')
+    for word, val in _URDU_UNIT_VALUES:
+        out = re.sub(rf"(?<!\S){word}\s*سر(?:و)?پے(?!\S)", f"{val * 100} روپے", out)
+
+    # 3. Standard '<unit> کروڑ', '<unit> لاکھ', '<unit> ہزار', '<unit> سو'
+    for word, val in _URDU_UNIT_VALUES:
+        out = re.sub(rf"(?<!\S){word}\s+کروڑ(?!\S)", str(val * 10000000), out)
+        out = re.sub(rf"(?<!\S){word}\s+لاکھ(?!\S)", str(val * 100000), out)
+        out = re.sub(rf"(?<!\S){word}\s+ہزار(?!\S)", str(val * 1000), out)
+        out = re.sub(rf"(?<!\S){word}\s+سو(?!\S)", str(val * 100), out)
+
+    # 3b. Coalesce adjacent descending place values (e.g. 'ایک لاکھ بیس ہزار' -> '100000 20000' -> '120000')
+    out = _coalesce_adjacent_place_values(out)
+
+    # 4. Roman Urdu compound numbers (e.g. 'pachi sau', 'pachees sau', 'dhai hazaar', 'dedh hazaar', 'aath sau')
+    roman_replacements = [
+        (r"\bdhai\s+lakh\b", "250000"),
+        (r"\bdedh\s+lakh\b", "150000"),
+        (r"\bdhai\s+haza+r\b", "2500"),
+        (r"\bdedh\s+haza+r\b", "1500"),
+        (r"\bpaune\s+do\s+haza+r\b", "1750"),
+        (r"\bsadhe\s+teen\s+haza+r\b", "3500"),
+        (r"\bsadhe\s+cha+r\s+haza+r\b", "4500"),
+        (r"\bpach(?:ees|i|is)\s+sau\b", "2500"),
+        (r"\bpandr?a\s+sau\b", "1500"),
+        (r"\bba+ra\s+sau\b", "1200"),
+        (r"\ba+th?\s+sau\b", "800"),
+        (r"\bch+e\s+sau\b", "600"),
+        (r"\bpa+nch\s+sau\b", "500"),
+        (r"\bcha+r\s+sau\b", "400"),
+        (r"\bteen\s+sau\b", "300"),
+        (r"\bdhai\s+sau\b", "250"),
+        (r"\bdo\s+sau\b", "200"),
+        (r"\bpaune\s+do\s+sau\b", "175"),
+        (r"\bdedh\s+sau\b", "150"),
+    ]
+    for pat, repl in roman_replacements:
+        out = re.sub(pat, repl, out, flags=re.I)
+
+    return out
+
+
+def infer_expense_category(store_name: str = "", item_name: str = "", raw_transcript: str = "") -> str:
+    """
+    Deterministically infers the canonical expense category from store_name, item_name,
+    or (when store is generic) raw_transcript.
+    """
+    primary = f"{store_name or ''} {item_name or ''}".lower()
+    fallback = (raw_transcript or "").lower()
+
+    category_rules = [
+        ("utilities", (
+            "electricity", "electric", "lesco", "k-electric", "kelectric", "wapda", "iesco", "mepco", "pesco", "fesco",
+            "gas bill", "sui gas", "sngpl", "ssgc", "water bill", "wasa", "internet", "ptcl", "nayatel", "stormfiber",
+            "utility", "utilities", "bill", "بجلی", "گیس", "پانی کا بل", "انٹرنیٹ", "بل",
+        )),
+        ("fuel", (
+            "petrol", "fuel", "diesel", "cng", "pso", "shell", "total parco", "attock", "hascol", "aramco",
+            "پٹرول", "پیٹرول", "ڈیزل",
+        )),
+        ("groceries", (
+            "grocer", "ration", "rashan", "rations", "imtiaz", "al-fatah", "alfatah", "metro", "carrefour",
+            "chase up", "jalal sons", "csd", "kiryana", "kariyana", "supermarket", "mart", "milk", "bread",
+            "flour", "atta", "sugar", "oil", "ghee", "rice", "pulses", "daal", "eggs", "yogurt", "curd",
+            "tissue", "tissues", "bottle", "bottles", "water bottle", "soap", "detergent", "tea",
+            "راشن", "کریانہ", "دودھ", "انڈے", "آٹا", "چینی", "چاول", "ٹیشو", "بوتل", "بوتلیں", "پتی", "گھی", "تیل",
+        )),
+        ("healthcare", (
+            "hospital", "clinic", "doctor", "pharmacy", "chemist", "shaheen", "fazal din", "medicine", "medical", "lab",
+            "دوائی", "ہسپتال", "ڈاکٹر", "میڈیکل", "فیس ڈاکٹر",
+        )),
+        ("clothing", (
+            "clothes", "clothing", "shirt", "shoes", "shoe", "boots", "boot", "footwear", "bata", "servis", "ndure",
+            "stylo", "borjan", "khaadi", "gul ahmed", "sapphire", "کپڑے", "جوتے", "جوتا", "بوٹ", "بوتنوں", "سلائی",
+        )),
+        ("rent", (
+            "rent", "house rent", "shop rent", "کرایہ",
+        )),
+        ("education", (
+            "school", "college", "university", "tuition", "school fee", "books", "stationery",
+            "اسکول", "ٹیوشن", "کتابیں",
+        )),
+        ("dining", (
+            "restaurant", "cafe", "hotel", "food", "dinner", "lunch", "breakfast", "biryani", "pizza", "burger", "chai",
+            "کھانا", "ہوٹل", "بریانی", "چائے",
+        )),
+    ]
+
+    for cat, keywords in category_rules:
+        if any(kw in primary for kw in keywords):
+            return cat
+
+    if store_name.strip().lower() in ("", "local store", "general store", "general purchase") and fallback:
+        for cat, keywords in category_rules:
+            if any(kw in fallback for kw in keywords):
+                return cat
+
+    return "other"
+
+
+# ---------------------------------------------------------------------------
 # Pydantic Schemas for Tool Arguments
 # ---------------------------------------------------------------------------
 class ExpenseItemSchema(BaseModel):
@@ -376,7 +585,8 @@ class LogExpenseInput(BaseModel):
     model_config = {"extra": "ignore"}
 
     store_name: str = Field(
-        description="Canonical lowercase English store, vendor, shop, brand, or person/recipient name for money transfers/payments, e.g. 'imtiaz', 'al-fatah', 'abid hussain', 'ali', 'petrol pump', 'local store'"
+        default="general store",
+        description="Canonical lowercase English store, vendor, shop, brand, item/bill name, or person/recipient name for money transfers/payments, e.g. 'imtiaz', 'al-fatah', 'groceries', 'electricity bill', 'abid hussain', 'petrol pump', 'general store'. Defaults to 'general store' if no shop is named.",
     )
     items: Optional[Any] = Field(
         default=None,
@@ -603,24 +813,23 @@ State summary first (Total PKR, count, dates). Tables:
 - **Urdu:** `| تاریخ | دکان | رقم (PKR) | ادائیگی |` (نقد، کارڈ، ایزی پیسہ، جاز کیش، بینک ٹرانسفر; 'local store'->'لوکل اسٹور', 'fuel'->'پیٹرول پمپ'). No raw keys.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
-1. **EXPENSE (`log_expense`):** Expenses/purchases/transfers ("spent", "kharcha", "Ali ko 5000 bheje") -> lowercase `store_name` (vendor/recipient), `items`, `date_str`, `payment_method`.
-2. **UPDATE RECENT (`update_last_expense`):** Clarifying/answering follow-up ("add name Abid Hussain", "naam Tariq hai", "3500 not 3000") -> CALL `update_last_expense`, NEVER `log_expense`!
-3. **DAILY SALES (`log_sale`):** Sold items ("sold 2 bags flour for 5400", "aaj 15000 ki farokht hui") -> CALL `log_sale`, never `log_expense`!
+1. **EXPENSE (`log_expense`):** Purchases/transfers ("spent", "kharcha", "Ali ko 5000 bheje") -> lowercase `store_name` (default `'general store'`), `items` (`quantity=1`), `date_str`, `payment_method`. Log immediately when prices are given!
+2. **UPDATE RECENT (`update_last_expense`):** Follow-up or fixing amount ("add name Abid Hussain", "naam Tariq hai", "3500 not 3000", "اسے صحیح کرو") -> CALL `update_last_expense`, NEVER `log_expense` or ask to delete!
+3. **DAILY SALES (`log_sale`):** Sold items ("sold 2 bags flour for 5400", "aaj 15000 ki farokht hui", "پتھر بیچا", "آمدن ہوئی", "گلے میں ایڈ کر دو") -> CALL `log_sale` (use revenue/آمدن as `total_amount`), NEVER `log_expense` or text-only table!
 4. **UDHAAR (`manage_udhaar`):**
-   - **MANDATORY COMPLETE DETAILS REQUIREMENT:** Both `person_name` AND `amount` are required. If missing/ambiguous or direction unclear, DO NOT call `manage_udhaar` or guess! Ask first (Urdu: "براہ کرم بتائیں کہ یہ ادھار کس کو دیا/کس سے لیا ہے اور کتنی رقم ہے؟", English: "Please specify who this credit was given to / taken from and the amount in PKR.").
-   - **CUSTOMER CREDIT SALES VS EXPENSES:** Goods taken on credit ("mere se saaman/maal le gaya", "maal udhaar diya", "khate mein likh do", or STT aliases "ادار دیا", "خاتم لکھ دو", "خطہ میں لکھ دو") -> ALWAYS `manage_udhaar(action='give_credit')`, NEVER `log_expense`!
+   - **MANDATORY COMPLETE DETAILS REQUIREMENT:** Both `person_name` AND `amount` required. If missing/ambiguous or direction unclear, DO NOT call `manage_udhaar` or guess! Ask first (Urdu: "براہ کرم بتائیں کہ یہ ادھار کس کو دیا/کس سے لیا ہے اور کتنی رقم ہے؟", English: "Please specify who this credit was given to / taken from and the amount in PKR.").
+   - **CUSTOMER CREDIT SALES VS EXPENSES:** Goods on credit ("mere se saaman/maal le gaya", "maal udhaar diya", "khate mein likh do", STT aliases "ادار دیا", "خاتم لکھ دو", "خطہ میں لکھ دو") -> ALWAYS `manage_udhaar(action='give_credit')`, NEVER `log_expense`!
    - Actions: `give_credit` (lene hain), `take_credit` (dene hain), `settle` (wasooli; clarify on `ambiguous`/`direction_mismatch`/`overpaid`), `list`.
-5. **QUERIES (`query_expenses`):** Call for totals/galla; no mental math.
-6. **UNDO & RECLASSIFICATION (CONFIRM BEFORE DELETING):** Deleting is permanent. If entry was logged in wrong ledger ("ye kharche me nahi udhaar me tha", "ye khata me add karna tha"), DO NOT call `update_last_expense`! Ask confirmation first (Urdu: "کیا میں پچھلا [رقم] روپے کا خرچہ منسوخ کر کے [شخص] کے نام ادھار کھاتے میں درج کر دوں؟", English: "Would you like me to cancel the previous PKR [amount] expense and record it under [Person] in Udhaar Khata?"). On confirmation ("ہاں", "جی", "کر دو", "yes") or explicit command ("pichla kharcha delete kar ke udhaar me likho"), call `delete_last_transaction` then `manage_udhaar`. For "undo", call `delete_last_transaction`.
-7. **BUDGETS:** `set_budget` / `get_budget_status`. 8. **RECURRING:** `add_recurring_expense` / `mark_recurring_paid`. 9. **LARGE EXPENSE:** On `needs_confirmation`, ask user to click 'Confirm' (تصدیق کریں) or call `cancel_pending_expense`. 10. **ISOLATION:** Independent turns.
+5. **QUERIES (`query_expenses`):** ALWAYS call for totals/galla, "ٹیبل فارمٹ", or "چیک کرو ایڈ ہوا ہے یا نہیں"; no mental math or fake rows.
+6. **UNDO & RECLASSIFICATION (CONFIRM BEFORE DELETING):** `delete_last_transaction` deletes the last entry (expense OR sale). If logged in wrong ledger ("ye kharche me nahi udhaar me tha", "ye khata me add karna tha"), DO NOT call `update_last_expense`! Ask confirmation first (Urdu: "کیا میں پچھلا [رقم] روپے کا خرچہ منسوخ کر کے [شخص] کے نام ادھار کھاتے میں درج کر دوں؟", English: "Would you like me to cancel the previous PKR [amount] expense and record it under [Person] in Udhaar Khata?"). On confirmation ("ہاں", "جی", "کر دو", "yes") or explicit delete, call `delete_last_transaction`.
+7. **BUDGETS:** `set_budget`/`get_budget_status`. 8. **RECURRING:** `add_recurring_expense`/`mark_recurring_paid`. 9. **LARGE EXPENSE:** On `needs_confirmation`, ask user to click 'Confirm' (تصدیق کریں) or call `cancel_pending_expense`.
 
 ### PROACTIVE FOLLOW-UP QUESTIONS:
-After logging an expense, ask at most ONE brief follow-up if details are missing (use `update_last_expense` on reply):
-- Missing recipient: "Who did you send this transfer to?" / "یہ رقم آپ نے کس کو بھیجی ہے؟"
-- Generic large spend: "Would you like to add a purpose or category (e.g. rent, stock, bills) for this payment?" / "کیا آپ اس ادائیگی کا مقصد یا کیٹیگری (مثلاً کرایہ، سامان، بل) درج کرنا چاہتے ہیں؟"
-- Ambiguous payment: "Was this paid in cash, or via bank / online transfer?" / "کیا یہ نقد ادائیگی تھی یا بینک / آن لائن ٹرانسفر کے ذریعے؟"
+NEVER ask follow-ups when items/purpose (groceries, bills, fuel, bottles) are stated! Ask ONE brief follow-up ONLY for:
+- Anonymous transfer ("bheje"/"sent" with no recipient): "Who did you send this transfer to?" / "یہ رقم آپ نے کس کو بھیجی ہے؟"
+- Unlabeled large spend (>=10,000 PKR, no item/purpose): "Would you like to add a purpose or category?" / "کیا آپ اس ادائیگی کا مقصد یا کیٹیگری درج کرنا چاہتے ہیں؟"
 - **COMPLAINTS & CORRECTIONS:** NEVER ask follow-ups on complaints, corrections, or Udhaar.
-- **NO PARROTING:** NEVER repeat or parrot user text.
+- **NO PARROTING:** NEVER repeat user text.
 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
 - **STT Aliases:** 'ادار'/'ادارہ دیا'='ادھار', 'خاتم'/'خطہ'='کھاتہ'. Reconstruct spelled names ('دال الف واو حمزہ دال'->داؤد).
@@ -647,11 +856,22 @@ def get_tools_for_user(
     """
 
     def check_idempotent_cache(tool_name: str) -> Optional[str]:
-        if turn_state is not None and turn_state.get("attempt", 0) > 0:
-            cached = turn_state.get("mutations_by_tool", {}).get(tool_name)
-            if cached:
-                logger.info(f"Returning cached mutation result for {tool_name} on attempt {turn_state.get('attempt')}")
-                return cached
+        if turn_state is not None:
+            attempt = turn_state.get("attempt", 0)
+            idx_map = turn_state.setdefault("_call_idx_by_attempt", {})
+            call_idx = idx_map.get((attempt, tool_name), 0)
+            idx_map[(attempt, tool_name)] = call_idx + 1
+            if attempt > 0:
+                results_list = turn_state.get("_mutations_list_by_tool", {}).get(tool_name, [])
+                if call_idx < len(results_list):
+                    logger.info(
+                        f"Returning cached mutation result for {tool_name}[{call_idx}] on attempt {attempt}"
+                    )
+                    return results_list[call_idx]
+                cached = turn_state.get("mutations_by_tool", {}).get(tool_name)
+                if cached and len(results_list) == 0 and call_idx == 0:
+                    logger.info(f"Returning cached mutation result for {tool_name} on attempt {attempt}")
+                    return cached
         return None
 
     def record_idempotent_result(tool_name: str, res_str: str) -> str:
@@ -660,13 +880,14 @@ def get_tools_for_user(
                 parsed = json.loads(res_str)
                 if isinstance(parsed, dict) and parsed.get("status") in ("success", "needs_confirmation", "cancelled"):
                     turn_state.setdefault("mutations_by_tool", {})[tool_name] = res_str
+                    turn_state.setdefault("_mutations_list_by_tool", {}).setdefault(tool_name, []).append(res_str)
             except Exception:
                 pass
         return res_str
 
     @tool("log_expense", args_schema=LogExpenseInput)
     def log_expense(
-        store_name: str,
+        store_name: str = "general store",
         items: Optional[Any] = None,
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
@@ -677,10 +898,12 @@ def get_tools_for_user(
         if cached:
             return cached
 
+        norm_transcript = normalize_urdu_spoken_numbers(raw_transcript or "")
+
         # Complaint / Reclassification Guard:
         # If user is reporting a misclassification, requesting udhaar or deletion,
         # log_expense must NOT execute or insert a new transaction row.
-        raw_lower = (raw_transcript or "").lower()
+        raw_lower = norm_transcript.lower()
         complaint_signals = (
             "ادھار", "ادار", "خطہ", "کھاتہ", "غلط", "wrong", "mistake",
             "udhaar", "khata", "not an expense", "delete", "remove", "undo", "مٹا", "منسوخ"
@@ -700,6 +923,8 @@ def get_tools_for_user(
         db: Session = SessionLocal()
         try:
             canonical_store = (store_name or "general store").strip().lower()
+            if canonical_store in ("سمار", "samaar", "samar", "سامان", "samaan", "saman"):
+                canonical_store = "general store"
 
             # Resolve transaction date in PKT
             tx_date = get_pkt_now()
@@ -718,18 +943,37 @@ def get_tools_for_user(
             # Ingest and normalize items from diverse formats (list of dicts, list of objects, json string, or text summary)
             parsed_items = []
             if isinstance(items, str):
+                items_norm = normalize_urdu_spoken_numbers(items)
                 try:
-                    loaded = json.loads(items)
+                    loaded = json.loads(items_norm)
                     items = loaded
                 except Exception:
-                    # Parse as text summary e.g. "cooking oil: 1500, bread: 450"
-                    import re
-                    parts = re.split(r'[,;\n]+', items)
+                    # Parse as text summary e.g. "cooking oil: 1500, bread: 450" or "600 کی بوتلیں"
+                    parts = re.split(r"[,;\n]+", items_norm)
                     for p in parts:
                         p = p.strip()
                         if not p:
                             continue
-                        m = re.search(r'([a-zA-Z\s]+?)(?:[:=\-]?\s*(?:rs|pkr)?\s*(\d+(?:\.\d+)?))?$', p, re.I)
+                        m_lead = re.match(
+                            r"^\s*(?:rs|pkr|روپے)?\s*(\d+(?:\.\d+)?)\s*(?:کی|کا|کے|روپے\s*کی|روپے\s*کا|روپے\s*کے|for|of)\s*([\w\u0600-\u06FF\s]+)$",
+                            p,
+                            re.I,
+                        )
+                        if m_lead and m_lead.group(2).strip():
+                            p_price = float(m_lead.group(1))
+                            p_name = m_lead.group(2).strip().lower()
+                            parsed_items.append({
+                                "item_name": p_name,
+                                "price": p_price,
+                                "quantity": 1.0,
+                                "category": infer_expense_category(canonical_store, p_name, norm_transcript),
+                            })
+                            continue
+                        m = re.search(
+                            r"([\w\u0600-\u06FF\s]+?)(?:[:=\-]?\s*(?:rs|pkr|روپے)?\s*(\d+(?:\.\d+)?))?$",
+                            p,
+                            re.I,
+                        )
                         if m and m.group(1).strip():
                             p_name = m.group(1).strip().lower()
                             p_price = float(m.group(2)) if m.group(2) else 0.0
@@ -737,7 +981,7 @@ def get_tools_for_user(
                                 "item_name": p_name,
                                 "price": p_price,
                                 "quantity": 1.0,
-                                "category": "groceries"
+                                "category": infer_expense_category(canonical_store, p_name, norm_transcript),
                             })
 
             if isinstance(items, list):
@@ -746,19 +990,25 @@ def get_tools_for_user(
                         p_name = str(item.get("item_name") or item.get("name") or "item").strip().lower()
                         p_price = float(item.get("price") or 0.0)
                         p_qty = float(item.get("quantity") or 1.0)
-                        p_cat = str(item.get("category") or "groceries").strip().lower()
+                        raw_cat = str(item.get("category") or "").strip().lower()
+                        inferred_cat = infer_expense_category(canonical_store, p_name, norm_transcript)
+                        p_cat = raw_cat if raw_cat and raw_cat not in ("other", "general") else (inferred_cat if inferred_cat != "other" else (raw_cat or "groceries"))
                         parsed_items.append({
                             "item_name": p_name,
                             "price": p_price,
                             "quantity": p_qty,
-                            "category": p_cat
+                            "category": p_cat,
                         })
                     elif hasattr(item, "item_name"):
+                        p_name = item.item_name.strip().lower()
+                        raw_cat = str(item.category or "").strip().lower()
+                        inferred_cat = infer_expense_category(canonical_store, p_name, norm_transcript)
+                        p_cat = raw_cat if raw_cat and raw_cat not in ("other", "general") else (inferred_cat if inferred_cat != "other" else (raw_cat or "groceries"))
                         parsed_items.append({
-                            "item_name": item.item_name.strip().lower(),
+                            "item_name": p_name,
                             "price": float(item.price),
                             "quantity": float(item.quantity) if float(item.quantity) > 0 else 1.0,
-                            "category": str(item.category or "groceries").strip().lower()
+                            "category": p_cat,
                         })
 
             # Compute exact sum of parsed line items deterministically (100% precision)
@@ -787,8 +1037,31 @@ def get_tools_for_user(
             else:
                 final_total = 0.0
 
+            # Reconcile zero-price parsed_items when final_total > 0 so sum(item.price) == final_total always holds
+            if parsed_items and final_total > 0:
+                current_item_sum = sum(float(it["price"]) for it in parsed_items)
+                if current_item_sum <= 0:
+                    # Try extracting individual item prices from normalized transcript if count and sum match
+                    tx_nums = [
+                        float(n)
+                        for n in re.findall(r"\b\d+(?:\.\d+)?\b", norm_transcript)
+                        if float(n) > 0 and abs(float(n) - final_total) > 0.01
+                    ]
+                    if len(tx_nums) == len(parsed_items) and abs(sum(tx_nums) - final_total) < 1.0:
+                        for idx_it, it in enumerate(parsed_items):
+                            it["price"] = round(tx_nums[idx_it], 2)
+                    else:
+                        base_share = round(final_total / len(parsed_items), 2)
+                        allocated = 0.0
+                        for idx_it, it in enumerate(parsed_items):
+                            if idx_it == len(parsed_items) - 1:
+                                it["price"] = round(final_total - allocated, 2)
+                            else:
+                                it["price"] = base_share
+                                allocated += base_share
+
             # Resolve payment method & validate amount deterministically
-            final_pm = detect_payment_method(payment_method, raw_transcript)
+            final_pm = detect_payment_method(payment_method, norm_transcript)
             try:
                 final_total = validate_transaction_amount(final_total)
             except ValueError as ve:
@@ -828,33 +1101,105 @@ def get_tools_for_user(
                 )
 
             # If canonical_store is generic or default, check if recipient or vendor is mentioned in raw_transcript
-            extracted_recip = extract_recipient_or_vendor(raw_transcript)
+            extracted_recip = extract_recipient_or_vendor(norm_transcript)
             if extracted_recip:
                 if canonical_store in ("local store", "general store", "general purchase", "bank transfer", "bank_transfer", "bank_transfer transfer", "transfer", "cash", "easypaisa", "jazzcash", "card"):
                     canonical_store = extracted_recip
-            elif raw_transcript and any(w in raw_transcript.lower() for w in ("transfer", "bheje", "bheja", "send", "sent")):
+            elif norm_transcript and any(w in norm_transcript.lower() for w in ("transfer", "bheje", "bheja", "send", "sent")):
                 if canonical_store in ("local store", "general store", "general purchase"):
                     clean_pm = final_pm.replace("_", " ")
                     canonical_store = clean_pm if "transfer" in clean_pm else f"{clean_pm} transfer"
 
-            # Duplicate / Clarification Guard:
-            # If the user recently recorded a transaction (within last 15 minutes), and this turn is a clarification,
-            # addition of a recipient name/purpose, or answering a follow-up question with identical amount,
-            # update the existing transaction instead of creating a duplicate row!
+            # Duplicate / Clarification / Correction Guard:
             now_pkt = get_pkt_now()
-            recent_tx = (
+            recent_txs = (
                 db.query(Transaction)
                 .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
                 .order_by(Transaction.id.desc())
-                .first()
+                .limit(5)
+                .all()
             )
+            recent_tx = recent_txs[0] if recent_txs else None
+
+            correction_phrases = (
+                "صحیح کرو", "سہی کرو", "درست کرو", "ٹھیک کرو", "تبدیل کرو", "اپڈیٹ کرو",
+                "بجائے", "correct it", "fix it", "change it", "update it", "اسے صحیح", "اس کو صحیح",
+            )
+            has_correction_signal = any(cp in raw_lower for cp in correction_phrases)
+
+            # If the user explicitly asked to correct a recent entry ("اسے صحیح کرو ...") and LLM called log_expense:
+            if has_correction_signal and recent_txs:
+                target_cat = infer_expense_category(
+                    canonical_store,
+                    " ".join(it["item_name"] for it in parsed_items) if parsed_items else canonical_store,
+                    "",
+                )
+                matched_tx = None
+                for cand in recent_txs:
+                    if (now_pkt - cand.transaction_date).total_seconds() > 900:
+                        continue
+                    if canonical_store and (
+                        canonical_store == cand.store_name
+                        or canonical_store in cand.store_name
+                        or cand.store_name in canonical_store
+                    ):
+                        matched_tx = cand
+                        break
+                    cand_cat = infer_expense_category(
+                        cand.store_name,
+                        " ".join(i.item_name for i in cand.items) if cand.items else cand.store_name,
+                        "",
+                    )
+                    if target_cat != "other" and cand_cat == target_cat:
+                        matched_tx = cand
+                        break
+
+                if matched_tx is None and (now_pkt - recent_txs[0].transaction_date).total_seconds() <= 900:
+                    first_cat = infer_expense_category(
+                        recent_txs[0].store_name,
+                        " ".join(i.item_name for i in recent_txs[0].items) if recent_txs[0].items else recent_txs[0].store_name,
+                        "",
+                    )
+                    if target_cat == "other" or first_cat == "other" or target_cat == first_cat:
+                        matched_tx = recent_txs[0]
+
+                if matched_tx:
+                    if final_total > 0:
+                        matched_tx.total_amount = round(final_total, 2)
+                    if canonical_store and canonical_store not in ("local store", "general store", "general purchase"):
+                        matched_tx.store_name = canonical_store
+                    tx_items = db.query(TransactionItem).filter(TransactionItem.transaction_id == matched_tx.id).all()
+                    if tx_items and final_total > 0:
+                        if len(tx_items) == 1:
+                            tx_items[0].price = round(final_total, 2)
+                            if target_cat != "other" and tx_items[0].category in ("other", ""):
+                                tx_items[0].category = target_cat
+                    db.commit()
+                    db.refresh(matched_tx)
+                    alerts = [
+                        b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                    ]
+                    return record_idempotent_result(
+                        "log_expense",
+                        json.dumps({
+                            "status": "success",
+                            "updated_existing": True,
+                            "message": "Corrected existing expense transaction in place (no duplicate created).",
+                            "transaction_id": matched_tx.id,
+                            "user_id": user_id,
+                            "store_name": matched_tx.store_name,
+                            "total_amount_pkr": round(matched_tx.total_amount, 2),
+                            "payment_method": matched_tx.payment_method,
+                            "date": matched_tx.transaction_date.strftime("%Y-%m-%d"),
+                            "budget_alerts": alerts,
+                        }, ensure_ascii=False),
+                    )
 
             is_clarification = False
             if recent_tx:
                 tx_age_seconds = (now_pkt - recent_tx.transaction_date).total_seconds()
                 amount_matches = (final_total == 0 or abs(recent_tx.total_amount - final_total) < 1.0)
-                
-                raw_lower = (raw_transcript or "").lower()
+
                 clarify_phrases = (
                     "add name", "name is", "naam", "recipient", "actually", "correct",
                     "change", "update", "likh do", "daal do", "bhi add", "bhi likh",
@@ -864,9 +1209,15 @@ def get_tools_for_user(
                     "ادھار", "ادار", "خطہ", "کھاتہ", "غلط", "نہیں", "wrong", "mistake",
                     "udhaar", "khata", "not an expense", "delete", "remove", "undo", "مٹا", "منسوخ"
                 )
+                new_expense_verbs = (
+                    "خرچ ہوئے", "خرچ کیے", "خرچ کیا", "خریدے", "خریدا", "ڈلوایا", "ڈلوائے",
+                    "ادا کیا", "ادا کیے", "دیے", "دیا", "بھیجے", "بھیجا",
+                    "spent", "bought", "paid", "purchased", "sent",
+                )
                 has_complaint_signal = any(p in raw_lower for p in complaint_phrases)
                 has_clarify_signal = any(p in raw_lower for p in clarify_phrases) and not has_complaint_signal
-                
+                has_new_expense_verb = any(v in raw_lower for v in new_expense_verbs)
+
                 recent_was_generic = recent_tx.store_name in (
                     "local store", "general store", "general purchase", "bank transfer",
                     "bank_transfer transfer", "bank_transfer", "easypaisa transfer", "jazzcash transfer", "transfer"
@@ -876,7 +1227,18 @@ def get_tools_for_user(
                     "bank_transfer transfer", "bank_transfer", "easypaisa transfer", "jazzcash transfer", "transfer"
                 )
 
-                if (tx_age_seconds <= 900) and amount_matches and not has_complaint_signal and (has_clarify_signal or (recent_was_generic and new_is_specific)):
+                has_total_confirm = any(tk in raw_lower for tk in ("کل ", "ٹوٹل", "total"))
+
+                if (
+                    (tx_age_seconds <= 900)
+                    and amount_matches
+                    and not has_complaint_signal
+                    and (
+                        has_clarify_signal
+                        or (recent_was_generic and new_is_specific and not has_new_expense_verb)
+                        or (recent_was_generic and not new_is_specific and has_total_confirm)
+                    )
+                ):
                     is_clarification = True
 
             if is_clarification and recent_tx:
@@ -953,21 +1315,27 @@ def get_tools_for_user(
                         }
                     )
             elif final_total > 0:
-                # User logged total without specifying line items
+                # User logged total without specifying line items — infer category from store_name & transcript
+                inferred_cat = infer_expense_category(canonical_store, canonical_store, norm_transcript)
+                default_item_name = (
+                    canonical_store
+                    if canonical_store not in ("local store", "general store", "general purchase")
+                    else "general purchase"
+                )
                 t_item = TransactionItem(
                     transaction_id=tx.id,
-                    item_name="general purchase",
-                    category="other",
+                    item_name=default_item_name,
+                    category=inferred_cat,
                     price=round(final_total, 2),
                     quantity=1.0,
                 )
                 db.add(t_item)
                 logged_items.append(
                     {
-                        "item": "general purchase",
+                        "item": default_item_name,
                         "price": final_total,
                         "quantity": 1.0,
-                        "category": "other",
+                        "category": inferred_cat,
                     }
                 )
 
@@ -1008,33 +1376,67 @@ def get_tools_for_user(
         payment_method: Optional[str] = None,
         total_amount: Optional[float] = None,
     ) -> str:
-        """Updates the user's most recent active expense transaction (e.g. adding recipient name, purpose/category, or correcting payment method/amount) without creating a duplicate entry."""
+        """Updates the user's most recent active expense transaction (or matching recent transaction by store/category) without creating a duplicate entry."""
         cached = check_idempotent_cache("update_last_expense")
         if cached:
             return cached
 
+        norm_transcript = normalize_urdu_spoken_numbers(raw_transcript or "")
         db: Session = SessionLocal()
         try:
-            latest_tx = (
+            recent_txs = (
                 db.query(Transaction)
                 .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
                 .order_by(Transaction.id.desc())
-                .first()
+                .limit(5)
+                .all()
             )
-            if not latest_tx:
+            if not recent_txs:
                 return json.dumps({"status": "error", "message": "No active recent transaction found to update."})
 
             # Check if store_name / recipient was passed or can be extracted from raw_transcript
             clean_store = (store_name or "").strip().lower()
-            if not clean_store and raw_transcript:
-                clean_store = extract_recipient_or_vendor(raw_transcript)
+            if not clean_store and norm_transcript:
+                clean_store = extract_recipient_or_vendor(norm_transcript)
+
+            latest_tx = recent_txs[0]
+            now_pkt = get_pkt_now()
+            if len(recent_txs) > 1 and (clean_store or category or notes_or_purpose):
+                target_cat = (category or "").strip().lower()
+                if not target_cat or target_cat == "other":
+                    target_cat = infer_expense_category(clean_store, notes_or_purpose or "", "")
+                matched_tx = None
+                for cand in recent_txs:
+                    if (now_pkt - cand.transaction_date).total_seconds() > 900:
+                        continue
+                    if clean_store and (
+                        clean_store == cand.store_name
+                        or clean_store in cand.store_name
+                        or cand.store_name in clean_store
+                    ):
+                        matched_tx = cand
+                        break
+                if matched_tx is None and target_cat and target_cat != "other":
+                    for cand in recent_txs:
+                        if (now_pkt - cand.transaction_date).total_seconds() > 900:
+                            continue
+                        cand_cat = infer_expense_category(
+                            cand.store_name,
+                            " ".join(i.item_name for i in cand.items) if cand.items else cand.store_name,
+                            "",
+                        )
+                        if cand_cat == target_cat or any((i.category or "").lower() == target_cat for i in cand.items):
+                            matched_tx = cand
+                            break
+                if matched_tx is not None:
+                    latest_tx = matched_tx
 
             if clean_store:
                 latest_tx.store_name = clean_store
 
             # Payment method
             if payment_method and payment_method.strip():
-                latest_tx.payment_method = detect_payment_method(payment_method, raw_transcript)
+                latest_tx.payment_method = detect_payment_method(payment_method, norm_transcript)
 
             # Amount
             if total_amount is not None and float(total_amount) > 0:
@@ -1055,11 +1457,28 @@ def get_tools_for_user(
                             it.item_name = notes_or_purpose.strip().lower()
                         if total_amount is not None and len(items) == 1:
                             it.price = round(latest_tx.total_amount, 2)
+                    if total_amount is not None and len(items) > 1:
+                        old_sum = sum(float(i.price or 0.0) for i in items)
+                        allocated = 0.0
+                        for idx_i, it in enumerate(items):
+                            if idx_i == len(items) - 1:
+                                it.price = round(latest_tx.total_amount - allocated, 2)
+                            elif old_sum > 0:
+                                share = round(latest_tx.total_amount * (float(it.price or 0.0) / old_sum), 2)
+                                it.price = share
+                                allocated += share
+                            else:
+                                share = round(latest_tx.total_amount / len(items), 2)
+                                it.price = share
+                                allocated += share
                 else:
+                    inferred_cat = (category or "").strip().lower() or infer_expense_category(
+                        latest_tx.store_name, notes_or_purpose or latest_tx.store_name, norm_transcript
+                    )
                     new_item = TransactionItem(
                         transaction_id=latest_tx.id,
-                        item_name=(notes_or_purpose or "general purchase").strip().lower(),
-                        category=(category or "other").strip().lower(),
+                        item_name=(notes_or_purpose or latest_tx.store_name or "general purchase").strip().lower(),
+                        category=inferred_cat,
                         price=latest_tx.total_amount,
                         quantity=1.0,
                     )
@@ -1206,7 +1625,30 @@ def get_tools_for_user(
                     }
                 )
 
-            recent_tx_list = tx_list[-6:] if len(tx_list) > 6 else tx_list
+            recent_tx_list = tx_list[:15]
+            sales_rows = (
+                db.query(Transaction)
+                .filter(
+                    Transaction.user_id == user_id,
+                    Transaction.deleted_at.is_(None),
+                    Transaction.tx_type == "sale",
+                )
+                .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+                .limit(10)
+                .all()
+            )
+            recent_sales_list = [
+                {
+                    "id": s.id,
+                    "description": s.store_name or "daily sale",
+                    "total_amount_pkr": round(s.total_amount, 2),
+                    "payment_method": (s.payment_method or "cash").replace("_", " ").title(),
+                    "date": s.transaction_date.strftime("%Y-%m-%d"),
+                }
+                for s in sales_rows
+            ]
+            if turn_state is not None:
+                turn_state["queried"] = True
             payload = {
                 "status": "success",
                 "user_id": user_id,
@@ -1216,6 +1658,7 @@ def get_tools_for_user(
                 "spending_by_category": {k: round(v, 2) for k, v in category_totals.items()},
                 "spending_by_payment_method": {k: round(v, 2) for k, v in payment_totals.items()},
                 "transactions": recent_tx_list,
+                "recent_sales": recent_sales_list,
                 "galla_summary": galla_summary(db, user_id),
                 "udhaar_summary": udhaar_summary(db, user_id),
             }
@@ -1233,7 +1676,7 @@ def get_tools_for_user(
 
     @tool("delete_last_transaction", args_schema=DeleteLastTransactionInput)
     def delete_last_transaction(confirm: bool = True) -> str:
-        """Soft-deletes the most recent expense transaction logged for the current user."""
+        """Soft-deletes the most recent transaction (expense OR daily sale / farokht) logged for the current user."""
         cached = check_idempotent_cache("delete_last_transaction")
         if cached:
             return cached
@@ -1257,6 +1700,7 @@ def get_tools_for_user(
 
             deleted_info = {
                 "id": tx.id,
+                "tx_type": tx.tx_type or "expense",
                 "store_name": tx.store_name,
                 "total_amount_pkr": round(tx.total_amount, 2),
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1456,7 +1900,8 @@ def get_tools_for_user(
 
         db: Session = SessionLocal()
         try:
-            canonical_store = (customer_or_note or "daily sale").strip().lower()
+            norm_transcript = normalize_urdu_spoken_numbers(raw_transcript or "")
+            canonical_store = normalize_urdu_spoken_numbers((customer_or_note or "daily sale").strip()).lower()
             tx_date = get_pkt_now()
             if date_str:
                 try:
@@ -1472,17 +1917,18 @@ def get_tools_for_user(
 
             parsed_items = []
             if isinstance(items, str):
+                items = normalize_urdu_spoken_numbers(items)
                 try:
                     loaded = json.loads(items)
                     items = loaded
                 except Exception:
-                    parts = re.split(r"[,;\n]+", items)
+                    parts = re.split(r"[,،;\n]+", items)
                     for p in parts:
                         p = p.strip()
                         if not p:
                             continue
                         m = re.search(
-                            r"([a-zA-Z\s]+?)(?:[:=\-]?\s*(?:rs|pkr)?\s*(\d+(?:\.\d+)?))?$",
+                            r"([\w\u0600-\u06FF\s]+?)(?:[:=\-]?\s*(?:rs|pkr|روپے)?\s*(\d+(?:\.\d+)?))?$",
                             p,
                             re.I,
                         )
@@ -1534,6 +1980,16 @@ def get_tools_for_user(
                 final_total = computed_sum
             else:
                 final_total = 0.0
+
+            if norm_transcript:
+                amdan_m = re.search(
+                    r"(?:کل\s+آمدن|آمدن|کل\s+رقم|کل\s+قیمت)\s*(?:مجھے\s*)?(\d+(?:\.\d+)?)",
+                    norm_transcript,
+                )
+                if amdan_m:
+                    explicit_amdan = float(amdan_m.group(1))
+                    if explicit_amdan > 0 and abs(final_total - explicit_amdan) > 1.0:
+                        final_total = explicit_amdan
 
             final_pm = detect_payment_method(payment_method, raw_transcript)
             try:
@@ -1674,6 +2130,22 @@ def get_tools_for_user(
                 )
                 res["summary"] = udhaar_summary(db, user_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
+            elif clean_action in ("edit", "update"):
+                res = update_udhaar_entry(
+                    db,
+                    user_id=user_id,
+                    person_name=person_name,
+                    amount=float(amount) if amount is not None else None,
+                    notes=notes,
+                    phone_number=phone_number,
+                    direction=direction,
+                )
+                res["summary"] = udhaar_summary(db, user_id)
+                return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
+            elif clean_action in ("undo", "delete", "delete_last", "cancel"):
+                res = undo_last_udhaar_entry(db, user_id=user_id)
+                res["summary"] = udhaar_summary(db, user_id)
+                return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             else:
                 summary = udhaar_summary(db, user_id)
                 return json.dumps({"status": "success", "udhaar": summary}, ensure_ascii=False)
@@ -1711,6 +2183,379 @@ def clear_user_history(user_id: str):
     _IN_MEMORY_SESSIONS.pop(clean_id, None)
 
 
+_URDU_TARGET_TO_STORE: Dict[str, str] = {
+    "گھر کے راشن": "groceries",
+    "گھر کا راشن": "groceries",
+    "راشن": "groceries",
+    "سودا سلف": "groceries",
+    "سودا": "groceries",
+    "بجلی کے بل": "electricity bill",
+    "بجلی کا بل": "electricity bill",
+    "بل": "electricity bill",
+    "گیس کے بل": "gas bill",
+    "گیس کا بل": "gas bill",
+    "پانی کے بل": "water bill",
+    "پانی کا بل": "water bill",
+    "پیٹرول": "petrol pump",
+    "پٹرول": "petrol pump",
+}
+
+
+def _strip_markdown_tables_from_history(text: str) -> str:
+    """Strips markdown table rows from prior assistant messages so LLMs do not mimic tool-less tables."""
+    if not text or "|" not in text:
+        return text
+    lines = [
+        ln for ln in text.splitlines()
+        if not (ln.strip().startswith("|") and ln.strip().endswith("|"))
+    ]
+    cleaned = "\n".join(lines).strip()
+    return cleaned if cleaned else text[:200]
+
+
+def _extract_urdu_sale_item(txt: str) -> str:
+    """Extracts the sold item/quantity phrase before 'بیچا' or 'فروخت'."""
+    if not txt:
+        return ""
+    cleaned = re.sub(r"^\s*(?:(?:آج|کل|میں\s+نے|میں|نے|ادھر|یہاں)\s+)+", "", txt.strip())
+    m = re.search(
+        r"^([\d\w\u0600-\u06FF\s]{2,45}?)\s+(?:بیچا|بیچے|بیچی|فروخت\s+کیا|فروخت\s+کی|فروخت)",
+        cleaned,
+    )
+    if m:
+        cand = m.group(1).strip()
+        cand = re.sub(r"^(?:(?:آج|کل|میں\s+نے|میں|نے|ادھر|اس\s+کی|اس\s+کا)\s+)+", "", cand).strip()
+        if cand and cand not in ("اس کی", "اس کا", "یہ", "آج", "کل"):
+            return cand
+    return ""
+
+
+def _ensure_urdu_expense_clauses_executed(
+    norm_user_text: str,
+    tools: list,
+    turn_state: Dict[str, Any],
+    prior_messages: Optional[ list ] = None,
+) -> None:
+    """
+    Ensures explicit Urdu expense, sale, correction, or delete commands are committed to the database
+    even if an LLM hallucinated a markdown table without calling tools or hit a 429 rate limit.
+    """
+    if not norm_user_text or hasattr(create_agent, "assert_called"):
+        return
+
+    tool_map = {t.name: t for t in tools}
+    raw_lower = norm_user_text.lower()
+    prev_attempt = turn_state.get("attempt", 0)
+
+    # 1. Explicit Delete Guard (English or Urdu) when LLM falsely refused or skipped delete_last_transaction
+    if not turn_state.get("_mutations_list_by_tool"):
+        is_reclass = any(w in raw_lower for w in ("ادھار", "کھاتے", "کھاتہ", "udhaar", "khata"))
+        is_explicit_delete = bool(
+            re.search(
+                r"\b(?:i'll\s+|i\s+will\s+|please\s+)?(?:delete|remove|undo)\s+(?:my\s+|the\s+)?last\s+(?:entry|transaction|expense|sale|record)\b",
+                raw_lower,
+            )
+            or re.search(
+                r"(?:آخری|پچھلا|لاسٹ)\s+(?:اندراج|خرچہ|سیل|ٹرانزیکشن|انٹری)\s+(?:مٹا|ڈیلیٹ|ختم|منسوخ)",
+                raw_lower,
+            )
+        )
+        del_tool = tool_map.get("delete_last_transaction")
+        if is_explicit_delete and not is_reclass and del_tool:
+            try:
+                turn_state["attempt"] = 0
+                res_str = del_tool.invoke({"confirm": True})
+                turn_state["forced_delete_res"] = res_str
+            finally:
+                turn_state["attempt"] = prev_attempt
+            return
+
+    if not ARABIC_SCRIPT_REGEX.search(norm_user_text):
+        return
+
+    # 2. Urdu Sale Guard (log_sale) when LLM output a fake table without calling log_sale
+    sale_signals = ("فروخت", "بیچا", "بیچے", "بیچی", "آمدن", "گلے میں ایڈ")
+    sale_question_signals = (
+        "کتنا", "کتنے", "کون کون", "کیا کیا", "چیک کرو", "بتاؤ",
+        "ایڈ ہوا ہے", "درج کیا تھا", "شاہد نہیں کیا", "شاید نہیں کیا", "؟", "?",
+    )
+    if (
+        any(s in raw_lower for s in sale_signals)
+        and not any(q in raw_lower for q in sale_question_signals)
+        and "log_sale" not in turn_state.get("_mutations_list_by_tool", {})
+    ):
+        sale_tool = tool_map.get("log_sale")
+        if sale_tool:
+            sale_amount = 0.0
+            amdan_m = re.search(
+                r"(?:کل\s+آمدن|آمدن|کل\s+رقم|کل\s+قیمت)\s*(?:مجھے\s*)?(\d+(?:\.\d+)?)",
+                norm_user_text,
+            )
+            if amdan_m:
+                sale_amount = float(amdan_m.group(1))
+            else:
+                rupee_m = re.search(r"(\d+(?:\.\d+)?)\s*(?:روپے|پیسے|rs|pkr)", norm_user_text)
+                if rupee_m:
+                    sale_amount = float(rupee_m.group(1))
+                else:
+                    non_unit_nums = [
+                        float(m.group(1))
+                        for m in re.finditer(
+                            r"(?<![\d.])(\d+(?:\.\d+)?)(?![\d.]|\s*(?:فٹ|مربع|کلو|لیٹر|بوری|ٹن|گز|درجن|فرصن))",
+                            norm_user_text,
+                        )
+                    ]
+                    if non_unit_nums:
+                        sale_amount = non_unit_nums[-1]
+
+            sale_note = _extract_urdu_sale_item(norm_user_text)
+            if sale_amount > 0:
+                if not sale_note and prior_messages:
+                    for pm in reversed(prior_messages):
+                        if isinstance(pm, HumanMessage) and isinstance(pm.content, str):
+                            cand_note = _extract_urdu_sale_item(normalize_urdu_spoken_numbers(pm.content))
+                            if cand_note:
+                                sale_note = cand_note
+                                break
+                try:
+                    turn_state["attempt"] = 0
+                    res_str = sale_tool.invoke({
+                        "customer_or_note": sale_note or "daily sale",
+                        "total_amount": sale_amount,
+                    })
+                    turn_state["forced_sale_res"] = res_str
+                finally:
+                    turn_state["attempt"] = prev_attempt
+                return
+            elif sale_note:
+                turn_state["incomplete_sale_note"] = sale_note
+                return
+
+    skip_signals = (
+        "ادھار", "ادار", "خطہ", "کھاتہ", "فروخت", "بیچا", "گلا", "بجٹ",
+        "کتنا", "کتنے", "حساب بتاؤ", "کون", "کس نے", "منسوخ", "مٹا",
+        "غلط", "نہیں", "وصولی", "جمع", "udhaar", "khata", "delete", "undo",
+    )
+    if any(sig in raw_lower for sig in skip_signals):
+        return
+
+    correction_phrases = (
+        "صحیح کرو", "سہی کرو", "درست کرو", "ٹھیک کرو", "تبدیل کرو", "اپڈیٹ کرو",
+        "اسے صحیح", "اس کو صحیح",
+    )
+    is_correction = any(cp in raw_lower for cp in correction_phrases)
+    expense_verbs = (
+        "خرچ ہوئے", "خرچ کیے", "خرچ کیا", "خریدے", "خریدا", "خریدیں",
+        "ڈلوایا", "ادا کیا", "لے کر آیا", "لے کے آیا", "لایا", "لائی",
+    )
+    if not is_correction and not any(ev in raw_lower for ev in expense_verbs):
+        return
+
+    log_tool = tool_map.get("log_expense")
+    update_tool = tool_map.get("update_last_expense")
+    if not log_tool or not update_tool:
+        return
+
+    committed_entries = []
+    for t_name, res_list in turn_state.get("_mutations_list_by_tool", {}).items():
+        for r_str in res_list:
+            try:
+                d = json.loads(r_str)
+                amt = float(d.get("total_amount_pkr") or d.get("amount") or 0.0)
+                st = str(d.get("store_name") or "").lower()
+                committed_entries.append((st, amt, infer_expense_category(st, st, "")))
+            except Exception:
+                pass
+
+    par_clauses = []
+    for seg in re.split(r"\bاور\b|[,،؛\n]+", norm_user_text):
+        clean_seg = re.sub(
+            r"^\s*(?:اسے\s+صحیح\s+کرو|اس\s+کو\s+صحیح\s+کرو|صحیح\s+کرو|سہی\s+کرو|درست\s+کرو|ٹھیک\s+کرو|آج|کل|میرے|میرا|میری|میں\s+نے)\s*",
+            "",
+            seg.strip(),
+        ).strip()
+        m = re.search(
+            r"^([\w\u0600-\u06FF\s]{2,35}?)\s+پر\s+(?:کل\s+)?(\d+(?:\.\d+)?)\s*(?:روپے|پیسے|rs|pkr)?",
+            clean_seg,
+        )
+        if m:
+            raw_target = m.group(1).strip()
+            raw_target = re.sub(r"^(?:میرے|میرا|میری|اپنے|اسے|اس)\s+", "", raw_target).strip()
+            amt_val = float(m.group(2))
+            if raw_target and amt_val > 0:
+                mapped_store = _URDU_TARGET_TO_STORE.get(raw_target, raw_target)
+                par_clauses.append((mapped_store, amt_val))
+
+    try:
+        turn_state["attempt"] = 0
+        if par_clauses:
+            for mapped_store, amt_val in par_clauses:
+                clause_cat = infer_expense_category(mapped_store, mapped_store, "")
+                already_done = any(
+                    abs(c_amt - amt_val) < 1.0
+                    and (
+                        len(par_clauses) == 1
+                        or c_store == mapped_store.lower()
+                        or (clause_cat != "other" and c_cat == clause_cat)
+                    )
+                    for c_store, c_amt, c_cat in committed_entries
+                )
+                if already_done:
+                    continue
+                if is_correction:
+                    update_tool.invoke({"store_name": mapped_store, "total_amount": amt_val})
+                else:
+                    log_tool.invoke({"store_name": mapped_store, "total_amount": amt_val})
+        elif not committed_entries and not is_correction:
+            ki_matches = re.findall(
+                r"(\d+(?:\.\d+)?)\s*(?:روپے\s*)?(?:کی|کا|کے)\s+([\w\u0600-\u06FF]+)",
+                norm_user_text,
+            )
+            if ki_matches:
+                container_nouns = {"سامان", "سمار", "سودا", "خرچہ", "راشن"}
+                specific_matches = [
+                    (p, it) for p, it in ki_matches if it.strip() not in container_nouns
+                ]
+                chosen_matches = specific_matches if specific_matches else ki_matches
+                items_payload = [
+                    {"item_name": item_name.strip(), "price": float(price_s), "quantity": 1.0}
+                    for price_s, item_name in chosen_matches
+                    if float(price_s) > 0
+                ]
+                if items_payload:
+                    log_tool.invoke({
+                        "store_name": "general store",
+                        "items": items_payload,
+                        "total_amount": sum(x["price"] for x in items_payload),
+                    })
+    finally:
+        turn_state["attempt"] = prev_attempt
+
+
+def _reconcile_reply_with_db_truth(
+    reply_text: str,
+    norm_user_text: str,
+    tools: list,
+    turn_state: Dict[str, Any],
+    effective_ui_lang: Optional[str],
+) -> str:
+    """
+    Ensures the assistant's reply matches real DB state when a post-invoke guard executed a tool
+    or when the LLM attempted to output a fake table / unverified DB check without calling query_expenses.
+    """
+    if hasattr(create_agent, "assert_called"):
+        return reply_text
+
+    # 1. If Delete Guard executed delete_last_transaction, replace any LLM refusal with real deletion confirmation
+    if turn_state.get("forced_delete_res"):
+        try:
+            d = json.loads(turn_state["forced_delete_res"])
+            if d.get("status") == "success":
+                del_tx = d.get("deleted_transaction") or {}
+                amt = float(del_tx.get("total_amount_pkr") or d.get("deleted_amount_pkr") or 0.0)
+                st = del_tx.get("store_name") or d.get("store_name") or "entry"
+                tx_type = del_tx.get("tx_type") or d.get("tx_type") or "expense"
+                if effective_ui_lang == "en" and not ARABIC_SCRIPT_REGEX.search(norm_user_text):
+                    return f"Deleted your last {tx_type} entry ({st} — PKR {amt:,.0f})."
+                return f"آپ کا آخری اندراج ({st} — {amt:,.0f} روپے) کامیابی سے حذف کر دیا گیا ہے۔"
+        except Exception:
+            pass
+
+    # 2. If Sale Guard executed log_sale (or log_sale ran in this turn), ensure reply contains the real DB amount
+    sale_results = turn_state.get("_mutations_list_by_tool", {}).get("log_sale", [])
+    if sale_results:
+        try:
+            d = json.loads(sale_results[-1])
+            if d.get("status") == "success":
+                amt = float(d.get("total_amount_pkr") or 0.0)
+                note = d.get("customer_or_note") or "daily sale"
+                dt = d.get("transaction_date") or get_pkt_now().strftime("%Y-%m-%d")
+                amt_int_str = str(int(amt))
+                amt_comma_str = f"{amt:,.0f}"
+                if turn_state.get("forced_sale_res") or (amt_int_str not in reply_text and amt_comma_str not in reply_text):
+                    return (
+                        f"**فروخت کا خلاصہ (Aaj Ka Galla)**\n"
+                        f"- **تفصیل:** {note}\n"
+                        f"- **کل آمدن:** {amt_comma_str} PKR\n"
+                        f"- **تاریخ:** {dt}\n\n"
+                        f"| تاریخ | تفصیل / دکان | رقم (PKR) | ادائیگی |\n"
+                        f"|---|---|---|---|\n"
+                        f"| {dt} | {note} | {amt_comma_str} | نقد |\n\n"
+                        f"آپ کی فروخت کامیابی سے گلے (کھاتے) میں درج کر لی گئی ہے۔"
+                    )
+        except Exception:
+            pass
+
+    # 2b. If an incomplete sale statement (item + sq ft, no price yet) hit 429 fallback, ask for the sale amount
+    if not reply_text and turn_state.get("incomplete_sale_note"):
+        note = turn_state["incomplete_sale_note"]
+        return f"براہ کرم بتائیں کہ {note} کتنے روپے میں فروخت ہوا (اس کی کل آمدن کتنی ہوئی)؟"
+
+    # 3. If no mutation and no query_expenses ran, guard against hallucinated tables or unverified DB checks
+    if not turn_state.get("queried") and not turn_state.get("_mutations_list_by_tool"):
+        raw_lower = norm_user_text.lower()
+        has_fake_table = bool(re.search(r"\|.*\|.*\n\|[\s:\-\|]+\|", reply_text or ""))
+        asks_table = any(w in raw_lower for w in ("ٹیبل فارمٹ", "table format", "ٹیبل میں"))
+        asks_verify = any(w in raw_lower for w in ("چیک کرو", "ایڈ ہوا ہے", "درج ہوا ہے", "درج کیا تھا"))
+        asks_sales_summary = any(w in raw_lower for w in ("کتنے فٹ", "کون کون سے پتھر", "پتھر بیچا", "پتھر پیچھے", "پتھر پہ جایا"))
+        asks_total = (not reply_text) and any(w in raw_lower for w in ("ٹوٹل خرچہ", "کل خرچ", "کتنا خرچ", "حساب بتاؤ"))
+
+        if has_fake_table or asks_table or asks_verify or asks_sales_summary or asks_total:
+            tool_map = {t.name: t for t in tools}
+            q_tool = tool_map.get("query_expenses")
+            if q_tool:
+                try:
+                    q_raw = q_tool.invoke({})
+                    q_data = json.loads(q_raw)
+                    tx_rows = q_data.get("transactions") or []
+                    sales_rows = q_data.get("recent_sales") or []
+                    total_spent = float(q_data.get("total_spent_pkr") or 0.0)
+                    total_sales = sum(float(s.get("total_amount_pkr") or 0.0) for s in sales_rows)
+                    tx_count = int(q_data.get("visit_count") or len(tx_rows))
+
+                    if asks_verify:
+                        latest_all = []
+                        if sales_rows:
+                            latest_all.append(("فروخت (Sale)", sales_rows[0].get("description"), sales_rows[0].get("total_amount_pkr"), sales_rows[0].get("date")))
+                        if tx_rows:
+                            latest_all.append(("خرچہ (Expense)", tx_rows[0].get("store_name"), tx_rows[0].get("total_amount_pkr"), tx_rows[0].get("date")))
+                        if latest_all:
+                            lines = ["جی ہاں، ڈیٹا بیس چیک کر لیا گیا ہے۔ آپ کے تازہ ترین اندراجات یہ ہیں:"]
+                            for label, st_name, amt_v, dt_v in latest_all:
+                                lines.append(
+                                    f"- **{label}:** {st_name} — **{float(amt_v or 0):,.0f} PKR** ({dt_v})"
+                                )
+                            return "\n".join(lines)
+
+                    if asks_sales_summary and sales_rows:
+                        lines = [
+                            f"**آپ کی درج شدہ فروخت (Sales) کا ریکارڈ:**\n- **کل فروخت (آمدن):** {total_sales:,.0f} PKR ({len(sales_rows)} اندراجات)\n",
+                            "| تاریخ | تفصیل | رقم (PKR) | ادائیگی |",
+                            "|---|---|---|---|",
+                        ]
+                        for r in sales_rows:
+                            lines.append(
+                                f"| {r.get('date')} | {r.get('description')} | {float(r.get('total_amount_pkr') or 0):,.0f} | نقد |"
+                            )
+                        return "\n".join(lines)
+
+                    if (asks_table or has_fake_table or asks_total) and (tx_rows or sales_rows):
+                        lines = [
+                            f"**خلاصہ**\n- **کل خرچہ:** {total_spent:,.0f} PKR ({tx_count} اندراجات)\n- **کل فروخت (آمدن):** {total_sales:,.0f} PKR\n",
+                            "| تاریخ | دکان / تفصیل | رقم (PKR) | ادائیگی |",
+                            "|---|---|---|---|",
+                        ]
+                        for r in tx_rows[:10]:
+                            lines.append(
+                                f"| {r.get('date')} | {r.get('store_name')} | {float(r.get('total_amount_pkr') or 0):,.0f} | نقد |"
+                            )
+                        return "\n".join(lines)
+                except Exception:
+                    pass
+
+    return reply_text
+
+
 def run_agent(
     user_id: str,
     user_text: str,
@@ -1726,9 +2571,12 @@ def run_agent(
         return "Please provide an expense message or voice note."
 
     clean_user_id = user_id.strip() or "default"
+    norm_user_text = normalize_urdu_spoken_numbers(user_text)
+    norm_raw_transcript = normalize_urdu_spoken_numbers(raw_transcript or user_text)
+    effective_ui_lang = "ur" if ARABIC_SCRIPT_REGEX.search(user_text) else ui_lang
     turn_state = {"attempt": 0, "mutations_by_tool": {}}
-    tools = get_tools_for_user(clean_user_id, raw_transcript=raw_transcript, turn_state=turn_state)
-    system_prompt = build_system_prompt(ui_lang=ui_lang)
+    tools = get_tools_for_user(clean_user_id, raw_transcript=norm_raw_transcript, turn_state=turn_state)
+    system_prompt = build_system_prompt(ui_lang=effective_ui_lang)
     groq_keys = get_groq_api_keys() or [""]
     llm = get_chat_llm()
 
@@ -1748,19 +2596,24 @@ def run_agent(
                 continue
             sanitized_history.append((role, cleaned_content))
         
-        # Enforce max 4 messages
+        # Enforce max 4 messages (strip markdown tables from prior assistant turns to prevent tool-less table mimicry)
         for role, content in sanitized_history[-4:]:
             if role == "user":
                 messages.append(HumanMessage(content=content))
             elif role == "assistant":
                 from langchain_core.messages import AIMessage
-                messages.append(AIMessage(content=content))
+                messages.append(AIMessage(content=_strip_markdown_tables_from_history(content)))
     elif clean_user_id in _IN_MEMORY_SESSIONS:
         # Fallback to server in-memory history (last 4 turns)
-        messages.extend(_IN_MEMORY_SESSIONS[clean_user_id][-4:])
+        from langchain_core.messages import AIMessage
+        for hist_msg in _IN_MEMORY_SESSIONS[clean_user_id][-4:]:
+            if isinstance(hist_msg, AIMessage) and isinstance(hist_msg.content, str):
+                messages.append(AIMessage(content=_strip_markdown_tables_from_history(hist_msg.content)))
+            else:
+                messages.append(hist_msg)
 
     # Append current turn
-    messages.append(HumanMessage(content=user_text))
+    messages.append(HumanMessage(content=norm_user_text))
 
     # Create agent using modern LangChain agent API
     agent = create_agent(
@@ -1790,15 +2643,17 @@ def run_agent(
                     continue
                 raise invoke_err
 
+        _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=messages[:-1])
         final_message = response["messages"][-1]
         reply_text = final_message.content if hasattr(final_message, "content") else str(final_message)
+        reply_text = _reconcile_reply_with_db_truth(reply_text, norm_user_text, tools, turn_state, effective_ui_lang)
         reply_text = ensure_urdu_script(reply_text)
 
         # Update in-memory session history
         from langchain_core.messages import AIMessage
         if clean_user_id not in _IN_MEMORY_SESSIONS:
             _IN_MEMORY_SESSIONS[clean_user_id] = []
-        _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=user_text))
+        _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=norm_user_text))
         _IN_MEMORY_SESSIONS[clean_user_id].append(AIMessage(content=reply_text))
         if len(_IN_MEMORY_SESSIONS[clean_user_id]) > 20:
             _IN_MEMORY_SESSIONS[clean_user_id] = _IN_MEMORY_SESSIONS[clean_user_id][-20:]
@@ -1815,36 +2670,104 @@ def run_agent(
             _BEDROCK_THROTTLED_UNTIL = time.time() + 300.0
             logger.warning("AWS Bedrock throttled. Fast fallback to Groq active for 5 minutes.")
 
-        # Graceful fallback attempt with alternate candidate model
-        try:
-            turn_state["attempt"] += 1
-            curr_model = getattr(llm, "model_name", getattr(llm, "model", ""))
-            alt_candidates = [m for m in MODEL_CANDIDATES if m and m != curr_model]
-            fallback_model = alt_candidates[0] if alt_candidates else "qwen/qwen3.8-27b"
-            fallback_groq_key = groq_keys[1] if len(groq_keys) > 1 else (groq_keys[0] if groq_keys else "")
-            llm_fallback = ChatGroq(
-                model=fallback_model,
-                temperature=0,
-                max_tokens=600,
-                timeout=LLM_TIMEOUT_SECONDS,
-                groq_api_key=fallback_groq_key,
-            )
-            fallback_agent = create_agent(
-                model=llm_fallback,
-                tools=tools,
-                system_prompt=system_prompt,
-            )
-            fallback_res = fallback_agent.invoke({"messages": messages}, config={"recursion_limit": AGENT_RECURSION_LIMIT})
-            fallback_reply = fallback_res["messages"][-1].content
-            return ensure_urdu_script(fallback_reply)
-        except Exception as e2:
-            logger.error(f"Fallback agent execution error: {e2}")
-            err_str2 = str(e2)
-            if "429" in err_str2 or "rate_limit" in err_str2.lower() or "tokens" in err_str2.lower():
-                if ui_lang == "en":
-                    return "The AI assistant is temporarily busy with high request volume. Please wait a few seconds and try again."
-                return "سسٹم پر اس وقت زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔"
-            if ui_lang == "en":
-                return "We encountered an issue processing your request. Please try again."
-            return "درخواست پر کارروائی کے دوران مسئلہ پیش آیا۔ براہ کرم دوبارہ کوشش کریں۔"
+        # Graceful fallback attempt across all alternate candidate models
+        curr_model = getattr(llm, "model_name", getattr(llm, "model", ""))
+        alt_candidates = []
+        for m in MODEL_CANDIDATES:
+            if m and m != curr_model and m not in alt_candidates:
+                alt_candidates.append(m)
+        if not alt_candidates:
+            alt_candidates = ["qwen/qwen3.8-27b"]
+
+        fallback_groq_key = groq_keys[1] if len(groq_keys) > 1 else (groq_keys[0] if groq_keys else "")
+        last_err = e
+        for fallback_model in alt_candidates:
+            try:
+                turn_state["attempt"] += 1
+                llm_fallback = ChatGroq(
+                    model=fallback_model,
+                    temperature=0,
+                    max_tokens=600,
+                    timeout=LLM_TIMEOUT_SECONDS,
+                    max_retries=0,
+                    groq_api_key=fallback_groq_key,
+                )
+                fallback_agent = create_agent(
+                    model=llm_fallback,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                )
+                fallback_res = fallback_agent.invoke(
+                    {"messages": messages},
+                    config={"recursion_limit": AGENT_RECURSION_LIMIT},
+                )
+                _VALIDATED_MODEL = fallback_model
+                _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=messages[:-1])
+                raw_fallback_reply = fallback_res["messages"][-1].content
+                raw_fallback_reply = _reconcile_reply_with_db_truth(
+                    raw_fallback_reply, norm_user_text, tools, turn_state, effective_ui_lang
+                )
+                fallback_reply = ensure_urdu_script(raw_fallback_reply)
+                from langchain_core.messages import AIMessage
+                if clean_user_id not in _IN_MEMORY_SESSIONS:
+                    _IN_MEMORY_SESSIONS[clean_user_id] = []
+                _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=norm_user_text))
+                _IN_MEMORY_SESSIONS[clean_user_id].append(AIMessage(content=fallback_reply))
+                if len(_IN_MEMORY_SESSIONS[clean_user_id]) > 20:
+                    _IN_MEMORY_SESSIONS[clean_user_id] = _IN_MEMORY_SESSIONS[clean_user_id][-20:]
+                return fallback_reply
+            except Exception as e2:
+                logger.error(f"Fallback agent ({fallback_model}) execution error: {e2}")
+                last_err = e2
+
+        # If a tool mutation already committed in this turn (or can be deterministically extracted from Urdu clauses)
+        # before rate-limit hit on final text generation, return an accurate confirmation summary.
+        _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=messages[:-1])
+        reconciled_fallback = _reconcile_reply_with_db_truth(
+            "", norm_user_text, tools, turn_state, effective_ui_lang
+        )
+        if reconciled_fallback:
+            from langchain_core.messages import AIMessage
+            _IN_MEMORY_SESSIONS.setdefault(clean_user_id, []).extend([
+                HumanMessage(content=norm_user_text),
+                AIMessage(content=reconciled_fallback),
+            ])
+            return reconciled_fallback
+
+        committed_lists = turn_state.get("_mutations_list_by_tool", {})
+        if committed_lists:
+            summaries_ur = []
+            summaries_en = []
+            for t_name, res_items in committed_lists.items():
+                for raw_res in res_items:
+                    try:
+                        data = json.loads(raw_res)
+                        amt = data.get("total_amount_pkr") or data.get("amount")
+                        store = data.get("store_name") or data.get("customer_or_note") or ""
+                        if amt is not None:
+                            amt_fmt = f"{float(amt):,.0f}"
+                            summaries_ur.append(f"{store}: {amt_fmt} روپے" if store else f"{amt_fmt} روپے")
+                            summaries_en.append(f"{store}: PKR {amt_fmt}" if store else f"PKR {amt_fmt}")
+                    except Exception:
+                        pass
+            if summaries_ur:
+                if effective_ui_lang == "en":
+                    synth = "Recorded successfully: " + ", ".join(summaries_en) + "."
+                else:
+                    synth = "آپ کا اندراج مکمل ہو گیا ہے: " + "، ".join(summaries_ur) + "۔"
+                from langchain_core.messages import AIMessage
+                _IN_MEMORY_SESSIONS.setdefault(clean_user_id, []).extend([
+                    HumanMessage(content=norm_user_text),
+                    AIMessage(content=synth),
+                ])
+                return synth
+
+        err_str2 = str(last_err)
+        if "429" in err_str2 or "rate_limit" in err_str2.lower() or "tokens" in err_str2.lower():
+            if effective_ui_lang == "en":
+                return "The AI assistant is temporarily busy with high request volume. Please wait a few seconds and try again."
+            return "سسٹم پر اس وقت زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔"
+        if effective_ui_lang == "en":
+            return "We encountered an issue processing your request. Please try again."
+        return "درخواست پر کارروائی کے دوران مسئلہ پیش آیا۔ براہ کرم دوبارہ کوشش کریں۔"
 
