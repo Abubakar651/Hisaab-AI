@@ -16,6 +16,16 @@ from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
 try:
+    from langchain_openai import ChatOpenAI
+except ImportError:
+    ChatOpenAI = None
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
+try:
     from langchain_aws import ChatBedrockConverse
 except ImportError:
     ChatBedrockConverse = None
@@ -108,18 +118,245 @@ groq_client = get_groq_client()
 PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b")
 MODEL_CANDIDATES = [PREFERRED_MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
+# Secondary multi-provider fallback configurations (Google Gemini & OpenRouter)
+GEMINI_PREFERRED_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+GEMINI_MODEL_CANDIDATES = [GEMINI_PREFERRED_MODEL, "gemini-3.1-flash-lite"]
+
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip() or "https://openrouter.ai/api/v1"
+OPENROUTER_PREFERRED_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "openrouter/free").strip() or "openrouter/free"
+OPENROUTER_MODEL_CANDIDATES = [OPENROUTER_PREFERRED_MODEL, "openrouter/free", "nvidia/nemotron-3.5-lightning:free"]
+
 _VALIDATED_MODEL = None
 _BEDROCK_THROTTLED_UNTIL = 0.0
+
+
+def _extract_message_text(content: Any) -> str:
+    """Normalize LangChain AIMessage.content (str or multipart list) into clean plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                btype = str(block.get("type") or "").lower()
+                if btype in ("thinking", "reasoning"):
+                    continue
+                if isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif isinstance(block.get("content"), str):
+                    parts.append(block["content"])
+        text = "".join(parts)
+    else:
+        text = str(content)
+
+    raw_lower = text.lower()
+    if "<thought" in raw_lower:
+        text = re.sub(r"<thought\b[^>]*>.*?</thought>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<thought\b[^>]*>.*$", "", text, flags=re.DOTALL | re.IGNORECASE)
+    elif "</thought>" in raw_lower:
+        text = re.sub(r"^.*?</thought>\s*", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"</?thought\b[^>]*>", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _redact_secrets(text: str) -> str:
+    """Scrub configured API keys from exception text before logging."""
+    cleaned = str(text or "")
+    secret_vars = list(get_groq_api_keys()) + [
+        (os.getenv("GEMINI_API_KEY") or "").strip(),
+        (os.getenv("OPENROUTER_API_KEY") or "").strip(),
+        (os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip(),
+    ]
+    for sec in secret_vars:
+        if sec and len(sec) >= 6:
+            cleaned = cleaned.replace(sec, "***")
+    return cleaned
+
+
+def _build_groq_llm(model_name: str, api_key: str, max_tokens: int = 800):
+    return ChatGroq(
+        model=model_name,
+        temperature=0,
+        max_tokens=max_tokens,
+        max_retries=0,
+        timeout=LLM_TIMEOUT_SECONDS,
+        groq_api_key=api_key,
+    )
+
+
+def _build_gemini_llm(
+    model_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    max_tokens: int = 800,
+):
+    if ChatGoogleGenerativeAI is None:
+        return None
+    key = (api_key if api_key is not None else os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return None
+    chosen = (model_name or GEMINI_PREFERRED_MODEL).strip() or "gemini-3.1-flash-lite"
+    kwargs: Dict[str, Any] = {
+        "model": chosen,
+        "google_api_key": key,
+        "max_output_tokens": max_tokens,
+        "timeout": LLM_TIMEOUT_SECONDS,
+        "max_retries": 0,
+    }
+    if not chosen.startswith("gemini-3"):
+        kwargs["temperature"] = 0
+    return ChatGoogleGenerativeAI(**kwargs)
+
+
+def _build_openrouter_llm(
+    model_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    max_tokens: int = 800,
+):
+    if ChatOpenAI is None:
+        return None
+    key = (api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        return None
+    chosen = (model_name or OPENROUTER_PREFERRED_MODEL).strip() or "openrouter/free"
+    return ChatOpenAI(
+        model=chosen,
+        api_key=key,
+        base_url=OPENROUTER_BASE_URL,
+        temperature=0,
+        max_tokens=max_tokens,
+        request_timeout=LLM_TIMEOUT_SECONDS,
+        max_retries=0,
+        default_headers={
+            "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://hisaabai.com"),
+            "X-Title": os.getenv("OPENROUTER_APP_NAME", "HisaabAI"),
+        },
+    )
+
+
+def _detect_llm_provider(llm_obj: Any) -> str:
+    """Identify logical provider name ('groq', 'gemini', 'openrouter', 'bedrock') from an LLM instance."""
+    if ChatGoogleGenerativeAI is not None and isinstance(llm_obj, ChatGoogleGenerativeAI):
+        return "gemini"
+    if ChatOpenAI is not None and isinstance(llm_obj, ChatOpenAI):
+        return "openrouter"
+    if ChatBedrockConverse is not None and isinstance(llm_obj, ChatBedrockConverse):
+        return "bedrock"
+    cls_name = type(llm_obj).__name__.lower()
+    if "google" in cls_name or "gemini" in cls_name:
+        return "gemini"
+    if "openai" in cls_name:
+        return "openrouter"
+    if "bedrock" in cls_name:
+        return "bedrock"
+    return "groq"
+
+
+def _dedup_models(models: List[str]) -> List[str]:
+    out = []
+    seen = set()
+    for m in models:
+        clean = (m or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            out.append(clean)
+    return out
+
+
+def _build_fallback_llm_candidates(
+    curr_provider: str,
+    curr_model: str,
+    groq_keys: List[str],
+    primary_err: Exception,
+) -> List[tuple]:
+    """
+    Construct ordered list of (provider_name, model_name, builder_callable) fallback candidates.
+    Automatically fails over across alternate Groq models -> Google Gemini -> OpenRouter free tier.
+    """
+    candidates: List[tuple] = []
+    seen = set()
+    err_lower = str(primary_err or "").lower()
+    is_timeout = "timeout" in err_lower or "timed out" in err_lower
+
+    def _add(prov: str, model_name: str, builder):
+        k = (prov, model_name)
+        if not model_name or k in seen or (prov == curr_provider and model_name == curr_model):
+            return
+        seen.add(k)
+        candidates.append((prov, model_name, builder))
+
+    fallback_groq_key = groq_keys[1] if len(groq_keys) > 1 else (groq_keys[0] if groq_keys else "")
+    has_real_groq = any(k.strip() for k in groq_keys)
+
+    def _add_groq():
+        # Preserve unit-test mockability when curr_provider == 'groq', but skip extra Groq retries after a network timeout if cloud fallbacks exist
+        if curr_provider == "groq" and is_timeout and ((os.getenv("GEMINI_API_KEY") or "").strip() or (os.getenv("OPENROUTER_API_KEY") or "").strip()):
+            return
+        groq_list = _dedup_models(MODEL_CANDIDATES)
+        for m in groq_list:
+            if m != curr_model or curr_provider != "groq":
+                _add("groq", m, lambda mn=m: _build_groq_llm(mn, fallback_groq_key, max_tokens=600))
+        if not any(p == "groq" for p, _, _ in candidates) and (has_real_groq or curr_provider == "groq"):
+            for m in _dedup_models(["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]):
+                _add("groq", m, lambda mn=m: _build_groq_llm(mn, fallback_groq_key, max_tokens=600))
+
+    def _add_gemini():
+        if ChatGoogleGenerativeAI is None or not (os.getenv("GEMINI_API_KEY") or "").strip():
+            return
+        for m in _dedup_models(GEMINI_MODEL_CANDIDATES):
+            _add("gemini", m, lambda mn=m: _build_gemini_llm(model_name=mn, max_tokens=800))
+
+    def _add_openrouter():
+        if ChatOpenAI is None or not (os.getenv("OPENROUTER_API_KEY") or "").strip():
+            return
+        for m in _dedup_models(OPENROUTER_MODEL_CANDIDATES):
+            _add("openrouter", m, lambda mn=m: _build_openrouter_llm(model_name=mn, max_tokens=800))
+
+    if curr_provider == "gemini":
+        _add_gemini()
+        _add_openrouter()
+        if has_real_groq:
+            _add_groq()
+    elif curr_provider == "openrouter":
+        _add_openrouter()
+        _add_gemini()
+        if has_real_groq:
+            _add_groq()
+    else:
+        _add_groq()
+        _add_gemini()
+        _add_openrouter()
+
+    return candidates
 
 
 def get_chat_llm(api_key: Optional[str] = None):
     """
     Initializes Chat LLM.
-    Priority 1: AWS Bedrock (if configured, not throttled, LLM_PROVIDER != 'groq', and api_key is None).
-    Priority 2: Groq Chat LLM with pre-validated model fallback.
+    Priority 1: Explicit provider override (LLM_PROVIDER='gemini'|'openrouter', when api_key is None).
+    Priority 2: AWS Bedrock (if configured, not throttled, LLM_PROVIDER != 'groq', and api_key is None).
+    Priority 3: Groq Chat LLM with pre-validated model fallback.
+    Priority 4: Gemini / OpenRouter fallback if no Groq API key is configured.
     """
     global _BEDROCK_THROTTLED_UNTIL
     provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+    # Google Gemini is the default primary provider whenever a key is configured
+    # (unless LLM_PROVIDER explicitly selects groq / openrouter / bedrock).
+    if provider in ("", "auto") and (os.getenv("GEMINI_API_KEY") or "").strip():
+        provider = "gemini"
+
+    if api_key is None:
+        if provider == "gemini":
+            gem = _build_gemini_llm()
+            if gem is not None:
+                return gem
+        elif provider == "openrouter":
+            ort = _build_openrouter_llm()
+            if ort is not None:
+                return ort
 
     if provider != "groq" and api_key is None:
         aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
@@ -159,53 +396,33 @@ def get_chat_llm(api_key: Optional[str] = None):
         groq_keys = get_groq_api_keys()
         effective_groq_key = groq_keys[0] if groq_keys else ""
 
+        if not effective_groq_key and provider != "groq":
+            gem = _build_gemini_llm()
+            if gem is not None:
+                return gem
+            ort = _build_openrouter_llm()
+            if ort is not None:
+                return ort
+
     global _VALIDATED_MODEL
     if _VALIDATED_MODEL:
-        return ChatGroq(
-            model=_VALIDATED_MODEL,
-            temperature=0,
-            max_tokens=800,
-            max_retries=0,
-            timeout=LLM_TIMEOUT_SECONDS,
-            groq_api_key=effective_groq_key,
-        )
+        return _build_groq_llm(_VALIDATED_MODEL, effective_groq_key, max_tokens=800)
 
     for candidate in MODEL_CANDIDATES:
         if not candidate:
             continue
         try:
-            test_llm = ChatGroq(
-                model=candidate,
-                temperature=0,
-                max_tokens=10,
-                max_retries=0,
-                timeout=LLM_TIMEOUT_SECONDS,
-                groq_api_key=effective_groq_key,
-            )
+            test_llm = _build_groq_llm(candidate, effective_groq_key, max_tokens=10)
             test_llm.invoke("ping")
             _VALIDATED_MODEL = candidate
             logger.info(f"Active Groq LLM model verified: {_VALIDATED_MODEL}")
-            return ChatGroq(
-                model=_VALIDATED_MODEL,
-                temperature=0,
-                max_tokens=800,
-                max_retries=0,
-                timeout=LLM_TIMEOUT_SECONDS,
-                groq_api_key=effective_groq_key,
-            )
+            return _build_groq_llm(_VALIDATED_MODEL, effective_groq_key, max_tokens=800)
         except Exception as e:
             logger.info(f"Groq model candidate '{candidate}' not available: {e}")
             continue
 
     _VALIDATED_MODEL = "qwen/qwen3.8-27b"
-    return ChatGroq(
-        model=_VALIDATED_MODEL,
-        temperature=0,
-        max_tokens=800,
-        max_retries=0,
-        timeout=LLM_TIMEOUT_SECONDS,
-        groq_api_key=effective_groq_key,
-    )
+    return _build_groq_llm(_VALIDATED_MODEL, effective_groq_key, max_tokens=800)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +455,7 @@ def ensure_urdu_script(text: str) -> str:
                 f"{text.strip()}"
             )
             res = llm.invoke(prompt)
-            converted = (res.content or "").strip()
+            converted = _extract_message_text(getattr(res, "content", res))
             if converted:
                 logger.info("Converted Hindi/Gurmukhi text to Urdu script successfully")
                 return converted.replace("₹", "PKR ")
@@ -3209,6 +3426,35 @@ def _build_cross_book_suggestion(
     }
 
 
+def _append_session_history(clean_user_id: str, norm_user_text: str, reply_text: str) -> None:
+    """Append the latest user/assistant pair to in-memory session history, bounded to 20 messages."""
+    from langchain_core.messages import AIMessage
+
+    history = _IN_MEMORY_SESSIONS.setdefault(clean_user_id, [])
+    history.append(HumanMessage(content=norm_user_text))
+    history.append(AIMessage(content=reply_text))
+    if len(history) > 20:
+        _IN_MEMORY_SESSIONS[clean_user_id] = history[-20:]
+
+
+def _finalize_agent_reply(
+    raw_content: Any,
+    norm_user_text: str,
+    tools: List[Any],
+    turn_state: Dict[str, Any],
+    effective_ui_lang: Optional[str],
+    prior_messages: List[Any],
+    clean_user_id: str,
+) -> str:
+    """Execute safety-net checks, reconcile reply text with DB truth, enforce Nastaleeq, and update history."""
+    _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=prior_messages)
+    reply_text = _extract_message_text(raw_content)
+    reply_text = _reconcile_reply_with_db_truth(reply_text, norm_user_text, tools, turn_state, effective_ui_lang)
+    reply_text = ensure_urdu_script(reply_text)
+    _append_session_history(clean_user_id, norm_user_text, reply_text)
+    return reply_text
+
+
 def _run_agent_core(
     user_id: str,
     user_text: str,
@@ -3292,6 +3538,12 @@ def _run_agent_core(
         system_prompt=system_prompt,
     )
 
+    curr_provider = _detect_llm_provider(llm)
+    has_cloud_fallback = bool(
+        (os.getenv("GEMINI_API_KEY") or "").strip()
+        or (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    )
+
     try:
         response = None
         for attempt in range(2):
@@ -3301,67 +3553,49 @@ def _run_agent_core(
                 break
             except Exception as invoke_err:
                 err_text = str(invoke_err)
-                if ("429" in err_text or "rate_limit" in err_text.lower() or "too many tokens" in err_text.lower()) and attempt == 0:
-                    turn_state["attempt"] = attempt + 1
-                    if len(groq_keys) > 1:
+                is_rate_limit = "429" in err_text or "rate_limit" in err_text.lower() or "too many tokens" in err_text.lower()
+                if is_rate_limit and attempt == 0:
+                    if curr_provider == "groq" and len(groq_keys) > 1 and groq_keys[1]:
+                        turn_state["attempt"] = attempt + 1
                         logger.warning("Groq rate limit 429 encountered, rotating to secondary key immediately...")
                         llm = get_chat_llm(api_key=groq_keys[1])
+                        curr_provider = _detect_llm_provider(llm)
                         agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
-                    else:
-                        logger.warning(f"Groq rate limit 429 encountered, backing off 3.5s before retry (attempt {attempt+1})...")
+                        continue
+                    if not has_cloud_fallback:
+                        turn_state["attempt"] = attempt + 1
+                        logger.warning(f"Rate limit 429 encountered, backing off 3.5s before retry (attempt {attempt+1})...")
                         time.sleep(3.5)
-                    continue
+                        continue
                 raise invoke_err
 
-        _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=messages[:-1])
         final_message = response["messages"][-1]
-        reply_text = final_message.content if hasattr(final_message, "content") else str(final_message)
-        reply_text = _reconcile_reply_with_db_truth(reply_text, norm_user_text, tools, turn_state, effective_ui_lang)
-        reply_text = ensure_urdu_script(reply_text)
-
-        # Update in-memory session history
-        from langchain_core.messages import AIMessage
-        if clean_user_id not in _IN_MEMORY_SESSIONS:
-            _IN_MEMORY_SESSIONS[clean_user_id] = []
-        _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=norm_user_text))
-        _IN_MEMORY_SESSIONS[clean_user_id].append(AIMessage(content=reply_text))
-        if len(_IN_MEMORY_SESSIONS[clean_user_id]) > 20:
-            _IN_MEMORY_SESSIONS[clean_user_id] = _IN_MEMORY_SESSIONS[clean_user_id][-20:]
-
-        return reply_text
+        raw_content = final_message.content if hasattr(final_message, "content") else final_message
+        return _finalize_agent_reply(
+            raw_content, norm_user_text, tools, turn_state, effective_ui_lang, messages[:-1], clean_user_id
+        )
     except Exception as e:
         global _BEDROCK_THROTTLED_UNTIL, _VALIDATED_MODEL
-        logger.error(f"Agent execution error: {e}")
+        logger.error(f"Agent execution error ({curr_provider}): {_redact_secrets(e)}")
         err_str = str(e)
         if "429" in err_str or "rate_limit" in err_str.lower() or "too many tokens" in err_str.lower():
-            _VALIDATED_MODEL = None
+            if curr_provider == "groq":
+                _VALIDATED_MODEL = None
         # Trip Bedrock circuit breaker on throttling/validation error so subsequent turns don't hang
         if "ThrottlingException" in err_str or "ValidationException" in err_str or "Too many tokens" in err_str:
             _BEDROCK_THROTTLED_UNTIL = time.time() + 300.0
-            logger.warning("AWS Bedrock throttled. Fast fallback to Groq active for 5 minutes.")
+            logger.warning("AWS Bedrock throttled. Fast fallback active for 5 minutes.")
 
-        # Graceful fallback attempt across all alternate candidate models
-        curr_model = getattr(llm, "model_name", getattr(llm, "model", ""))
-        alt_candidates = []
-        for m in MODEL_CANDIDATES:
-            if m and m != curr_model and m not in alt_candidates:
-                alt_candidates.append(m)
-        if not alt_candidates:
-            alt_candidates = ["qwen/qwen3.8-27b"]
+        curr_model = getattr(llm, "model_name", getattr(llm, "model", "")) or ""
+        fallback_candidates = _build_fallback_llm_candidates(curr_provider, curr_model, groq_keys, e)
 
-        fallback_groq_key = groq_keys[1] if len(groq_keys) > 1 else (groq_keys[0] if groq_keys else "")
         last_err = e
-        for fallback_model in alt_candidates:
+        for fb_provider, fb_model, fb_builder in fallback_candidates:
             try:
+                llm_fallback = fb_builder()
+                if llm_fallback is None:
+                    continue
                 turn_state["attempt"] += 1
-                llm_fallback = ChatGroq(
-                    model=fallback_model,
-                    temperature=0,
-                    max_tokens=600,
-                    timeout=LLM_TIMEOUT_SECONDS,
-                    max_retries=0,
-                    groq_api_key=fallback_groq_key,
-                )
                 fallback_agent = create_agent(
                     model=llm_fallback,
                     tools=tools,
@@ -3371,23 +3605,16 @@ def _run_agent_core(
                     {"messages": messages},
                     config={"recursion_limit": AGENT_RECURSION_LIMIT},
                 )
-                _VALIDATED_MODEL = fallback_model
-                _ensure_urdu_expense_clauses_executed(norm_user_text, tools, turn_state, prior_messages=messages[:-1])
-                raw_fallback_reply = fallback_res["messages"][-1].content
-                raw_fallback_reply = _reconcile_reply_with_db_truth(
-                    raw_fallback_reply, norm_user_text, tools, turn_state, effective_ui_lang
+                if fb_provider == "groq":
+                    _VALIDATED_MODEL = fb_model
+                logger.info(f"Fallback agent succeeded via {fb_provider}/{fb_model}")
+                fb_msg = fallback_res["messages"][-1]
+                raw_fallback_content = fb_msg.content if hasattr(fb_msg, "content") else fb_msg
+                return _finalize_agent_reply(
+                    raw_fallback_content, norm_user_text, tools, turn_state, effective_ui_lang, messages[:-1], clean_user_id
                 )
-                fallback_reply = ensure_urdu_script(raw_fallback_reply)
-                from langchain_core.messages import AIMessage
-                if clean_user_id not in _IN_MEMORY_SESSIONS:
-                    _IN_MEMORY_SESSIONS[clean_user_id] = []
-                _IN_MEMORY_SESSIONS[clean_user_id].append(HumanMessage(content=norm_user_text))
-                _IN_MEMORY_SESSIONS[clean_user_id].append(AIMessage(content=fallback_reply))
-                if len(_IN_MEMORY_SESSIONS[clean_user_id]) > 20:
-                    _IN_MEMORY_SESSIONS[clean_user_id] = _IN_MEMORY_SESSIONS[clean_user_id][-20:]
-                return fallback_reply
             except Exception as e2:
-                logger.error(f"Fallback agent ({fallback_model}) execution error: {e2}")
+                logger.error(f"Fallback agent ({fb_provider}/{fb_model}) execution error: {_redact_secrets(e2)}")
                 last_err = e2
 
         # If a tool mutation already committed in this turn (or can be deterministically extracted from Urdu clauses)
@@ -3397,11 +3624,7 @@ def _run_agent_core(
             "", norm_user_text, tools, turn_state, effective_ui_lang
         )
         if reconciled_fallback:
-            from langchain_core.messages import AIMessage
-            _IN_MEMORY_SESSIONS.setdefault(clean_user_id, []).extend([
-                HumanMessage(content=norm_user_text),
-                AIMessage(content=reconciled_fallback),
-            ])
+            _append_session_history(clean_user_id, norm_user_text, reconciled_fallback)
             return reconciled_fallback
 
         committed_lists = turn_state.get("_mutations_list_by_tool", {})
@@ -3425,15 +3648,11 @@ def _run_agent_core(
                     synth = "Recorded successfully: " + ", ".join(summaries_en) + "."
                 else:
                     synth = "آپ کا اندراج مکمل ہو گیا ہے: " + "، ".join(summaries_ur) + "۔"
-                from langchain_core.messages import AIMessage
-                _IN_MEMORY_SESSIONS.setdefault(clean_user_id, []).extend([
-                    HumanMessage(content=norm_user_text),
-                    AIMessage(content=synth),
-                ])
+                _append_session_history(clean_user_id, norm_user_text, synth)
                 return synth
 
-        err_str2 = str(last_err)
-        if "429" in err_str2 or "rate_limit" in err_str2.lower() or "tokens" in err_str2.lower():
+        err_str2 = str(last_err).lower()
+        if "429" in err_str2 or "rate_limit" in err_str2 or "tokens" in err_str2 or "resource_exhausted" in err_str2 or "quota" in err_str2:
             if effective_ui_lang == "en":
                 return "The AI assistant is temporarily busy with high request volume. Please wait a few seconds and try again."
             return "سسٹم پر اس وقت زیادہ رش ہے۔ براہ کرم چند سیکنڈ بعد دوبارہ کوشش کریں۔"
