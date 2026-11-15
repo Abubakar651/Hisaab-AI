@@ -3004,7 +3004,7 @@ html[lang="ur"] #auth-modal #google-signin-btn {
     height: 32px !important;
     min-height: 32px !important;
     padding: 0 8px !important;
-    max-width: 106px !important;
+    max-width: 180px !important;
     font-size: 11.5px !important;
     gap: 4px !important;
   }
@@ -3489,48 +3489,55 @@ html.light .book-quick-tab.active {
   order: 1;
 }
 
+#dashboard-pane[data-book-mode="business"] .section-parties,
+#dashboard-pane.book-mode-business .section-parties {
+  order: 2;
+}
+
 #dashboard-pane[data-book-mode="business"] .section-udhaar,
 #dashboard-pane.book-mode-business .section-udhaar {
-  order: 2;
+  order: 3;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-recent-tx,
 #dashboard-pane.book-mode-business .section-recent-tx {
-  order: 3;
+  order: 4;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-category,
 #dashboard-pane.book-mode-business .section-category {
-  order: 4;
+  order: 5;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-stores,
 #dashboard-pane.book-mode-business .section-stores {
-  order: 5;
+  order: 6;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-trend,
 #dashboard-pane.book-mode-business .section-trend {
-  order: 6;
+  order: 7;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-payment,
 #dashboard-pane.book-mode-business .section-payment {
-  order: 7;
+  order: 8;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-budgets,
 #dashboard-pane.book-mode-business .section-budgets {
-  order: 8;
+  order: 9;
 }
 
 #dashboard-pane[data-book-mode="business"] .section-recurring,
 #dashboard-pane.book-mode-business .section-recurring {
-  order: 9;
+  order: 10;
 }
 
 #dashboard-pane[data-book-mode="personal"] .section-galla,
-#dashboard-pane.book-mode-personal .section-galla {
+#dashboard-pane.book-mode-personal .section-galla,
+#dashboard-pane[data-book-mode="personal"] .section-parties,
+#dashboard-pane.book-mode-personal .section-parties {
   display: none !important;
 }
 
@@ -3644,4 +3651,281 @@ html[lang="ur"] .udhaar-filter-tab {
   font-family: var(--ur) !important;
   font-size: 14px !important;
   line-height: 1.5 !important;
+}
+
+/* Mobile 390px Viewport Narrow Breakpoint */
+@media (max-width: 420px) {
+  .app-header-left {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+  }
+  .app-logo {
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
+  .app-logo-text {
+    font-size: 13.5px !important;
+  }
+  .book-switcher-wrap {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+  .book-switcher-btn {
+    max-width: 175px !important;
+    padding: 0 6px !important;
+  }
+}
+
+/* ==========================================================================
+   Customer & Supplier Party Directory & Khata Ledger Styles
+   ========================================================================== */
+.party-directory-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.party-summary-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .party-summary-kpis {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+.party-kpi-card {
+  background: var(--s1);
+  border: 1px solid var(--b);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.party-kpi-card.receivable {
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.party-kpi-card.payable {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.party-kpi-card.net {
+  border-color: rgba(212, 169, 90, 0.4);
+}
+
+.party-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.party-card {
+  background: var(--s1);
+  border: 1px solid var(--b);
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.party-card:hover {
+  border-color: var(--brass);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.party-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.party-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--s2);
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.party-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.badge-customer {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-supplier {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.badge-receivable {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.badge-payable {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badge-settled {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.badge-overdue {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  animation: pulse 2s infinite;
+}
+
+/* Customer Profile Hero */
+.party-profile-hero {
+  background: var(--s1);
+  border: 1px solid var(--b);
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.party-profile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.party-action-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.btn-maine-diye {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+  padding: 12px 18px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-maine-diye:hover {
+  background: #b91c1c !important;
+}
+
+.btn-maine-liye {
+  background: #16a34a !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+  padding: 12px 18px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-maine-liye:hover {
+  background: #15803d !important;
+}
+
+/* Dedicated Ledger Table */
+.party-ledger-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--b);
+  border-radius: 14px;
+  background: var(--s1);
+}
+
+.party-ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+}
+
+[dir="rtl"] .party-ledger-table {
+  text-align: right;
+}
+
+[dir="ltr"] .party-ledger-table {
+  text-align: left;
+}
+
+.party-ledger-table th {
+  background: var(--s2);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mut);
+  border-bottom: 1px solid var(--b);
+}
+
+.party-ledger-table td {
+  padding: 12px 14px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--b);
+}
+
+.party-ledger-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tx-amount-diye {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.tx-amount-liye {
+  color: #22c55e;
+  font-weight: 700;
+}
+
+html[lang="ur"] .party-ledger-table th,
+html[lang="ur"] .party-ledger-table td .font-ur,
+html[lang="ur"] .party-card .font-ur,
+html[lang="ur"] .party-profile-hero .font-ur {
+  font-family: var(--ur) !important;
+  line-height: 2 !important;
 }

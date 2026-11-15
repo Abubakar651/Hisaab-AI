@@ -23,7 +23,19 @@ except ImportError:
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem, Book, Budget, RecurringExpense, PendingTransaction, UdhaarEntry, get_pkt_now
+from database import (
+    SessionLocal,
+    Transaction,
+    TransactionItem,
+    Book,
+    Budget,
+    RecurringExpense,
+    PendingTransaction,
+    UdhaarEntry,
+    Party,
+    PartyTransaction,
+    get_pkt_now,
+)
 import analytics
 from analytics import (
     normalize_payment_method,
@@ -43,6 +55,8 @@ from analytics import (
     settle_udhaar,
     update_udhaar_entry,
     undo_last_udhaar_entry,
+    get_party_balance,
+    get_parties_summary,
 )
 
 load_dotenv()
@@ -750,7 +764,7 @@ class ManageUdhaarInput(BaseModel):
     model_config = {"extra": "ignore"}
 
     action: str = Field(
-        description="One of: 'give_credit' (customer owes user / maine lene hain / udhaar diya), 'take_credit' (user owes supplier / maine dene hain / udhaar liya), 'settle' (wasooli / payment received or paid back), 'list' (show active udhaar khata summary)"
+        description="One of: 'give_credit' (customer owes user / maine lene hain / udhaar diya), 'take_credit' (user owes supplier / maine dene hain / udhaar liya), 'settle' (wasooli / payment received or paid back), 'get_balance' (check party/customer balance or who owes what), 'party_profile' (get contact/profile info for a party), 'list' (show active udhaar khata summary)"
     )
     person_name: Optional[str] = Field(
         default=None,
@@ -841,8 +855,9 @@ State summary first (Total PKR, count, dates). Tables:
 3. **DAILY SALES (`log_sale`):** Sold items ("sold 2 bags flour for 5400", "aaj 15000 ki farokht hui", "پتھر بیچا", "آمدن ہوئی", "گلے میں ایڈ کر دو") -> CALL `log_sale` (use revenue/آمدن as `total_amount`), NEVER `log_expense` or text-only table!
 4. **UDHAAR (`manage_udhaar`):**
    - **MANDATORY COMPLETE DETAILS REQUIREMENT:** Both `person_name` AND `amount` required. If missing/ambiguous or direction unclear, DO NOT call `manage_udhaar` or guess! Ask first (Urdu: "براہ کرم بتائیں کہ یہ ادھار کس کو دیا/کس سے لیا ہے اور کتنی رقم ہے؟", English: "Please specify who this credit was given to / taken from and the amount in PKR.").
+   - Balance queries ("Ali nay kitnay denay hain?", "Show balance") -> `action='get_balance'`. Profile -> `action='party_profile'`.
    - **CUSTOMER CREDIT SALES VS EXPENSES:** Goods on credit ("mere se saaman/maal le gaya", "maal udhaar diya", "khate mein likh do", STT aliases "ادار دیا", "خاتم لکھ دو", "خطہ میں لکھ دو") -> ALWAYS `manage_udhaar(action='give_credit')`, NEVER `log_expense`!
-   - Actions: `give_credit` (lene hain), `take_credit` (dene hain), `settle` (wasooli; clarify on `ambiguous`/`direction_mismatch`/`overpaid`), `list`.
+   - Actions: `give_credit` (lene hain), `take_credit` (dene hain), `settle` (wasooli; clarify on `ambiguous`/`direction_mismatch`/`overpaid`), `get_balance`, `party_profile`, `list`.
 5. **QUERIES (`query_expenses`):** ALWAYS call for totals/galla, "ٹیبل فارمٹ", or "چیک کرو ایڈ ہوا ہے یا نہیں"; no mental math or fake rows.
 6. **UNDO & RECLASSIFICATION (CONFIRM BEFORE DELETING):** `delete_last_transaction` deletes the last entry (expense OR sale). If logged in wrong ledger ("ye kharche me nahi udhaar me tha", "ye khata me add karna tha"), DO NOT call `update_last_expense`! Ask confirmation first (Urdu: "کیا میں پچھلا [رقم] روپے کا خرچہ منسوخ کر کے [شخص] کے نام ادھار کھاتے میں درج کر دوں؟", English: "Would you like me to cancel the previous PKR [amount] expense and record it under [Person] in Udhaar Khata?"). On confirmation ("ہاں", "جی", "کر دو", "yes") or explicit delete, call `delete_last_transaction`.
 7. **BUDGETS:** `set_budget`/`get_budget_status`. 8. **RECURRING:** `add_recurring_expense`/`mark_recurring_paid`. 9. **LARGE EXPENSE:** On `needs_confirmation`, ask user to click 'Confirm' (تصدیق کریں) or call `cancel_pending_expense`.
@@ -856,7 +871,7 @@ NEVER ask follow-ups when items/purpose (groceries, bills, fuel, bottles) are st
 
 ### PAKISTANI NUMBER & PHRASE RESOLUTION:
 - **STT Aliases:** 'ادار'/'ادارہ دیا'='ادھار', 'خاتم'/'خطہ'='کھاتہ'. Reconstruct spelled names ('دال الف واو حمزہ دال'->داؤد).
-- **Numbers:** dedh sau=150, paune do sau=175, dhai sau=250, sadhe teen sau=350, sadhe chaar sau=450, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, paune do hazaar=1750, dhai hazaar=2500, sadhe teen hazaar=3500, sadhe chaar hazaar=4500, das hazaar=10000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, crore=10000000.
+- **Numbers:** dedh sau=150, dhai sau=250, baara sau=1200, pandra sau=1500, hazaar=1000, dedh hazaar=1500, dhai hazaar=2500, das hazaar=10000, panjah hazaar=50000, ik lakh=100000, dedh lakh=150000, dhai lakh=250000, crore=10000000.
 - **Terms:** farokht/sale=daily sale (`log_sale`), becha/vechya=sold (`log_sale`), galla=cash drawer, udhaar/khata=credit (`manage_udhaar`), lene hain=receivable (`give_credit`), dene hain=payable (`take_credit`), wasooli/jama=settled (`settle`), lita/layi/khareedya=bought (`log_expense`). Currency: PKR / روپے.
 
 ### CALENDAR CONTEXT:
@@ -2252,12 +2267,55 @@ def get_tools_for_user(
         notes: Optional[str] = None,
         phone_number: Optional[str] = None,
     ) -> str:
-        """Manages the shopkeeper's Udhaar / Khata book: give_credit (lene hain), take_credit (dene hain), settle (wasooli), or list."""
+        """Manages the shopkeeper's Udhaar / Khata book & Party Profiles: give_credit (lene hain), take_credit (dene hain), settle (wasooli), get_balance (check customer/supplier balance), party_profile, or list. Always report party_balance.net_balance_pkr as authoritative total balance when present."""
         clean_action = (action or "list").strip().lower()
-        if clean_action != "list":
+        if clean_action not in (
+            "list", "summary", "show", "all",
+            "get_balance", "balance", "query_balance", "customer_balance",
+            "check_balance", "party_profile", "profile", "contact",
+        ):
             cached = check_idempotent_cache("manage_udhaar")
             if cached:
                 return cached
+
+        def _attach_party_balance(result_dict: dict, p_name: Optional[str], act_name: str) -> dict:
+            result_dict["action"] = act_name
+            if p_name:
+                try:
+                    pb = get_party_balance(db, user_id=user_id, party_name_or_id=p_name, book_id=book_id)
+                    if pb.get("found"):
+                        result_dict["party_balance"] = {
+                            "name": pb["name"],
+                            "net_balance_pkr": pb["net_balance_pkr"],
+                            "balance_status": pb["balance_status"],
+                            "balance_text_ur": pb["balance_text_ur"],
+                            "balance_text_en": pb["balance_text_en"],
+                        }
+                        result_dict["authoritative_balance_note"] = (
+                            f"Total khata balance for {pb['name']} (including opening balance) is "
+                            f"{pb['net_balance_pkr']:,.0f} PKR ({pb['balance_text_en']})."
+                        )
+                except Exception:
+                    pass
+            return result_dict
+
+        def _build_udhaar_overview_payload() -> dict:
+            summary = udhaar_summary(db, user_id, book_id=book_id)
+            parties_sum = get_parties_summary(db, user_id, book_id=book_id)
+            return {
+                "status": "success",
+                "action": "list",
+                "udhaar": summary,
+                "party_summary": parties_sum["summary"],
+                "parties": parties_sum["parties"][:50],
+            }
+
+        def _record_udhaar_query(payload: dict) -> str:
+            res_json = json.dumps(payload, ensure_ascii=False)
+            if turn_state is not None:
+                turn_state["udhaar_queried"] = True
+                turn_state.setdefault("udhaar_query_results", []).append(res_json)
+            return res_json
 
         db: Session = SessionLocal()
         try:
@@ -2274,7 +2332,43 @@ def get_tools_for_user(
                     phone_number=phone_number,
                     book_id=book_id,
                 )
+                try:
+                    all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
+                    p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
+                    if not p_target:
+                        p_target = Party(
+                            user_id=user_id,
+                            book_id=book_id,
+                            name=person_name.strip(),
+                            phone=phone_number,
+                            party_type="customer",
+                            opening_balance=0.0,
+                            opening_balance_type="receivable",
+                        )
+                        db.add(p_target)
+                        db.commit()
+                        db.refresh(p_target)
+                    elif phone_number and not p_target.phone:
+                        p_target.phone = phone_number
+                        db.commit()
+
+                    ptx = PartyTransaction(
+                        party_id=p_target.id,
+                        user_id=user_id,
+                        book_id=book_id,
+                        amount=float(amount),
+                        tx_type="credit",
+                        description=notes or "Credit / ادھار",
+                        payment_method="cash",
+                        is_settlement=False,
+                    )
+                    db.add(ptx)
+                    db.commit()
+                except Exception as sync_e:
+                    logger.warning(f"Note on party sync: {sync_e}")
+
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
+                _attach_party_balance(res, person_name, "give_credit")
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("take_credit", "payable", "borrow", "dene_hain", "udhaar_liya"):
                 if not person_name or amount is None:
@@ -2289,7 +2383,43 @@ def get_tools_for_user(
                     phone_number=phone_number,
                     book_id=book_id,
                 )
+                try:
+                    all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
+                    p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
+                    if not p_target:
+                        p_target = Party(
+                            user_id=user_id,
+                            book_id=book_id,
+                            name=person_name.strip(),
+                            phone=phone_number,
+                            party_type="supplier",
+                            opening_balance=0.0,
+                            opening_balance_type="payable",
+                        )
+                        db.add(p_target)
+                        db.commit()
+                        db.refresh(p_target)
+                    elif phone_number and not p_target.phone:
+                        p_target.phone = phone_number
+                        db.commit()
+
+                    ptx = PartyTransaction(
+                        party_id=p_target.id,
+                        user_id=user_id,
+                        book_id=book_id,
+                        amount=float(amount),
+                        tx_type="debit",
+                        description=notes or "Supplier credit / مال ادھار",
+                        payment_method="cash",
+                        is_settlement=False,
+                    )
+                    db.add(ptx)
+                    db.commit()
+                except Exception as sync_e:
+                    logger.warning(f"Note on party sync: {sync_e}")
+
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
+                _attach_party_balance(res, person_name, "take_credit")
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("settle", "wasooli", "pay", "paid"):
                 if not person_name:
@@ -2303,8 +2433,71 @@ def get_tools_for_user(
                     confirm_overpay=False,
                     book_id=book_id,
                 )
+                try:
+                    all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
+                    p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
+                    if p_target:
+                        settle_amt = float(amount) if amount is not None and float(amount) > 0 else float(res.get("settled_amount_pkr") or res.get("paid_amount") or 0.0)
+                        if settle_amt > 0:
+                            eff_dir = direction if direction in ("receivable", "payable") else ("payable" if (p_target.party_type or "customer") == "supplier" else "receivable")
+                            ptx_type = "debit" if eff_dir == "receivable" else "credit"
+                            default_desc = "Payment settlement / ادائیگی" if ptx_type == "credit" else "Payment settlement / وصولی"
+                            ptx = PartyTransaction(
+                                party_id=p_target.id,
+                                user_id=user_id,
+                                book_id=book_id,
+                                amount=settle_amt,
+                                tx_type=ptx_type,
+                                description=notes or default_desc,
+                                payment_method="cash",
+                                is_settlement=True,
+                            )
+                            db.add(ptx)
+                            db.commit()
+                except Exception as sync_e:
+                    logger.warning(f"Note on settle sync: {sync_e}")
+
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
+                _attach_party_balance(res, person_name, "settle")
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
+            elif clean_action in (
+                "get_balance", "balance", "query_balance", "customer_balance",
+                "check_balance", "party_profile", "profile", "contact"
+            ):
+                if not person_name:
+                    return _record_udhaar_query(_build_udhaar_overview_payload())
+
+                bal = get_party_balance(db, user_id=user_id, party_name_or_id=person_name, book_id=book_id)
+                tool_ui_lang = (turn_state.get("ui_lang") if turn_state else None) or "ur"
+                if bal["found"]:
+                    if bal["balance_status"] == "settled":
+                        summary_msg = f"{bal['name']} کا حساب برابر ہے (0 PKR)۔" if tool_ui_lang == "ur" else f"{bal['name']}'s balance is settled (0 PKR)."
+                    elif bal["balance_status"] == "receivable":
+                        summary_msg = f"{bal['name']} سے {bal['net_balance_pkr']:,.0f} روپے لینے ہیں۔" if tool_ui_lang == "ur" else f"{bal['name']} owes PKR {bal['net_balance_pkr']:,.2f} (Receivable)."
+                    else:
+                        summary_msg = f"{bal['name']} کو {bal['net_balance_pkr']:,.0f} روپے دینے ہیں۔" if tool_ui_lang == "ur" else f"You owe {bal['name']} PKR {bal['net_balance_pkr']:,.2f} (Payable)."
+                else:
+                    summary_msg = f"{person_name} کے نام کوئی کھلا کھاتہ یا ادھار نہیں ملا۔" if tool_ui_lang == "ur" else f"No khata records found for {person_name}."
+
+                res = {
+                    "status": "success",
+                    "action": "get_balance",
+                    "person_name": bal["name"],
+                    "found": bal["found"],
+                    "net_balance_pkr": bal["net_balance_pkr"],
+                    "signed_balance_pkr": bal["signed_balance_pkr"],
+                    "total_credit_pkr": bal["total_credit_pkr"],
+                    "total_debit_pkr": bal["total_debit_pkr"],
+                    "balance_status": bal["balance_status"],
+                    "balance_text_ur": bal["balance_text_ur"],
+                    "balance_text_en": bal["balance_text_en"],
+                    "phone_number": bal.get("phone", ""),
+                    "is_overdue": bal.get("is_overdue", False),
+                    "nearest_due_date": bal.get("nearest_due_date"),
+                    "summary_text": summary_msg,
+                    "party_summary": bal,
+                }
+                return _record_udhaar_query(res)
             elif clean_action in ("edit", "update"):
                 res = update_udhaar_entry(
                     db,
@@ -2317,14 +2510,15 @@ def get_tools_for_user(
                     book_id=book_id,
                 )
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
+                _attach_party_balance(res, person_name, "edit")
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("undo", "delete", "delete_last", "cancel"):
                 res = undo_last_udhaar_entry(db, user_id=user_id, book_id=book_id)
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
+                _attach_party_balance(res, person_name, "undo")
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             else:
-                summary = udhaar_summary(db, user_id, book_id=book_id)
-                return json.dumps({"status": "success", "udhaar": summary}, ensure_ascii=False)
+                return _record_udhaar_query(_build_udhaar_overview_payload())
         except Exception as e:
             db.rollback()
             logger.error(f"Error in manage_udhaar for user {user_id}: {e}")
@@ -2608,6 +2802,153 @@ def _ensure_urdu_expense_clauses_executed(
         turn_state["attempt"] = prev_attempt
 
 
+def _should_reply_in_english(norm_user_text: str, effective_ui_lang: Optional[str]) -> bool:
+    if effective_ui_lang != "en":
+        return False
+    if not ARABIC_SCRIPT_REGEX.search(norm_user_text or ""):
+        return True
+    return len(re.findall(r"[A-Za-z]{2,}", norm_user_text or "")) >= 3
+
+
+def _format_single_party_balance_reply(
+    name: str,
+    net_bal: float,
+    bal_status: str,
+    bal_ur: str,
+    bal_en: str,
+    use_en: bool,
+) -> str:
+    if bal_status == "settled" or float(net_bal or 0.0) == 0.0:
+        return (
+            f"**{name}**'s khata balance is settled (**PKR 0**)."
+            if use_en
+            else f"**{name}** کا کھاتہ برابر ہے (**0 روپے**)۔"
+        )
+    amt_str = f"{float(net_bal):,.0f}"
+    if use_en:
+        return f"**{name}**'s current khata balance is **PKR {amt_str}** ({bal_en})."
+    return f"**{name}** کے کھاتے کا موجودہ بقایا حساب **{amt_str} روپے** ہے ({bal_ur})۔"
+
+
+def _format_udhaar_reply_from_overview(
+    overview_data: Dict[str, Any],
+    norm_user_text: str,
+    reply_text: str,
+    use_en: bool,
+    force_if_ungrounded: bool = False,
+) -> Optional[str]:
+    parties = overview_data.get("parties") or []
+    udhaar_data = overview_data.get("udhaar") or {}
+    entries = udhaar_data.get("entries") or []
+    party_summary = overview_data.get("party_summary") or {}
+    has_fake_table = bool(re.search(r"\|.*\|.*\n\|[\s:\-\|]+\|", reply_text or ""))
+
+    party_records: List[Dict[str, Any]] = []
+    seen_norms = set()
+    for p in parties:
+        p_name = p.get("name") or ""
+        p_norm = analytics._norm(p_name)
+        if not p_norm:
+            continue
+        seen_norms.add(p_norm)
+        party_records.append({
+            "name": p_name,
+            "net_balance_pkr": float(p.get("net_balance_pkr") or 0.0),
+            "balance_status": p.get("balance_status") or "settled",
+            "balance_text_ur": p.get("balance_text_ur") or "حساب برابر",
+            "balance_text_en": p.get("balance_text_en") or "Settled",
+        })
+    for e in entries:
+        if e.get("status") == "settled":
+            continue
+        e_name = e.get("person_name") or ""
+        e_norm = analytics._norm(e_name)
+        if not e_norm or e_norm in seen_norms:
+            continue
+        seen_norms.add(e_norm)
+        dir_v = e.get("direction") or "receivable"
+        party_records.append({
+            "name": e_name,
+            "net_balance_pkr": float(e.get("amount") or 0.0),
+            "balance_status": dir_v,
+            "balance_text_ur": "آپ نے لینے ہیں" if dir_v == "receivable" else "آپ نے دینے ہیں",
+            "balance_text_en": "You will receive" if dir_v == "receivable" else "You will pay",
+        })
+
+    norm_q = analytics._norm(norm_user_text)
+    matched_party = None
+    for cand in sorted(party_records, key=lambda item: len(analytics._norm(item["name"])), reverse=True):
+        c_norm = analytics._norm(cand["name"])
+        if len(c_norm) >= 2 and c_norm in norm_q:
+            matched_party = cand
+            break
+
+    if matched_party:
+        net_bal = float(matched_party["net_balance_pkr"] or 0.0)
+        amt_str = f"{net_bal:,.0f}"
+        amt_int = str(int(round(net_bal)))
+        if (
+            not reply_text
+            or has_fake_table
+            or (amt_str not in reply_text and amt_int not in reply_text)
+        ):
+            return _format_single_party_balance_reply(
+                matched_party["name"],
+                net_bal,
+                matched_party["balance_status"],
+                matched_party["balance_text_ur"],
+                matched_party["balance_text_en"],
+                use_en,
+            )
+        return None
+
+    valid_ints = {"0"}
+    for r in party_records:
+        valid_ints.add(str(int(round(float(r["net_balance_pkr"] or 0.0)))))
+    for key in ("total_receivable_pkr", "total_payable_pkr", "net_balance_pkr"):
+        if party_summary.get(key) is not None:
+            valid_ints.add(str(int(round(abs(float(party_summary[key]))))))
+        if udhaar_data.get(key) is not None:
+            valid_ints.add(str(int(round(abs(float(udhaar_data[key]))))))
+
+    nums_in_reply = [
+        s.replace(",", "")
+        for s in re.findall(r"\b\d[\d,]*\b", reply_text or "")
+        if int(s.replace(",", "")) >= 10
+    ]
+    has_ungrounded_num = any(n not in valid_ints for n in nums_in_reply)
+    if not reply_text or has_ungrounded_num or (has_fake_table and (force_if_ungrounded or not nums_in_reply)):
+        active_records = [r for r in party_records if float(r["net_balance_pkr"] or 0.0) > 0]
+        if not active_records and not party_records:
+            return (
+                "No open khata or udhaar balances were found in your ledger."
+                if use_en
+                else "آپ کے کھاتے میں فی الحال کوئی ادھار یا بقایا ریکارڈ نہیں ملا۔"
+            )
+        rows_to_show = (active_records or party_records)[:15]
+        tot_rec = float(party_summary.get("total_receivable_pkr") or udhaar_data.get("total_receivable_pkr") or 0.0)
+        tot_pay = float(party_summary.get("total_payable_pkr") or udhaar_data.get("total_payable_pkr") or 0.0)
+        if use_en:
+            lines = [
+                f"**Udhaar / Khata Summary**\n- **Total Receivable:** PKR {tot_rec:,.0f}\n- **Total Payable:** PKR {tot_pay:,.0f}\n",
+                "| Party | Status | Balance (PKR) |",
+                "|---|---|---|",
+            ]
+            for r in rows_to_show:
+                lines.append(f"| {r['name']} | {r['balance_text_en']} | {r['net_balance_pkr']:,.0f} |")
+            return "\n".join(lines)
+        lines = [
+            f"**ادھار / کھاتہ کا خلاصہ**\n- **کل وصولی (لینے ہیں):** {tot_rec:,.0f} PKR\n- **کل ادائیگی (دینے ہیں):** {tot_pay:,.0f} PKR\n",
+            "| نام | حیثیت | بقایا (PKR) |",
+            "|---|---|---|",
+        ]
+        for r in rows_to_show:
+            lines.append(f"| {r['name']} | {r['balance_text_ur']} | {r['net_balance_pkr']:,.0f} |")
+        return "\n".join(lines)
+
+    return None
+
+
 def _reconcile_reply_with_db_truth(
     reply_text: str,
     norm_user_text: str,
@@ -2617,10 +2958,13 @@ def _reconcile_reply_with_db_truth(
 ) -> str:
     """
     Ensures the assistant's reply matches real DB state when a post-invoke guard executed a tool
-    or when the LLM attempted to output a fake table / unverified DB check without calling query_expenses.
+    or when the LLM attempted to output a fake table / unverified DB check without calling query tools.
     """
     if hasattr(create_agent, "assert_called"):
         return reply_text
+
+    use_en = _should_reply_in_english(norm_user_text, effective_ui_lang)
+    has_fake_table = bool(re.search(r"\|.*\|.*\n\|[\s:\-\|]+\|", reply_text or ""))
 
     # 1. If Delete Guard executed delete_last_transaction, replace any LLM refusal with real deletion confirmation
     if turn_state.get("forced_delete_res"):
@@ -2631,7 +2975,7 @@ def _reconcile_reply_with_db_truth(
                 amt = float(del_tx.get("total_amount_pkr") or d.get("deleted_amount_pkr") or 0.0)
                 st = del_tx.get("title") or del_tx.get("store_name") or d.get("store_name") or "entry"
                 tx_type = del_tx.get("tx_type") or d.get("tx_type") or "expense"
-                if effective_ui_lang == "en" and not ARABIC_SCRIPT_REGEX.search(norm_user_text):
+                if use_en:
                     return f"Deleted your last {tx_type} entry ({st} — PKR {amt:,.0f})."
                 return f"آپ کا آخری اندراج ({st} — {amt:,.0f} روپے) کامیابی سے حذف کر دیا گیا ہے۔"
         except Exception:
@@ -2667,17 +3011,121 @@ def _reconcile_reply_with_db_truth(
         note = turn_state["incomplete_sale_note"]
         return f"براہ کرم بتائیں کہ {note} کتنے روپے میں فروخت ہوا (اس کی کل آمدن کتنی ہوئی)؟"
 
-    # 3. If no mutation and no query_expenses ran, guard against hallucinated tables or unverified DB checks
-    if not turn_state.get("queried") and not turn_state.get("_mutations_list_by_tool"):
+    # 2c. If Udhaar balance query or mutation executed in this turn, ensure real DB truth is returned
+    udhaar_queries = turn_state.get("udhaar_query_results", [])
+    udhaar_results = turn_state.get("_mutations_list_by_tool", {}).get("manage_udhaar", [])
+    latest_udhaar_query = udhaar_queries[-1] if udhaar_queries else None
+    if not latest_udhaar_query and udhaar_results:
+        try:
+            cand = json.loads(udhaar_results[-1])
+            if cand.get("action") in ("get_balance", "list") or (
+                "net_balance_pkr" in cand and "entry" not in cand and "settled_amount_pkr" not in cand
+            ):
+                latest_udhaar_query = udhaar_results[-1]
+        except Exception:
+            pass
+
+    if latest_udhaar_query:
+        try:
+            qd = json.loads(latest_udhaar_query)
+            if qd.get("action") == "get_balance" or (
+                "net_balance_pkr" in qd and "entry" not in qd and "settled_amount_pkr" not in qd and "parties" not in qd
+            ):
+                if qd.get("found") is False:
+                    has_reply_nums = bool(re.search(r"\b\d{2,}", reply_text or ""))
+                    if not reply_text or has_fake_table or has_reply_nums:
+                        return qd.get("summary_text") or (
+                            "No khata records found for that party."
+                            if use_en
+                            else "اس نام کا کوئی کھلا کھاتہ یا ادھار نہیں ملا۔"
+                        )
+                else:
+                    p_name = qd.get("person_name") or "گاہک"
+                    net_bal = float(qd.get("net_balance_pkr") or 0.0)
+                    amt_str = f"{net_bal:,.0f}"
+                    amt_int = str(int(round(net_bal)))
+                    if not reply_text or has_fake_table or (amt_str not in reply_text and amt_int not in reply_text):
+                        return _format_single_party_balance_reply(
+                            p_name,
+                            net_bal,
+                            qd.get("balance_status") or "receivable",
+                            qd.get("balance_text_ur") or "آپ نے لینے ہیں",
+                            qd.get("balance_text_en") or "You will receive",
+                            use_en,
+                        )
+            else:
+                reconciled = _format_udhaar_reply_from_overview(qd, norm_user_text, reply_text, use_en)
+                if reconciled:
+                    return reconciled
+        except Exception:
+            pass
+
+    if udhaar_results:
+        try:
+            d = json.loads(udhaar_results[-1])
+            if not reply_text and d.get("status") == "success":
+                pb = d.get("party_balance") or {}
+                entry = d.get("entry") or {}
+                p_name = pb.get("name") or entry.get("person_name") or d.get("person_name") or "کھاتہ دار"
+                bal = pb.get("net_balance_pkr")
+                bal_ur = pb.get("balance_text_ur") or ""
+                bal_en = pb.get("balance_text_en") or ""
+                if entry and entry.get("amount") is not None:
+                    amt_v = float(entry["amount"])
+                    dir_v = entry.get("direction") or "receivable"
+                    if use_en:
+                        verb = "took goods/credit from" if dir_v == "payable" else "gave credit to"
+                        msg = f"Recorded khata entry: {verb} {p_name} for PKR {amt_v:,.0f}."
+                        if bal is not None:
+                            msg += f" Current balance: PKR {float(bal):,.0f} ({bal_en})."
+                        return msg
+                    label = "مال / ادھار لیا" if dir_v == "payable" else "ادھار دیا"
+                    msg = f"{p_name} کے کھاتے میں {amt_v:,.0f} روپے ({label}) درج ہو گیا ہے۔"
+                    if bal is not None:
+                        msg += f" موجودہ بقایا: {float(bal):,.0f} روپے ({bal_ur})۔"
+                    return msg
+                settled_v = d.get("settled_amount_pkr") or d.get("paid_amount")
+                if settled_v is not None:
+                    amt_v = float(settled_v)
+                    if use_en:
+                        msg = f"Recorded settlement of PKR {amt_v:,.0f} for {p_name}."
+                        if bal is not None:
+                            msg += f" Remaining balance: PKR {float(bal):,.0f} ({bal_en})."
+                        return msg
+                    msg = f"{p_name} کے کھاتے میں {amt_v:,.0f} روپے کی وصولی / ادائیگی درج ہو گئی ہے۔"
+                    if bal is not None:
+                        msg += f" باقی بقایا: {float(bal):,.0f} روپے ({bal_ur})۔"
+                    return msg
+        except Exception:
+            pass
+
+    # 3. If no mutation and no query tools ran, guard against hallucinated tables / unverified Udhaar or Expense replies
+    if not turn_state.get("queried") and not turn_state.get("udhaar_queried") and not turn_state.get("_mutations_list_by_tool"):
         raw_lower = norm_user_text.lower()
-        has_fake_table = bool(re.search(r"\|.*\|.*\n\|[\s:\-\|]+\|", reply_text or ""))
+        reply_lower = (reply_text or "").lower()
+        udhaar_kw = ("ادھار", "کھات", "بقایا", "لینے ہیں", "دینے ہیں", "کتنے لینے", "کتنے دینے", "واجب", "udhaar", "udhar", "khata", "owe", "receivable", "payable")
+        reply_udhaar_kw = ("ادھار", "کھات", "لینے", "دینے", "udhaar", "khata", "کس کو", "کس سے", "who owes")
+        asks_udhaar = any(w in raw_lower for w in udhaar_kw) or (has_fake_table and any(w in reply_lower for w in reply_udhaar_kw))
         asks_table = any(w in raw_lower for w in ("ٹیبل فارمٹ", "table format", "ٹیبل میں"))
         asks_verify = any(w in raw_lower for w in ("چیک کرو", "ایڈ ہوا ہے", "درج ہوا ہے", "درج کیا تھا"))
         asks_sales_summary = any(w in raw_lower for w in ("کتنے فٹ", "کون کون سے پتھر", "پتھر بیچا", "پتھر پیچھے", "پتھر پہ جایا"))
         asks_total = (not reply_text) and any(w in raw_lower for w in ("ٹوٹل خرچہ", "کل خرچ", "کتنا خرچ", "حساب بتاؤ"))
+        tool_map = {t.name: t for t in tools}
+
+        if asks_udhaar:
+            u_tool = tool_map.get("manage_udhaar")
+            if u_tool:
+                try:
+                    u_data = json.loads(u_tool.invoke({"action": "list"}))
+                    reconciled = _format_udhaar_reply_from_overview(
+                        u_data, norm_user_text, reply_text, use_en, force_if_ungrounded=True
+                    )
+                    if reconciled:
+                        return reconciled
+                except Exception:
+                    pass
 
         if has_fake_table or asks_table or asks_verify or asks_sales_summary or asks_total:
-            tool_map = {t.name: t for t in tools}
             q_tool = tool_map.get("query_expenses")
             if q_tool:
                 try:
@@ -2726,6 +3174,16 @@ def _reconcile_reply_with_db_truth(
                                 f"| {r.get('date')} | {r.get('title') or r.get('store_name')} | {float(r.get('total_amount_pkr') or 0):,.0f} | نقد |"
                             )
                         return "\n".join(lines)
+
+                    if has_fake_table and not tx_rows and not sales_rows:
+                        u_tool = tool_map.get("manage_udhaar")
+                        if u_tool:
+                            u_data = json.loads(u_tool.invoke({"action": "list"}))
+                            reconciled = _format_udhaar_reply_from_overview(
+                                u_data, norm_user_text, reply_text, use_en, force_if_ungrounded=True
+                            )
+                            if reconciled:
+                                return reconciled
                 except Exception:
                     pass
 
@@ -2769,7 +3227,12 @@ def _run_agent_core(
     clean_user_id = user_id.strip() or "default"
     norm_user_text = normalize_urdu_spoken_numbers(user_text)
     norm_raw_transcript = normalize_urdu_spoken_numbers(raw_transcript or user_text)
-    effective_ui_lang = "ur" if ARABIC_SCRIPT_REGEX.search(user_text) else ui_lang
+    urdu_chars = len(re.findall(r"[\u0600-\u06FF]", user_text or ""))
+    en_words = len(re.findall(r"[A-Za-z]{2,}", user_text or ""))
+    if ui_lang == "en" and en_words >= 3 and urdu_chars <= en_words * 3:
+        effective_ui_lang = "en"
+    else:
+        effective_ui_lang = "ur" if ARABIC_SCRIPT_REGEX.search(user_text) else ui_lang
     if turn_state is None:
         turn_state = {"attempt": 0, "mutations_by_tool": {}}
     tools = get_tools_for_user(

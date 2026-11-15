@@ -508,11 +508,11 @@
           <textarea id="message-input" rows="1" data-i18n-placeholder="chat.placeholder"
             placeholder="اردو یا انگریزی میں بولیں یا لکھیں..." class="composer-input font-ur" dir="auto"></textarea>
 
-          <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" title="آواز ریکارڈ کریں">
+          <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" data-i18n-title="chat.mic_title" title="آواز ریکارڈ کریں">
             <i data-lucide="mic" id="mic-icon" class="w-5 h-5"></i>
           </button>
 
-          <button type="submit" id="send-btn" class="composer-btn-circle btn-send-hisaab" title="ارسال کریں">
+          <button type="submit" id="send-btn" class="composer-btn-circle btn-send-hisaab" data-i18n-title="chat.send_title" title="ارسال کریں">
             <i data-lucide="send" class="w-4 h-4"></i>
           </button>
         </form>
@@ -648,6 +648,152 @@
         </form>
       </section>
 
+      <!-- Customer & Supplier Party Profiles and Dedicated Khata Ledgers -->
+      <section id="parties-section" class="ledger-section section-parties">
+        <div class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2">
+            <h2 class="ledger-section-title mb-0 font-ur" data-i18n="parties.title">گاہک اور سپلائر کھاتہ دار (پارٹیاں)</h2>
+            <span id="party-count-badge" class="party-badge badge-customer tabular font-num">0</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="open-business-profile-btn" type="button" class="btn-outlined-s2 text-xs py-1.5 px-3 font-ur flex items-center gap-1.5" data-i18n-title="parties.business_settings" title="کاروباری سیٹنگز">
+              <i data-lucide="store" class="w-3.5 h-3.5 text-brass"></i>
+              <span data-i18n="parties.business_profile">دکان کی تفصیلات</span>
+            </button>
+            <button id="open-add-party-modal-btn" type="button" class="btn-primary-brass text-xs py-1.5 px-3 font-ur flex items-center gap-1.5">
+              <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+              <span data-i18n="parties.add_party">نیا کھاتہ دار</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Directory View -->
+        <div id="parties-directory-view" class="party-directory-container">
+          <!-- Summary KPIs -->
+          <div class="party-summary-kpis">
+            <div class="party-kpi-card receivable">
+              <span class="text-xs text-mut font-ur" data-i18n="parties.total_receivable">کل وصول طلب (لینے ہیں)</span>
+              <span id="parties-total-receivable" class="text-lg font-bold text-ok font-num tabular">Rs 0</span>
+            </div>
+            <div class="party-kpi-card payable">
+              <span class="text-xs text-mut font-ur" data-i18n="parties.total_payable">کل واجب الادا (دینے ہیں)</span>
+              <span id="parties-total-payable" class="text-lg font-bold text-bad font-num tabular">Rs 0</span>
+            </div>
+            <div class="party-kpi-card net">
+              <span class="text-xs text-mut font-ur" data-i18n="parties.net_balance">خالص بقایا (Net)</span>
+              <span id="parties-net-balance" class="text-lg font-bold text-brass font-num tabular">Rs 0</span>
+            </div>
+          </div>
+
+          <!-- Controls: Search & Tabs -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <div class="flex items-center gap-1.5 udhaar-filter-tabs" role="tablist">
+              <button type="button" class="udhaar-filter-tab active font-ur party-filter-tab" data-party-type="all" data-i18n="parties.filter_all">تمام</button>
+              <button type="button" class="udhaar-filter-tab font-ur party-filter-tab" data-party-type="customer" data-i18n="parties.filter_customers">گاہک (Customers)</button>
+              <button type="button" class="udhaar-filter-tab font-ur party-filter-tab" data-party-type="supplier" data-i18n="parties.filter_suppliers">سپلائر (Suppliers)</button>
+            </div>
+            <div class="relative flex-1 sm:max-w-xs">
+              <input id="party-search-input" type="text" class="input-base font-ur w-full text-xs py-2 pr-8 pl-3" placeholder="نام یا فون نمبر تلاش کریں..." data-i18n-placeholder="parties.search_placeholder">
+              <i data-lucide="search" class="w-4 h-4 text-mut absolute right-2.5 top-1/2 -translate-y-1/2"></i>
+            </div>
+          </div>
+
+          <!-- Party Cards Grid -->
+          <div id="parties-cards-container" class="party-card-grid font-ur">
+            <div class="text-center py-6 text-mut text-sm font-ur col-span-full" data-i18n="parties.empty_state">
+              کوئی کھاتہ دار موجود نہیں ہے۔ 'نیا کھاتہ دار' بٹن سے شامل کریں۔
+            </div>
+          </div>
+        </div>
+
+        <!-- Dedicated Party Profile & Ledger View (Hidden by default) -->
+        <div id="party-detail-view" class="hidden flex flex-col gap-4">
+          <!-- Back button & Party title -->
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <button id="party-back-btn" type="button" class="btn-outlined-s2 text-xs py-1.5 px-3 font-ur flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <i data-lucide="arrow-right" class="w-4 h-4 rtl:rotate-0 ltr:rotate-180"></i>
+              <span data-i18n="parties.back_to_list">واپس فہرست پر جائیں</span>
+            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button id="party-statement-btn" type="button" class="btn-outlined-s2 text-xs py-1.5 px-3 font-ur flex items-center gap-1.5 text-brass whitespace-nowrap shrink-0">
+                <i data-lucide="file-text" class="w-4 h-4"></i>
+                <span data-i18n="parties.view_statement">اسٹیٹمنٹ</span>
+              </button>
+              <button id="party-whatsapp-reminder-btn" type="button" class="btn-outlined-s2 text-xs py-1.5 px-3 font-ur flex items-center gap-1.5 text-ok whitespace-nowrap shrink-0">
+                <i data-lucide="send" class="w-4 h-4"></i>
+                <span data-i18n="parties.send_reminder">واٹس ایپ یاد دہانی</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Party Hero Card -->
+          <div class="party-profile-hero">
+            <div class="party-profile-top">
+              <div class="flex items-center gap-3">
+                <div id="detail-party-avatar" class="party-avatar text-lg">A</div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h3 id="detail-party-name" class="font-bold text-base sm:text-lg text-tx font-ur mb-0">Ali Raza</h3>
+                    <span id="detail-party-badge" class="party-badge badge-customer font-ur">گاہک</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs text-mut mt-0.5 font-num">
+                    <span id="detail-party-phone">03001234567</span>
+                    <span id="detail-party-address" class="font-ur hidden">• دکان</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Balance Display -->
+              <div class="flex flex-col items-end">
+                <span id="detail-balance-status-label" class="text-xs text-mut font-ur">آپ نے لینے ہیں</span>
+                <span id="detail-balance-amount" class="text-2xl font-bold font-num tabular text-ok">Rs 0</span>
+                <span id="detail-due-date-badge" class="text-xs mt-1 party-badge hidden"></span>
+              </div>
+            </div>
+
+            <!-- Action buttons: Maine Diye (Red) / Maine Liye (Green) -->
+            <div class="party-action-buttons">
+              <button id="btn-action-diye" type="button" class="btn-maine-diye font-ur">
+                <i data-lucide="arrow-up-circle" class="w-5 h-5"></i>
+                <span data-i18n="parties.gave_credit">دیے / ادھار دیا (Maine Diye)</span>
+              </button>
+              <button id="btn-action-liye" type="button" class="btn-maine-liye font-ur">
+                <i data-lucide="arrow-down-circle" class="w-5 h-5"></i>
+                <span data-i18n="parties.received_payment">لیے / وصولی (Maine Liye)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Chronological Table Filter Tabs -->
+          <div id="party-ledger-filter-tabs" class="udhaar-filter-tabs" role="tablist">
+            <button type="button" class="udhaar-filter-tab active font-ur party-ledger-filter-tab" data-ledger-filter="all" data-i18n="parties.ledger_filter_all">تمام اندراجات</button>
+            <button type="button" class="udhaar-filter-tab font-ur party-ledger-filter-tab" data-ledger-filter="credit" data-i18n="parties.ledger_filter_diye">دیے (Out)</button>
+            <button type="button" class="udhaar-filter-tab font-ur party-ledger-filter-tab" data-ledger-filter="debit" data-i18n="parties.ledger_filter_liye">لیے (In)</button>
+          </div>
+
+          <!-- Ledger Table -->
+          <div class="party-ledger-table-wrap">
+            <table class="party-ledger-table font-ur">
+              <thead>
+                <tr>
+                  <th data-i18n="ledger.date">تاریخ</th>
+                  <th data-i18n="ledger.description">تفصیل / بل</th>
+                  <th data-i18n="parties.gave_col">دیے (Out)</th>
+                  <th data-i18n="parties.received_col">لیے (In)</th>
+                  <th data-i18n="parties.balance_col">بقایا (Balance)</th>
+                  <th data-i18n="ledger.actions">عمل</th>
+                </tr>
+              </thead>
+              <tbody id="party-ledger-tbody">
+                <tr>
+                  <td colspan="6" class="text-center py-6 text-mut" data-i18n="parties.no_txs">کوئی لین دین درج نہیں ہے۔</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- Monthly Budgets -->
       <section id="budgets-section" class="ledger-section section-budgets">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.budgets_title">ماہانہ بجٹ</h2>
@@ -735,7 +881,7 @@
             class="col-span-12 sm:col-span-5 input-base font-ur">
           <input id="rec-amount" type="number" min="1" step="1" data-i18n-placeholder="placeholder.bill_amount"
             placeholder="رقم (PKR)" required class="col-span-7 sm:col-span-3 input-base font-ur">
-          <input id="rec-day" type="number" min="1" max="28" value="1" title="مہینے کی تاریخ"
+          <input id="rec-day" type="number" min="1" max="28" value="1" data-i18n-title="rec.day_title" title="مہینے کی تاریخ"
             data-i18n-placeholder="placeholder.bill_due_day" placeholder="تاریخ (1-28)"
             class="col-span-5 sm:col-span-2 input-base font-ur">
           <button type="submit" class="col-span-12 sm:col-span-2 btn-primary font-ur" data-i18n="btn.add">شامل
@@ -758,6 +904,185 @@
       </section>
 
     </section>
+
+    <!-- Modal: Add New Party -->
+    <div id="add-party-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="add-party-modal-title">
+      <div class="modal-panel-420">
+        <button id="close-add-party-modal-btn" type="button" class="modal-close-btn" title="Close" aria-label="Close dialog">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
+            <i data-lucide="user-plus" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 id="add-party-modal-title" class="modal-title text-base sm:text-lg font-ur" data-i18n="parties.add_party_title">نیا کھاتہ دار شامل کریں</h3>
+            <p class="text-xs text-mut font-ur" data-i18n="parties.add_party_sub">گاہک یا سپلائر کا مکمل پروفائل محفوظ رکھیں</p>
+          </div>
+        </div>
+        <form id="add-party-form" class="space-y-3 font-ur">
+          <div>
+            <label for="new-party-name" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.party_name">کھاتہ دار کا نام *</label>
+            <input id="new-party-name" type="text" maxlength="150" required placeholder="مثلاً علی رضا، طارق جنرل اسٹور" class="input-base font-ur w-full">
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label for="new-party-phone" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.phone_number">فون نمبر</label>
+              <input id="new-party-phone" type="tel" maxlength="50" placeholder="03001234567" class="input-base font-num w-full">
+            </div>
+            <div>
+              <label for="new-party-type" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.party_type">قسم</label>
+              <select id="new-party-type" class="input-base font-ur w-full">
+                <option value="customer" data-i18n="parties.customer_opt">گاہک (Customer)</option>
+                <option value="supplier" data-i18n="parties.supplier_opt">سپلائر (Supplier)</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label for="new-party-opening-balance" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.opening_balance">ابتدائی بقایا رقم</label>
+              <input id="new-party-opening-balance" type="number" min="0" step="any" value="0" class="input-base font-num w-full">
+            </div>
+            <div>
+              <label for="new-party-opening-type" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.balance_type">بقایا کی قسم</label>
+              <select id="new-party-opening-type" class="input-base font-ur w-full">
+                <option value="receivable" data-i18n="parties.receivable_opt">لینے ہیں (Receivable)</option>
+                <option value="payable" data-i18n="parties.payable_opt">دینے ہیں (Payable)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="new-party-address" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.address">پتہ / دکان کا مقام (اختیاری)</label>
+            <input id="new-party-address" type="text" placeholder="مثلاً دکان نمبر 4، مین مارکیٹ" class="input-base font-ur w-full">
+          </div>
+          <div class="flex gap-2 justify-end pt-2">
+            <button id="cancel-add-party-btn" type="button" class="btn-outlined-s2 text-xs py-2 px-3.5 w-auto min-h-0 font-ur" data-i18n="btn.cancel">منسوخ کریں</button>
+            <button id="submit-add-party-btn" type="submit" class="btn-primary-brass text-xs py-2 px-4 w-auto min-h-0 font-ur" data-i18n="parties.btn_save">محفوظ کریں</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Add Party Transaction (Maine Diye / Maine Liye) -->
+    <div id="add-party-tx-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="add-party-tx-modal-title">
+      <div class="modal-panel-420">
+        <button id="close-party-tx-modal-btn" type="button" class="modal-close-btn" title="Close" aria-label="Close dialog">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+        <div class="flex items-center gap-3 mb-4">
+          <div id="party-tx-icon-wrap" class="w-10 h-10 rounded-xl bg-bad/15 border border-bad/35 flex items-center justify-center text-bad shrink-0">
+            <i id="party-tx-icon" data-lucide="arrow-up-circle" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 id="add-party-tx-modal-title" class="modal-title text-base sm:text-lg font-ur">ادھار دیا (Maine Diye)</h3>
+            <p id="party-tx-modal-sub" class="text-xs text-mut font-ur">رقم اور تفصیل درج کریں</p>
+          </div>
+        </div>
+        <form id="party-tx-form" class="space-y-3 font-ur">
+          <input type="hidden" id="party-tx-type" value="credit">
+          <div>
+            <label for="party-tx-amount" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.amount_pkr">رقم (PKR) *</label>
+            <input id="party-tx-amount" type="number" min="1" step="any" required placeholder="0" class="input-base font-num text-lg font-bold w-full">
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label for="party-tx-date" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="ledger.date">تاریخ</label>
+              <input id="party-tx-date" type="date" class="input-base font-num w-full">
+            </div>
+            <div>
+              <label for="party-tx-due-date" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="parties.due_date">وعدے کی تاریخ (Due Date)</label>
+              <input id="party-tx-due-date" type="date" class="input-base font-num w-full">
+            </div>
+          </div>
+          <div>
+            <label for="party-tx-description" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="ledger.description">تفصیل / سامان / بل نمبر</label>
+            <input id="party-tx-description" type="text" maxlength="255" placeholder="مثلاً 5 بوری آٹا، بل نمبر 102" class="input-base font-ur w-full">
+          </div>
+          <div class="flex gap-2 justify-end pt-2">
+            <button id="cancel-party-tx-btn" type="button" class="btn-outlined-s2 text-xs py-2 px-3.5 w-auto min-h-0 font-ur" data-i18n="btn.cancel">منسوخ کریں</button>
+            <button id="submit-party-tx-btn" type="submit" class="btn-primary text-xs py-2 px-4 w-auto min-h-0 font-ur" data-i18n="parties.btn_record">درج کریں</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Party Statement View / Export -->
+    <div id="party-statement-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="statement-modal-title">
+      <div class="modal-panel-600 max-w-2xl bg-s1 border border-rule rounded-2xl p-5 w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-rule mb-4">
+          <div class="flex items-center gap-2">
+            <i data-lucide="file-text" class="w-5 h-5 text-brass"></i>
+            <h3 id="statement-modal-title" class="font-bold text-lg font-ur">کھاتہ اسٹیٹمنٹ</h3>
+          </div>
+          <button id="close-statement-modal-btn" type="button" class="modal-close-btn relative top-0 right-0">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div id="statement-content" class="space-y-4 font-ur">
+          <!-- Rendered dynamically -->
+        </div>
+        <div class="flex items-center justify-between pt-4 border-t border-rule mt-4">
+          <button id="statement-whatsapp-share-btn" type="button" class="btn-outlined-s2 text-xs py-2 px-4 font-ur text-ok flex items-center gap-1.5">
+            <i data-lucide="share-2" class="w-4 h-4"></i>
+            <span>واٹس ایپ پر بھیجیں</span>
+          </button>
+          <button id="statement-print-btn" type="button" class="btn-primary-brass text-xs py-2 px-4 font-ur flex items-center gap-1.5">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>پرنٹ کریں / PDF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Business Profile Settings -->
+    <div id="business-profile-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="biz-modal-title">
+      <div class="modal-panel-420">
+        <button id="close-biz-modal-btn" type="button" class="modal-close-btn" title="Close" aria-label="Close dialog">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
+            <i data-lucide="store" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 id="biz-modal-title" class="modal-title text-base sm:text-lg font-ur" data-i18n="biz.title">دکان اور کاروباری پروفائل</h3>
+            <p class="text-xs text-mut font-ur" data-i18n="biz.subtitle">اسٹیٹمنٹ اور واٹس ایپ پیغامات کے لیے سیٹنگز</p>
+          </div>
+        </div>
+        <form id="business-profile-form" class="space-y-3 font-ur">
+          <div>
+            <label for="biz-business-name" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.shop_name">دکان / کاروبار کا نام *</label>
+            <input id="biz-business-name" type="text" maxlength="150" required placeholder="مثلاً المدینہ کریانہ اسٹور" class="input-base font-ur w-full">
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label for="biz-owner-name" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.owner_name">مالک کا نام</label>
+              <input id="biz-owner-name" type="text" maxlength="150" placeholder="مثلاً محمد علی" class="input-base font-ur w-full">
+            </div>
+            <div>
+              <label for="biz-phone-number" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.contact_phone">رابطہ فون نمبر</label>
+              <input id="biz-phone-number" type="tel" maxlength="50" placeholder="03001234567" class="input-base font-num w-full">
+            </div>
+          </div>
+          <div>
+            <label for="biz-raast-id" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.raast_label">راست آئی ڈی / ایزی پیسہ / جاز کیش</label>
+            <input id="biz-raast-id" type="text" maxlength="50" placeholder="03001234567" class="input-base font-num w-full">
+          </div>
+          <div>
+            <label for="biz-address" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.address">دکان کا پتہ اور شہر</label>
+            <input id="biz-address" type="text" placeholder="مین مارکیٹ، لاہور" class="input-base font-ur w-full">
+          </div>
+          <div>
+            <label for="biz-statement-footer" class="block text-xs font-semibold text-mut mb-1 font-ur" data-i18n="biz.footer_note">اسٹیٹمنٹ پر تشکر کا پیغام</label>
+            <input id="biz-statement-footer" type="text" placeholder="ہمارے ساتھ لین دین کا شکریہ!" class="input-base font-ur w-full">
+          </div>
+          <div class="flex gap-2 justify-end pt-2">
+            <button id="cancel-biz-btn" type="button" class="btn-outlined-s2 text-xs py-2 px-3.5 w-auto min-h-0 font-ur" data-i18n="btn.cancel">منسوخ کریں</button>
+            <button id="submit-biz-btn" type="submit" class="btn-primary-brass text-xs py-2 px-4 w-auto min-h-0 font-ur" data-i18n="parties.btn_save">محفوظ کریں</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
   </main>
 

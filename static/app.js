@@ -57,6 +57,11 @@ const state = {
   activeBookId: null,
   activeBookType: 'business',
   udhaarFilter: 'all',
+  partyFilter: 'all',
+  partySearch: '',
+  partyLedgerFilter: 'all',
+  activePartyId: null,
+  activePartyDetail: null,
   isRecording: false,
   mediaRecorder: null,
   audioChunks: [],
@@ -188,6 +193,7 @@ function initApp() {
   bindEvents();
   bindBookEvents();
   bindAnalyticsForms();
+  bindPartyEvents();
   bindAuthEvents();
   initTheme();
   initViewportResizing();
@@ -231,6 +237,13 @@ function initApp() {
       } else {
         renderGalla({});
         renderUdhaar({ items: [], total_receivable_pkr: 0, total_payable_pkr: 0 });
+      }
+      if (Array.isArray(state.parties)) {
+        renderPartiesList(state.parties);
+      }
+      const detView = document.getElementById('party-detail-view');
+      if (state.activePartyDetail && detView && !detView.classList.contains('hidden')) {
+        applyPartyDetailLocale(state.activePartyDetail);
       }
       if (window.Chart) {
         Chart.defaults.plugins.tooltip.rtl = (HisaabI18n.getLanguage() === 'ur');
@@ -1008,7 +1021,7 @@ async function checkAndRenderPendingConfirmation() {
       banner.className = 'm hold';
       banner.innerHTML = `
             <strong class="font-ur text-base" style="line-height:2.2">PKR ${formatMoney(p.total_amount)} ایک بڑی رقم ہے۔</strong>
-            <p class="font-ur text-sm" style="color:var(--mut);margin-top:4px;line-height:2">ابھی تک کچھ محفوظ نہیں ہوا۔ کیا آپ یہ خرچہ درج کرنا چاہتے ہیں؟${p.store_name ? ` (${escapeHtml(p.store_name)} · ${escapeHtml(p.payment_method)})` : ''}</p>
+            <p class="font-ur text-sm" style="color:var(--mut);margin-top:4px;line-height:2">ابھی تک کچھ محفوظ نہیں ہوا۔ کیا آپ یہ خرچہ درج کرنا چاہتے ہیں؟${p.store_name ? ` (${escapeHtml(cleanDisplayTitle(p.store_name))} · ${escapeHtml(formatPaymentMethodName(p.payment_method))})` : ''}</p>
             <div class="acts mt-2">
               <button id="btn-confirm-pending" class="btn go font-ur">خرچہ درج کریں (Confirm)</button>
               <button id="btn-cancel-pending" class="btn no font-ur">منسوخ کریں (Cancel)</button>
@@ -1086,7 +1099,17 @@ function renderDashboard(data) {
   // 1. KPI Cards / Hero
   elements.kpiMonthlyTotal.textContent = `${formatMoney(data.monthly_total || 0)}`;
   elements.kpiVisitCount.textContent = data.monthly_count || 0;
-  elements.kpiTopStore.textContent = data.top_store || t('ledger.not_recorded');
+  let formattedTopStore = t('ledger.not_recorded');
+  if (data.top_store) {
+    const rawTop = String(data.top_store);
+    const pkrIdx = rawTop.indexOf(' (PKR ');
+    if (pkrIdx > 0) {
+      formattedTopStore = cleanDisplayTitle(rawTop.slice(0, pkrIdx)) + rawTop.slice(pkrIdx);
+    } else {
+      formattedTopStore = cleanDisplayTitle(rawTop);
+    }
+  }
+  elements.kpiTopStore.textContent = formattedTopStore;
 
   const heroBar = document.querySelector('.ledger-hero-bar');
   if (heroBar) {
@@ -1104,6 +1127,7 @@ function renderDashboard(data) {
   // Analytics sections (galla, udhaar, budgets, charts, payment split, recurring bills)
   renderGalla(data.galla || {});
   renderUdhaar(data.udhaar || {});
+  fetchParties();
   renderBudgets(data.budgets || []);
   renderCategoryChart(data.category_breakdown || []);
   renderTrendChart(data.daily_trend || []);
@@ -1115,11 +1139,12 @@ function renderDashboard(data) {
   elements.storeBreakdownContainer.innerHTML = '';
   if (data.store_breakdown && data.store_breakdown.length > 0) {
     data.store_breakdown.forEach(item => {
+      const storeLabel = cleanDisplayTitle(item.store_name);
       const pill = document.createElement('div');
       pill.className = 'prompt-chip text-xs';
-      pill.setAttribute('data-store', item.store_name);
+      pill.setAttribute('data-store', storeLabel);
       pill.innerHTML = `
-            <span class="font-medium text-tx">${escapeHtml(item.store_name)}</span>
+            <span class="font-medium text-tx">${escapeHtml(storeLabel)}</span>
             <span class="text-[11px] text-brass font-bold font-num tabular ml-1.5">PKR ${formatMoney(item.total_pkr)}</span>
             <span class="text-[10px] text-mut ml-1">(${item.visit_count})</span>
           `;
@@ -1179,8 +1204,9 @@ function renderDashboard(data) {
       ? `<span class="udhaar-pill udhaar-pill-in font-ur">${t('tx.sale_badge')}</span>`
       : '';
 
-    const displayTitle = tx.display_title || tx.title || tx.store_name || 'Expense';
-    const rawStore = (tx.store_name || '').trim();
+    const rawDisplayTitle = tx.display_title || tx.title || tx.store_name || 'Expense';
+    const displayTitle = cleanDisplayTitle(rawDisplayTitle);
+    const rawStore = cleanDisplayTitle((tx.store_name || '').trim());
     const showVenueSub = rawStore && !isGenericVenueName(rawStore) && rawStore.toLowerCase() !== String(displayTitle).toLowerCase();
     const venueSubHtml = showVenueSub
       ? `<span class="tx-venue-sub font-ur"><i data-lucide="store" class="w-3 h-3"></i>${escapeHtml(rawStore)}</span>`
@@ -1458,7 +1484,8 @@ function formatCategoryName(c) {
 
 function formatPaymentMethodName(m) {
   if (!m) return '';
-  const method = String(m).toLowerCase().trim();
+  let method = String(m).toLowerCase().trim().replace(/_+/g, ' ');
+  method = method.replace(/\b([a-z]+)\s+\1\b/gi, '$1').trim().replace(/\s+/g, '_');
   const urMap = {
     cash: 'نقد (کیش)',
     bank_transfer: 'بینک ٹرانسفر',
@@ -1470,10 +1497,21 @@ function formatPaymentMethodName(m) {
     digital: 'ڈیجیٹل',
     udhaar: 'ادھار کھاتہ'
   };
+  const enMap = {
+    cash: 'Cash',
+    bank_transfer: 'Bank Transfer',
+    easypaisa: 'Easypaisa',
+    jazzcash: 'JazzCash',
+    card: 'Card',
+    credit_card: 'Credit Card',
+    debit_card: 'Debit Card',
+    digital: 'Digital',
+    udhaar: 'Udhaar Khata'
+  };
   if (document.documentElement.getAttribute('lang') === 'ur' || (window.HisaabI18n && HisaabI18n.getLanguage() === 'ur')) {
-    return urMap[method] || method.replace('_', ' ');
+    return urMap[method] || method.replace(/_/g, ' ');
   }
-  return method.charAt(0).toUpperCase() + method.slice(1).replace('_', ' ');
+  return enMap[method] || method.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function renderCategoryChart(rows) {
@@ -1850,8 +1888,21 @@ window.showToast = showToast;
 const GENERIC_VENUE_SET = new Set([
   'general store', 'local store', 'store', 'shop', 'market', 'dukaan',
   'cash sale', 'unknown', 'default', 'misc', 'other',
-  'دکان', 'مارکیٹ', 'جنرل سٹور', 'جنرل اسٹور', 'مقامی دکان'
+  'bank_transfer transfer', 'bank_transfer', 'bank transfer', 'bank transfer transfer',
+  'transfer', 'transfer transfer', 'easypaisa transfer', 'jazzcash transfer', 'raast transfer',
+  'دکان', 'مارکیٹ', 'جنرل سٹور', 'جنرل اسٹور', 'مقامی دکان', 'بینک ٹرانسفر'
 ]);
+
+function cleanDisplayTitle(title) {
+  if (!title) return 'Expense';
+  let cleaned = String(title).replace(/_+/g, ' ').trim();
+  cleaned = cleaned.replace(/\b(\w+)\s+\1\b/gi, '$1').trim();
+  if (cleaned.toLowerCase() === 'bank transfer') {
+    return (typeof window !== 'undefined' && window.HisaabI18n && window.HisaabI18n.getLanguage() === 'ur')
+      ? 'بینک ٹرانسفر' : 'Bank Transfer';
+  }
+  return cleaned;
+}
 
 function isGenericVenueName(name) {
   if (!name) return true;
@@ -1912,6 +1963,23 @@ function syncActiveBookState(books, preferredBookId = null) {
   renderBookSwitcher();
 }
 
+function getHeaderBookLabel(book) {
+  if (!book) {
+    return state.activeBookType === 'personal' ? t('book.personal_badge') : t('book.business_badge');
+  }
+  const raw = String(book.name || '').trim();
+  const isPersonal = book.book_type === 'personal';
+  const isEn = getCurrentLang() === 'en';
+  if (!raw) return isPersonal ? t('book.personal_badge') : t('book.business_badge');
+  if (raw === 'کاروبار / My Business' || (book.is_default && raw.includes('کاروبار') && raw.includes('My Business'))) {
+    return isEn ? 'My Business' : 'کاروبار';
+  }
+  if (raw === 'ذاتی حساب / Personal' || (raw.includes('ذاتی حساب') && raw.includes('Personal'))) {
+    return isEn ? 'Personal' : 'ذاتی حساب';
+  }
+  return raw;
+}
+
 function renderBookSwitcher() {
   const activeBook = (state.books || []).find(b => Number(b.id) === Number(state.activeBookId))
     || (state.books && state.books[0])
@@ -1921,7 +1989,7 @@ function renderBookSwitcher() {
   const typeIconEl = document.getElementById('book-type-icon');
   const labelEl = document.getElementById('active-book-label');
   if (typeIconEl) typeIconEl.textContent = isPersonal ? '🏠' : '🏢';
-  if (labelEl) labelEl.textContent = activeBook.name || (isPersonal ? t('book.personal_badge') : t('book.business_badge'));
+  if (labelEl) labelEl.textContent = getHeaderBookLabel(activeBook);
 
   const pane = elements.dashboardPane || document.getElementById('dashboard-pane');
   if (pane) {
@@ -2130,12 +2198,32 @@ function bindBookEvents() {
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
       if (dropdown) dropdown.classList.add('hidden');
       if (switcherBtn) switcherBtn.setAttribute('aria-expanded', 'false');
       closeCreateBookModal();
     }
   });
+
+  const nameInput = document.getElementById('new-book-name');
+  if (nameInput) {
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeCreateBookModal();
+      }
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        e.preventDefault();
+        closeCreateBookModal();
+      }
+    });
+  }
 
   if (createBookBtn) {
     createBookBtn.addEventListener('click', () => openCreateBookModal(state.activeBookType || 'business'));
@@ -2201,6 +2289,666 @@ function bindBookEvents() {
         });
         applyUdhaarFilter();
       });
+    });
+  }
+}
+
+// =========================================================================
+// Customer & Supplier Party Profiles, Ledgers & Business Settings
+// =========================================================================
+async function fetchParties() {
+  if (!state.userId) return;
+  try {
+    const pType = state.partyFilter || 'all';
+    const sTerm = state.partySearch || '';
+    let url = `/api/parties/${encodeURIComponent(state.userId)}?party_type=${encodeURIComponent(pType)}&search=${encodeURIComponent(sTerm)}`;
+    url = withBookQuery(url);
+    const res = await authFetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    state.parties = data.parties || [];
+    renderPartiesSummary(data.summary || {});
+    renderPartiesList(state.parties);
+  } catch (err) {
+    console.error('Failed to fetch parties:', err);
+  }
+}
+
+function renderPartiesSummary(summary) {
+  const recEl = document.getElementById('parties-total-receivable');
+  const payEl = document.getElementById('parties-total-payable');
+  const netEl = document.getElementById('parties-net-balance');
+  const countEl = document.getElementById('party-count-badge');
+
+  if (recEl) recEl.textContent = `Rs ${formatMoney(summary.total_receivable_pkr || 0)}`;
+  if (payEl) payEl.textContent = `Rs ${formatMoney(summary.total_payable_pkr || 0)}`;
+  if (netEl) netEl.textContent = `Rs ${formatMoney(summary.net_balance_pkr || 0)}`;
+  if (countEl) countEl.textContent = String(summary.total_parties || 0);
+}
+
+function getLocalizedBalanceText(obj) {
+  if (!obj) return '';
+  if (getCurrentLang() === 'en') {
+    return obj.balance_text_en || obj.balance_text_ur || 'Settled';
+  }
+  return obj.balance_text_ur || obj.balance_text_en || 'حساب برابر';
+}
+
+function applyPartyDetailLocale(data) {
+  if (!data) return;
+  const party = data.party || {};
+  const metrics = data.metrics || {};
+  const txs = data.transactions || [];
+  const isCust = (party.party_type || 'customer') === 'customer';
+
+  const phoneEl = document.getElementById('detail-party-phone');
+  const badgeEl = document.getElementById('detail-party-badge');
+  const statusLabelEl = document.getElementById('detail-balance-status-label');
+  const amtEl = document.getElementById('detail-balance-amount');
+  const dueEl = document.getElementById('detail-due-date-badge');
+  const btnDiyeSpan = document.querySelector('#btn-action-diye span');
+  const btnLiyeSpan = document.querySelector('#btn-action-liye span');
+
+  if (phoneEl) phoneEl.textContent = party.phone || t('parties.no_phone');
+  if (badgeEl) {
+    badgeEl.className = `party-badge ${isCust ? 'badge-customer' : 'badge-supplier'} font-ur`;
+    badgeEl.textContent = isCust ? t('parties.customer_opt') : t('parties.supplier_opt');
+  }
+  if (statusLabelEl) statusLabelEl.textContent = getLocalizedBalanceText(metrics);
+  if (amtEl) {
+    amtEl.textContent = `Rs ${formatMoney(metrics.net_balance_pkr || 0)}`;
+    if (metrics.balance_status === 'receivable') {
+      amtEl.className = 'text-2xl font-bold font-num tabular text-ok';
+    } else if (metrics.balance_status === 'payable') {
+      amtEl.className = 'text-2xl font-bold font-num tabular text-bad';
+    } else {
+      amtEl.className = 'text-2xl font-bold font-num tabular text-mut';
+    }
+  }
+  if (dueEl) {
+    if (metrics.is_overdue) {
+      dueEl.textContent = t('parties.overdue');
+      dueEl.className = 'text-xs mt-1 party-badge badge-overdue font-ur animate-pulse';
+      dueEl.classList.remove('hidden');
+    } else if (metrics.nearest_due_date) {
+      dueEl.textContent = `${t('parties.due_prefix')} ${metrics.nearest_due_date}`;
+      dueEl.className = 'text-xs mt-1 party-badge badge-customer font-num';
+      dueEl.classList.remove('hidden');
+    } else {
+      dueEl.classList.add('hidden');
+    }
+  }
+  if (btnDiyeSpan) {
+    btnDiyeSpan.textContent = isCust ? t('parties.gave_credit') : t('parties.supplier_paid_btn');
+  }
+  if (btnLiyeSpan) {
+    btnLiyeSpan.textContent = isCust ? t('parties.received_payment') : t('parties.supplier_took_btn');
+  }
+  renderPartyLedgerTable(txs);
+}
+
+function renderPartiesList(parties) {
+  const container = document.getElementById('parties-cards-container');
+  if (!container) return;
+
+  if (!parties || parties.length === 0) {
+    container.innerHTML = `<div class="text-center py-6 text-mut text-sm font-ur col-span-full">${t('parties.empty_state')}</div>`;
+    return;
+  }
+
+  container.innerHTML = parties.map(p => {
+    const isCustomer = (p.party_type || 'customer') === 'customer';
+    const typeBadge = isCustomer
+      ? `<span class="party-badge badge-customer font-ur">${t('parties.customer_opt')}</span>`
+      : `<span class="party-badge badge-supplier font-ur">${t('parties.supplier_opt')}</span>`;
+
+    let statusClass = 'badge-settled';
+    const statusLabel = getLocalizedBalanceText(p);
+    if (p.balance_status === 'receivable') {
+      statusClass = 'badge-receivable';
+    } else if (p.balance_status === 'payable') {
+      statusClass = 'badge-payable';
+    }
+
+    const overdueBadge = p.is_overdue
+      ? `<span class="party-badge badge-overdue font-ur animate-pulse">${escapeHtml(t('parties.overdue'))}</span>`
+      : (p.nearest_due_date ? `<span class="text-xs text-mut font-num">${escapeHtml(t('parties.due_prefix'))} ${escapeHtml(p.nearest_due_date)}</span>` : '');
+
+    const initial = (p.name || 'P').trim()[0].toUpperCase();
+
+    return `
+      <div class="party-card font-ur" data-party-id="${p.id}">
+        <div class="party-card-header">
+          <div class="flex items-center gap-2.5">
+            <div class="party-avatar">${escapeHtml(initial)}</div>
+            <div>
+              <div class="flex items-center gap-2">
+                <strong class="text-tx font-bold text-sm">${escapeHtml(p.name)}</strong>
+                ${typeBadge}
+              </div>
+              <div class="text-xs text-mut font-num">${escapeHtml(p.phone || t('parties.no_phone'))}</div>
+            </div>
+          </div>
+          <div class="flex flex-col items-end gap-1">
+            <span class="party-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+            <span class="text-sm font-bold font-num tabular text-tx">Rs ${formatMoney(p.net_balance_pkr || 0)}</span>
+          </div>
+        </div>
+        ${overdueBadge ? `<div class="flex justify-between items-center pt-2 border-t border-rule text-xs">${overdueBadge}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.party-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const pId = card.getAttribute('data-party-id');
+      if (pId) openPartyDetail(parseInt(pId, 10));
+    });
+  });
+}
+
+async function openPartyDetail(partyId) {
+  if (!state.userId) return;
+  try {
+    const res = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${partyId}`);
+    if (!res.ok) {
+      showToast('Could not load party details', 'error');
+      return;
+    }
+    const data = await res.json();
+    state.activePartyId = partyId;
+    state.activePartyDetail = data;
+    state.partyLedgerFilter = 'all';
+    document.querySelectorAll('.party-ledger-filter-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.getAttribute('data-ledger-filter') === 'all');
+    });
+
+    const dirView = document.getElementById('parties-directory-view');
+    const detView = document.getElementById('party-detail-view');
+    if (dirView) dirView.classList.add('hidden');
+    if (detView) detView.classList.remove('hidden');
+
+    const party = data.party || {};
+    const nameEl = document.getElementById('detail-party-name');
+    const avatarEl = document.getElementById('detail-party-avatar');
+    const addressEl = document.getElementById('detail-party-address');
+
+    if (nameEl) nameEl.textContent = party.name || '';
+    if (avatarEl) avatarEl.textContent = (party.name || 'P').trim()[0].toUpperCase();
+    if (addressEl) {
+      if (party.address) {
+        addressEl.textContent = `• ${party.address}`;
+        addressEl.classList.remove('hidden');
+      } else {
+        addressEl.classList.add('hidden');
+      }
+    }
+
+    applyPartyDetailLocale(data);
+  } catch (err) {
+    console.error('Error opening party detail:', err);
+  }
+}
+
+function renderPartyLedgerTable(txs) {
+  const tbody = document.getElementById('party-ledger-tbody');
+  if (!tbody) return;
+
+  const filter = state.partyLedgerFilter || 'all';
+  const filteredTxs = (txs || []).filter(tx => filter === 'all' || tx.tx_type === filter);
+
+  if (!filteredTxs.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-mut font-ur">${t('parties.no_txs')}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filteredTxs.map(tx => {
+    const isCredit = tx.tx_type === 'credit';
+    const gaveHtml = isCredit
+      ? `<span class="tx-amount-diye font-num tabular">Rs ${formatMoney(tx.amount)}</span>`
+      : '<span class="text-mut">—</span>';
+    const receivedHtml = !isCredit
+      ? `<span class="tx-amount-liye font-num tabular">Rs ${formatMoney(tx.amount)}</span>`
+      : '<span class="text-mut">—</span>';
+    const runningHtml = `<span class="font-num tabular font-semibold">Rs ${formatMoney(tx.running_balance_pkr || 0)}</span>`;
+
+    const defaultDesc = isCredit ? 'Credit / ادھار' : 'Payment / وصولی';
+    const desc = escapeHtml(tx.description || defaultDesc);
+
+    return `
+      <tr class="hover:bg-s2/40 transition-colors">
+        <td class="font-num text-xs text-mut whitespace-nowrap" dir="ltr">${escapeHtml(tx.tx_date || '')}</td>
+        <td class="font-ur font-medium">${desc}</td>
+        <td>${gaveHtml}</td>
+        <td>${receivedHtml}</td>
+        <td>${runningHtml}</td>
+        <td>
+          <button type="button" class="btn-icon-del delete-party-tx-btn" data-tx-id="${tx.id}" title="${t('btn.remove')}">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons({ root: tbody });
+  }
+
+  tbody.querySelectorAll('.delete-party-tx-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const txId = btn.getAttribute('data-tx-id');
+      if (!txId || !state.activePartyId) return;
+      try {
+        const res = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${state.activePartyId}/transactions/${txId}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          showToast(t('toast.party_tx_deleted'), 'info');
+          await openPartyDetail(state.activePartyId);
+          fetchParties();
+        }
+      } catch (err) {
+        console.error('Delete tx error:', err);
+      }
+    });
+  });
+}
+
+function bindPartyEvents() {
+  const backBtn = document.getElementById('party-back-btn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      const dirView = document.getElementById('parties-directory-view');
+      const detView = document.getElementById('party-detail-view');
+      if (detView) detView.classList.add('hidden');
+      if (dirView) dirView.classList.remove('hidden');
+      state.activePartyId = null;
+      fetchParties();
+    });
+  }
+
+  // Filter Tabs
+  document.querySelectorAll('.party-filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.party-filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      state.partyFilter = tab.getAttribute('data-party-type') || 'all';
+      fetchParties();
+    });
+  });
+
+  // Search
+  const searchInput = document.getElementById('party-search-input');
+  if (searchInput) {
+    let debounceTimer;
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        state.partySearch = e.target.value.trim();
+        fetchParties();
+      }, 250);
+    });
+  }
+
+  // Add Party Modal
+  const openAddPartyBtn = document.getElementById('open-add-party-modal-btn');
+  const addPartyModal = document.getElementById('add-party-modal');
+  const closeAddPartyBtn = document.getElementById('close-add-party-modal-btn');
+  const cancelAddPartyBtn = document.getElementById('cancel-add-party-btn');
+  const addPartyForm = document.getElementById('add-party-form');
+
+  if (openAddPartyBtn && addPartyModal) {
+    openAddPartyBtn.addEventListener('click', () => {
+      addPartyModal.classList.remove('hidden');
+      const nameInp = document.getElementById('new-party-name');
+      if (nameInp) {
+        nameInp.value = '';
+        setTimeout(() => nameInp.focus(), 40);
+      }
+    });
+  }
+  const closeAddParty = () => { if (addPartyModal) addPartyModal.classList.add('hidden'); };
+  if (closeAddPartyBtn) closeAddPartyBtn.addEventListener('click', closeAddParty);
+  if (cancelAddPartyBtn) cancelAddPartyBtn.addEventListener('click', closeAddParty);
+
+  if (addPartyForm) {
+    addPartyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('new-party-name')?.value.trim();
+      const phone = document.getElementById('new-party-phone')?.value.trim();
+      const partyType = document.getElementById('new-party-type')?.value;
+      const openBal = parseFloat(document.getElementById('new-party-opening-balance')?.value || '0');
+      const openType = document.getElementById('new-party-opening-type')?.value;
+      const addr = document.getElementById('new-party-address')?.value.trim();
+
+      if (!name) return;
+      try {
+        const payload = {
+          name,
+          phone,
+          party_type: partyType,
+          opening_balance: openBal,
+          opening_balance_type: openType,
+          address: addr,
+          book_id: state.activeBookId,
+        };
+        const res = await authFetch('/api/parties', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Failed to create party');
+        }
+        closeAddParty();
+        showToast(t('toast.party_created'), 'success');
+        fetchParties();
+      } catch (err) {
+        showToast(err.message || 'Could not save party', 'error');
+      }
+    });
+  }
+
+  // Quick Action Buttons: Maine Diye / Maine Liye
+  const btnDiye = document.getElementById('btn-action-diye');
+  const btnLiye = document.getElementById('btn-action-liye');
+  const txModal = document.getElementById('add-party-tx-modal');
+  const closeTxModalBtn = document.getElementById('close-party-tx-modal-btn');
+  const cancelTxModalBtn = document.getElementById('cancel-party-tx-btn');
+  const txForm = document.getElementById('party-tx-form');
+
+  const openTxModal = (type) => {
+    if (!txModal) return;
+    const titleEl = document.getElementById('add-party-tx-modal-title');
+    const subEl = document.getElementById('party-tx-modal-sub');
+    const typeInp = document.getElementById('party-tx-type');
+    const iconWrap = document.getElementById('party-tx-icon-wrap');
+    const dateInp = document.getElementById('party-tx-date');
+    const amtInp = document.getElementById('party-tx-amount');
+    const descInp = document.getElementById('party-tx-description');
+    const dueInp = document.getElementById('party-tx-due-date');
+    const activePartyType = (state.activePartyDetail && state.activePartyDetail.party && state.activePartyDetail.party.party_type) || 'customer';
+    const isSupplier = activePartyType === 'supplier';
+
+    if (typeInp) typeInp.value = type;
+    if (amtInp) { amtInp.value = ''; setTimeout(() => amtInp.focus(), 40); }
+    if (descInp) descInp.value = '';
+    if (dueInp) dueInp.value = '';
+    if (dateInp) dateInp.value = new Date().toISOString().substring(0, 10);
+
+    if (type === 'credit') {
+      if (titleEl) titleEl.textContent = isSupplier ? t('parties.tx_supplier_pay_title') : t('parties.tx_gave_credit_title');
+      if (subEl) subEl.textContent = isSupplier ? t('parties.tx_supplier_pay_sub') : t('parties.tx_gave_credit_sub');
+      if (iconWrap) {
+        iconWrap.className = 'w-10 h-10 rounded-xl bg-bad/15 border border-bad/35 flex items-center justify-center text-bad shrink-0';
+      }
+    } else {
+      if (titleEl) titleEl.textContent = isSupplier ? t('parties.tx_supplier_take_title') : t('parties.tx_received_title');
+      if (subEl) subEl.textContent = isSupplier ? t('parties.tx_supplier_take_sub') : t('parties.tx_received_sub');
+      if (iconWrap) {
+        iconWrap.className = 'w-10 h-10 rounded-xl bg-ok/15 border border-ok/35 flex items-center justify-center text-ok shrink-0';
+      }
+    }
+    txModal.classList.remove('hidden');
+  };
+
+  if (btnDiye) btnDiye.addEventListener('click', () => openTxModal('credit'));
+  if (btnLiye) btnLiye.addEventListener('click', () => openTxModal('debit'));
+
+  document.querySelectorAll('.party-ledger-filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.party-ledger-filter-tab').forEach(btn => btn.classList.remove('active'));
+      tab.classList.add('active');
+      state.partyLedgerFilter = tab.getAttribute('data-ledger-filter') || 'all';
+      renderPartyLedgerTable((state.activePartyDetail && state.activePartyDetail.transactions) || []);
+    });
+  });
+
+  const closeTxModal = () => { if (txModal) txModal.classList.add('hidden'); };
+  if (closeTxModalBtn) closeTxModalBtn.addEventListener('click', closeTxModal);
+  if (cancelTxModalBtn) cancelTxModalBtn.addEventListener('click', closeTxModal);
+
+  if (txForm) {
+    txForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!state.activePartyId || !state.userId) return;
+      const amt = parseFloat(document.getElementById('party-tx-amount')?.value || '0');
+      const type = document.getElementById('party-tx-type')?.value || 'credit';
+      const txDate = document.getElementById('party-tx-date')?.value;
+      const dueDate = document.getElementById('party-tx-due-date')?.value;
+      const desc = document.getElementById('party-tx-description')?.value.trim();
+      const activePartyType = (state.activePartyDetail && state.activePartyDetail.party && state.activePartyDetail.party.party_type) || 'customer';
+      const isSupplier = activePartyType === 'supplier';
+
+      if (!amt || amt <= 0) return;
+      try {
+        const payload = {
+          amount: amt,
+          tx_type: type,
+          tx_date: txDate,
+          due_date: dueDate || null,
+          description: desc,
+          is_settlement: isSupplier ? (type === 'credit') : (type === 'debit'),
+        };
+        const res = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${state.activePartyId}/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Failed to record transaction');
+        }
+        closeTxModal();
+        showToast(t('toast.party_tx_added'), 'success');
+        await openPartyDetail(state.activePartyId);
+        fetchParties();
+      } catch (err) {
+        showToast(err.message || 'Could not record entry', 'error');
+      }
+    });
+  }
+
+  // WhatsApp Reminder Button
+  const waBtn = document.getElementById('party-whatsapp-reminder-btn');
+  if (waBtn) {
+    waBtn.addEventListener('click', async () => {
+      if (!state.activePartyId || !state.userId) return;
+      try {
+        const res = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${state.activePartyId}/reminder?lang=${encodeURIComponent(getCurrentLang())}`);
+        if (!res.ok) throw new Error('Failed to generate reminder');
+        const data = await res.json();
+        if (data.whatsapp_url) {
+          window.open(data.whatsapp_url, '_blank');
+        } else {
+          showToast('No phone number registered for this party', 'warning');
+        }
+      } catch (err) {
+        showToast(err.message || 'Could not generate reminder', 'error');
+      }
+    });
+  }
+
+  // Statement View Button
+  const stmtBtn = document.getElementById('party-statement-btn');
+  const stmtModal = document.getElementById('party-statement-modal');
+  const closeStmtBtn = document.getElementById('close-statement-modal-btn');
+  const stmtContent = document.getElementById('statement-content');
+  const stmtWaBtn = document.getElementById('statement-whatsapp-share-btn');
+
+  if (stmtBtn && stmtModal) {
+    stmtBtn.addEventListener('click', async () => {
+      if (!state.activePartyId || !state.userId) return;
+      try {
+        const res = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${state.activePartyId}/statement`);
+        if (!res.ok) throw new Error('Failed to load statement');
+        const data = await res.json();
+        const biz = data.business || {};
+        const party = data.party || {};
+        const txs = data.filtered_transactions || [];
+
+        let txRows = txs.map(tx => `
+          <tr class="border-b border-rule">
+            <td class="py-1.5 px-2 font-num text-xs" dir="ltr">${escapeHtml(tx.tx_date || '')}</td>
+            <td class="py-1.5 px-2 font-ur">${escapeHtml(tx.description || '')}</td>
+            <td class="py-1.5 px-2 text-bad font-num tabular">${tx.tx_type === 'credit' ? 'Rs ' + formatMoney(tx.amount) : '—'}</td>
+            <td class="py-1.5 px-2 text-ok font-num tabular">${tx.tx_type === 'debit' ? 'Rs ' + formatMoney(tx.amount) : '—'}</td>
+            <td class="py-1.5 px-2 font-num tabular font-bold">Rs ${formatMoney(tx.running_balance_pkr || 0)}</td>
+          </tr>
+        `).join('');
+
+        if (stmtContent) {
+          stmtContent.innerHTML = `
+            <div class="text-center pb-3 border-b border-rule">
+              <h2 class="text-xl font-bold font-ur text-brass">${escapeHtml(biz.business_name || 'My Business')}</h2>
+              <div class="text-xs text-mut font-ur">${escapeHtml(biz.address || '')} ${biz.phone_number ? '• ' + escapeHtml(biz.phone_number) : ''}</div>
+              <div class="text-xs text-mut font-ur mt-1">${escapeHtml(data.statement_header || '')}</div>
+            </div>
+            <div class="flex justify-between items-center text-sm font-ur py-2 border-b border-rule">
+              <div>
+                <strong>${escapeHtml(t('parties.statement_party_label'))}</strong> ${escapeHtml(party.name || '')}
+                <div class="text-xs text-mut font-num">${escapeHtml(party.phone || '')}</div>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-mut">${escapeHtml(t('parties.statement_balance_label'))}</span>
+                <div class="text-lg font-bold font-num tabular text-brass">Rs ${formatMoney(party.net_balance_pkr || 0)}</div>
+              </div>
+            </div>
+            <table class="w-full text-right text-xs font-ur mt-2">
+              <thead>
+                <tr class="bg-s2 text-mut">
+                  <th class="py-1.5 px-2">${escapeHtml(t('parties.statement_date'))}</th>
+                  <th class="py-1.5 px-2">${escapeHtml(t('parties.statement_desc'))}</th>
+                  <th class="py-1.5 px-2">${escapeHtml(t('parties.gave_col'))}</th>
+                  <th class="py-1.5 px-2">${escapeHtml(t('parties.received_col'))}</th>
+                  <th class="py-1.5 px-2">${escapeHtml(t('parties.statement_balance'))}</th>
+                </tr>
+              </thead>
+              <tbody>${txRows || `<tr><td colspan="5" class="text-center py-4 text-mut">${escapeHtml(t('parties.statement_no_txs'))}</td></tr>`}</tbody>
+            </table>
+            <div class="text-center text-xs text-mut font-ur pt-3 border-t border-rule">
+              ${escapeHtml(biz.statement_footer || data.statement_footer || t('parties.statement_default_footer'))}
+            </div>
+          `;
+        }
+
+        stmtModal.classList.remove('hidden');
+
+        if (stmtWaBtn) {
+          stmtWaBtn.onclick = async () => {
+            const remRes = await authFetch(`/api/parties/${encodeURIComponent(state.userId)}/${state.activePartyId}/reminder?lang=${encodeURIComponent(getCurrentLang())}`);
+            if (remRes.ok) {
+              const remData = await remRes.json();
+              if (remData.whatsapp_url) window.open(remData.whatsapp_url, '_blank');
+            }
+          };
+        }
+      } catch (err) {
+        showToast(err.message || 'Could not load statement', 'error');
+      }
+    });
+  }
+
+  const closeStmtModal = () => { if (stmtModal) stmtModal.classList.add('hidden'); };
+  if (closeStmtBtn && stmtModal) {
+    closeStmtBtn.addEventListener('click', closeStmtModal);
+  }
+
+  const stmtPrintBtn = document.getElementById('statement-print-btn');
+  if (stmtPrintBtn) {
+    stmtPrintBtn.addEventListener('click', () => {
+      window.print();
+    });
+  }
+
+  // Business Profile Settings Modal
+  const openBizBtn = document.getElementById('open-business-profile-btn');
+  const bizModal = document.getElementById('business-profile-modal');
+  const closeBizBtn = document.getElementById('close-biz-modal-btn');
+  const cancelBizBtn = document.getElementById('cancel-biz-btn');
+  const bizForm = document.getElementById('business-profile-form');
+
+  if (openBizBtn && bizModal) {
+    openBizBtn.addEventListener('click', async () => {
+      if (!state.userId) return;
+      try {
+        const res = await authFetch(`/api/business-profile/${encodeURIComponent(state.userId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const p = data.profile || {};
+          const bName = document.getElementById('biz-business-name');
+          const oName = document.getElementById('biz-owner-name');
+          const pPhone = document.getElementById('biz-phone-number');
+          const pRaast = document.getElementById('biz-raast-id');
+          const pAddr = document.getElementById('biz-address');
+          const pFoot = document.getElementById('biz-statement-footer');
+          if (bName) bName.value = p.business_name || '';
+          if (oName) oName.value = p.owner_name || '';
+          if (pPhone) pPhone.value = p.phone_number || '';
+          if (pRaast) pRaast.value = p.raast_id || p.easypaisa_number || '';
+          if (pAddr) pAddr.value = p.address || '';
+          if (pFoot) pFoot.value = p.statement_footer || '';
+        }
+      } catch (err) {
+        console.error('Error fetching biz profile:', err);
+      }
+      bizModal.classList.remove('hidden');
+    });
+  }
+
+  const closeBizModal = () => { if (bizModal) bizModal.classList.add('hidden'); };
+  if (closeBizBtn) closeBizBtn.addEventListener('click', closeBizModal);
+  if (cancelBizBtn) cancelBizBtn.addEventListener('click', closeBizModal);
+
+  [
+    [addPartyModal, closeAddParty],
+    [txModal, closeTxModal],
+    [stmtModal, closeStmtModal],
+    [bizModal, closeBizModal],
+  ].forEach(([mEl, closeFn]) => {
+    if (mEl) {
+      mEl.addEventListener('click', (e) => {
+        if (e.target === mEl) closeFn();
+      });
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+      closeAddParty();
+      closeTxModal();
+      closeStmtModal();
+      closeBizModal();
+    }
+  });
+
+  if (bizForm) {
+    bizForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!state.userId) return;
+      try {
+        const payload = {
+          business_name: document.getElementById('biz-business-name')?.value.trim(),
+          owner_name: document.getElementById('biz-owner-name')?.value.trim(),
+          phone_number: document.getElementById('biz-phone-number')?.value.trim(),
+          raast_id: document.getElementById('biz-raast-id')?.value.trim(),
+          address: document.getElementById('biz-address')?.value.trim(),
+          statement_footer: document.getElementById('biz-statement-footer')?.value.trim(),
+        };
+        const res = await authFetch(`/api/business-profile/${encodeURIComponent(state.userId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Failed to update business profile');
+        closeBizModal();
+        showToast(t('toast.biz_updated'), 'success');
+      } catch (err) {
+        showToast(err.message || 'Could not save business profile', 'error');
+      }
     });
   }
 }

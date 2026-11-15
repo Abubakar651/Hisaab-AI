@@ -21,6 +21,9 @@ from database import (
     RecurringExpense,
     PendingTransaction,
     UdhaarEntry,
+    Party,
+    PartyTransaction,
+    BusinessProfile,
     get_pkt_now,
     PKT_TZ,
 )
@@ -163,6 +166,16 @@ GENERIC_STORE_NAMES = frozenset(
         "unknown",
         "other",
         "general purchase",
+        "bank_transfer transfer",
+        "bank_transfer",
+        "bank transfer",
+        "bank transfer transfer",
+        "transfer",
+        "transfer transfer",
+        "easypaisa transfer",
+        "jazzcash transfer",
+        "raast transfer",
+        "card transfer",
         "دکان",
         "جنرل سٹور",
         "جنرل اسٹور",
@@ -172,6 +185,7 @@ GENERIC_STORE_NAMES = frozenset(
         "سودا",
         "خریداری",
         "متفرق",
+        "بینک ٹرانسفر",
     }
 )
 
@@ -240,6 +254,9 @@ def _format_label(text: str, max_len: int = 56) -> str:
     cleaned = " ".join((text or "").strip().split())
     if not cleaned:
         return ""
+    cleaned = re.sub(r'[_]+', ' ', cleaned)
+    cleaned = re.sub(r'\b([A-Za-z]+)\s+\1\b', r'\1', cleaned, flags=re.I)
+    cleaned = " ".join(cleaned.split())
     if not _has_urdu_script(cleaned) and cleaned == cleaned.lower():
         cleaned = cleaned.title()
     if len(cleaned) > max_len:
@@ -1683,3 +1700,510 @@ def cancel_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
         "status": "cancelled",
         "message": f"Cancelled pending expense of PKR {cancelled_amt:,.2f} at {cancelled_store.title()}.",
     }
+
+
+def get_party_balance(
+    db: Session,
+    user_id: str,
+    party_name_or_id: Any,
+    book_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Computes real-time party balance, running balance sequence, and due date alerts.
+    If party is not in the 'parties' table, falls back to legacy 'udhaar_entries'
+    to ensure 100% backward compatibility.
+    """
+    party: Optional[Party] = None
+
+    # Check if party_name_or_id is numeric ID
+    party_id_val = None
+    if isinstance(party_name_or_id, int):
+        party_id_val = party_name_or_id
+    elif isinstance(party_name_or_id, str) and party_name_or_id.strip().isdigit():
+        party_id_val = int(party_name_or_id.strip())
+
+    if party_id_val is not None:
+        q = db.query(Party).filter(
+            Party.id == party_id_val,
+            Party.user_id == user_id,
+            Party.deleted_at.is_(None),
+        )
+        if book_id is not None:
+            q = q.filter(or_(Party.book_id == book_id, Party.book_id.is_(None)))
+        party = q.first()
+
+    # Search by normalized name
+    if not party and party_name_or_id:
+        target_norm = _norm(str(party_name_or_id))
+        all_parties = (
+            db.query(Party)
+            .filter(Party.user_id == user_id, Party.deleted_at.is_(None))
+            .all()
+        )
+        # 1. Exact match
+        for p in all_parties:
+            if _norm(p.name) == target_norm:
+                party = p
+                break
+        # 2. Substring match
+        if not party:
+            for p in all_parties:
+                p_norm = _norm(p.name)
+                if target_norm in p_norm or p_norm in target_norm:
+                    party = p
+                    break
+
+    now_pkt = get_pkt_now().date()
+
+    if party:
+        party_type = party.party_type or "customer"
+        open_bal = float(party.opening_balance or 0.0)
+        open_type = party.opening_balance_type or "receivable"
+
+        # Baseline running balance before transactions
+        if party_type == "customer":
+            running = open_bal if open_type == "receivable" else -open_bal
+        else:  # supplier
+            running = open_bal if open_type == "payable" else -open_bal
+
+        tx_query = (
+            db.query(PartyTransaction)
+            .filter(
+                PartyTransaction.party_id == party.id,
+                PartyTransaction.deleted_at.is_(None),
+            )
+            .order_by(PartyTransaction.tx_date.asc(), PartyTransaction.id.asc())
+        )
+        txs = tx_query.all()
+
+        total_credit = 0.0
+        total_debit = 0.0
+        nearest_due_date = None
+        is_overdue = False
+        tx_list = []
+
+        for tx in txs:
+            amt = float(tx.amount or 0.0)
+            if tx.tx_type == "credit":
+                total_credit += amt
+                if party_type == "customer":
+                    running += amt
+                else:
+                    running -= amt
+            else:  # debit
+                total_debit += amt
+                if party_type == "customer":
+                    running -= amt
+                else:
+                    running += amt
+
+            tx_d = tx.to_dict()
+            tx_d["running_balance_pkr"] = round(running, 2)
+            tx_list.append(tx_d)
+
+            # Check due date
+            if tx.due_date and not tx.is_settlement:
+                due_d = tx.due_date.date() if isinstance(tx.due_date, datetime) else tx.due_date
+                if nearest_due_date is None or due_d < nearest_due_date:
+                    nearest_due_date = due_d
+                if due_d < now_pkt:
+                    is_overdue = True
+
+        net_signed = running
+        if party_type == "customer":
+            if net_signed > 0.001:
+                status = "receivable"
+            elif net_signed < -0.001:
+                status = "payable"
+            else:
+                status = "settled"
+        else:  # supplier
+            if net_signed > 0.001:
+                status = "payable"
+            elif net_signed < -0.001:
+                status = "receivable"
+            else:
+                status = "settled"
+
+        if status == "settled":
+            is_overdue = False
+
+        return {
+            "found": True,
+            "party_id": party.id,
+            "id": party.id,
+            "name": party.name,
+            "phone": party.phone or "",
+            "address": party.address or "",
+            "party_type": party_type,
+            "credit_limit": party.credit_limit,
+            "opening_balance": round(open_bal, 2),
+            "opening_balance_type": open_type,
+            "total_credit_pkr": round(total_credit, 2),
+            "total_debit_pkr": round(total_debit, 2),
+            "total_given_pkr": round(total_credit, 2),
+            "total_received_pkr": round(total_debit, 2),
+            "net_balance_pkr": round(abs(net_signed), 2),
+            "signed_balance_pkr": round(net_signed, 2),
+            "balance_status": status,
+            "balance_text_ur": (
+                "آپ نے لینے ہیں"
+                if status == "receivable"
+                else ("آپ نے دینے ہیں" if status == "payable" else "حساب برابر")
+            ),
+            "balance_text_en": (
+                "You will receive"
+                if status == "receivable"
+                else ("You will pay" if status == "payable" else "Settled")
+            ),
+            "is_overdue": is_overdue,
+            "nearest_due_date": nearest_due_date.strftime("%Y-%m-%d") if nearest_due_date else None,
+            "tx_count": len(txs),
+            "last_tx_date": txs[-1].tx_date.strftime("%Y-%m-%d %H:%M") if txs else None,
+            "transactions": tx_list,
+        }
+
+    # Fallback to legacy UdhaarEntry if person_name provided
+    name_str = str(party_name_or_id or "").strip()
+    if name_str:
+        norm_name = _norm(name_str)
+        legacy_entries = (
+            db.query(UdhaarEntry)
+            .filter(
+                UdhaarEntry.user_id == user_id,
+                UdhaarEntry.deleted_at.is_(None),
+            )
+            .all()
+        )
+        matched_entries = [
+            e for e in legacy_entries
+            if _norm(e.person_name) == norm_name or norm_name in _norm(e.person_name)
+        ]
+        if matched_entries:
+            tot_rec = 0.0
+            tot_pay = 0.0
+            phone = ""
+            for e in matched_entries:
+                rem = max(0.0, float(e.amount or 0.0) - float(e.paid_amount or 0.0))
+                if (e.direction or "receivable") == "receivable":
+                    tot_rec += rem
+                else:
+                    tot_pay += rem
+                if e.phone_number and not phone:
+                    phone = e.phone_number
+
+            net = tot_rec - tot_pay
+            if net > 0.001:
+                status = "receivable"
+            elif net < -0.001:
+                status = "payable"
+            else:
+                status = "settled"
+
+            return {
+                "found": True,
+                "party_id": None,
+                "id": None,
+                "name": matched_entries[0].person_name,
+                "phone": phone,
+                "address": "",
+                "party_type": "customer",
+                "credit_limit": None,
+                "opening_balance": 0.0,
+                "opening_balance_type": "receivable",
+                "total_credit_pkr": round(tot_rec, 2),
+                "total_debit_pkr": round(tot_pay, 2),
+                "total_given_pkr": round(tot_rec, 2),
+                "total_received_pkr": round(tot_pay, 2),
+                "net_balance_pkr": round(abs(net), 2),
+                "signed_balance_pkr": round(net, 2),
+                "balance_status": status,
+                "balance_text_ur": (
+                    "آپ نے لینے ہیں"
+                    if status == "receivable"
+                    else ("آپ نے دینے ہیں" if status == "payable" else "حساب برابر")
+                ),
+                "balance_text_en": (
+                    "You will receive"
+                    if status == "receivable"
+                    else ("You will pay" if status == "payable" else "Settled")
+                ),
+                "is_overdue": False,
+                "nearest_due_date": None,
+                "tx_count": len(matched_entries),
+                "last_tx_date": matched_entries[-1].created_at.strftime("%Y-%m-%d %H:%M") if matched_entries else None,
+                "transactions": [],
+            }
+
+    # Not found
+    return {
+        "found": False,
+        "party_id": None,
+        "id": None,
+        "name": str(party_name_or_id or ""),
+        "phone": "",
+        "address": "",
+        "party_type": "customer",
+        "credit_limit": None,
+        "opening_balance": 0.0,
+        "opening_balance_type": "receivable",
+        "total_credit_pkr": 0.0,
+        "total_debit_pkr": 0.0,
+        "total_given_pkr": 0.0,
+        "total_received_pkr": 0.0,
+        "net_balance_pkr": 0.0,
+        "signed_balance_pkr": 0.0,
+        "balance_status": "settled",
+        "balance_text_ur": "حساب برابر",
+        "balance_text_en": "Settled",
+        "is_overdue": False,
+        "nearest_due_date": None,
+        "tx_count": 0,
+        "last_tx_date": None,
+        "transactions": [],
+    }
+
+
+def get_parties_summary(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+    party_type: str = "all",
+    search: str = "",
+    status: str = "all",
+) -> Dict[str, Any]:
+    """
+    Returns list of parties with metrics and overall receivable/payable summary.
+    """
+    query = db.query(Party).filter(
+        Party.user_id == user_id,
+        Party.deleted_at.is_(None),
+    )
+    if book_id is not None:
+        query = query.filter(or_(Party.book_id == book_id, Party.book_id.is_(None)))
+    if party_type and party_type != "all":
+        query = query.filter(Party.party_type == party_type)
+
+    parties = query.order_by(Party.name.asc()).all()
+
+    items = []
+    total_customers = 0
+    total_suppliers = 0
+    total_rec_pkr = 0.0
+    total_pay_pkr = 0.0
+    overdue_count = 0
+
+    s_term = _norm(search) if search else ""
+
+    for p in parties:
+        # Search filter
+        if s_term:
+            p_name = _norm(p.name)
+            p_phone = _norm(p.phone)
+            if s_term not in p_name and s_term not in p_phone:
+                continue
+
+        bal_info = get_party_balance(db, user_id, p.id, book_id=book_id)
+
+        # Status filter ('all', 'receivable', 'payable', 'settled', 'overdue')
+        if status == "receivable" and bal_info["balance_status"] != "receivable":
+            continue
+        if status == "payable" and bal_info["balance_status"] != "payable":
+            continue
+        if status == "settled" and bal_info["balance_status"] != "settled":
+            continue
+        if status == "overdue" and not bal_info["is_overdue"]:
+            continue
+
+        if p.party_type == "customer":
+            total_customers += 1
+        elif p.party_type == "supplier":
+            total_suppliers += 1
+
+        if bal_info["balance_status"] == "receivable":
+            total_rec_pkr += bal_info["net_balance_pkr"]
+        elif bal_info["balance_status"] == "payable":
+            total_pay_pkr += bal_info["net_balance_pkr"]
+
+        if bal_info["is_overdue"]:
+            overdue_count += 1
+
+        items.append({
+            "id": p.id,
+            "party_id": p.id,
+            "name": p.name,
+            "phone": p.phone or "",
+            "address": p.address or "",
+            "party_type": p.party_type or "customer",
+            "opening_balance": bal_info["opening_balance"],
+            "opening_balance_type": bal_info["opening_balance_type"],
+            "credit_limit": p.credit_limit,
+            "total_credit_pkr": bal_info["total_credit_pkr"],
+            "total_debit_pkr": bal_info["total_debit_pkr"],
+            "net_balance_pkr": bal_info["net_balance_pkr"],
+            "signed_balance_pkr": bal_info["signed_balance_pkr"],
+            "balance_status": bal_info["balance_status"],
+            "balance_text_ur": bal_info["balance_text_ur"],
+            "balance_text_en": bal_info["balance_text_en"],
+            "is_overdue": bal_info["is_overdue"],
+            "nearest_due_date": bal_info["nearest_due_date"],
+            "tx_count": bal_info["tx_count"],
+            "last_tx_date": bal_info["last_tx_date"],
+            "created_at": p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else None,
+        })
+
+    net_balance_pkr = round(total_rec_pkr - total_pay_pkr, 2)
+    return {
+        "parties": items,
+        "summary": {
+            "total_parties": len(items),
+            "total_customers": total_customers,
+            "total_suppliers": total_suppliers,
+            "total_receivable_pkr": round(total_rec_pkr, 2),
+            "total_payable_pkr": round(total_pay_pkr, 2),
+            "net_balance_pkr": net_balance_pkr,
+            "overdue_count": overdue_count,
+        },
+    }
+
+
+def get_or_create_business_profile(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> BusinessProfile:
+    """
+    Retrieves or initializes a business profile for the user.
+    """
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user_id)
+        .first()
+    )
+    if not profile:
+        profile = BusinessProfile(
+            user_id=user_id,
+            book_id=book_id,
+            business_name="My Business",
+            currency="PKR",
+            business_type="kiriyana",
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return profile
+
+
+def generate_party_statement(
+    db: Session,
+    user_id: str,
+    party_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generates a full statement for the party within date range.
+    """
+    party_info = get_party_balance(db, user_id, party_id)
+    if not party_info.get("found"):
+        return {"status": "error", "message": "Party not found."}
+
+    biz_profile = get_or_create_business_profile(db, user_id)
+
+    txs = party_info.get("transactions", [])
+    if start_date:
+        txs = [t for t in txs if (t.get("tx_date") or "")[:10] >= start_date]
+    if end_date:
+        txs = [t for t in txs if (t.get("tx_date") or "")[:10] <= end_date]
+
+    return {
+        "status": "success",
+        "business": biz_profile.to_dict(),
+        "party": party_info,
+        "statement_period": {
+            "start_date": start_date or (txs[0]["tx_date"][:10] if txs else None),
+            "end_date": end_date or (txs[-1]["tx_date"][:10] if txs else None),
+        },
+        "filtered_transactions": txs,
+        "statement_header": biz_profile.statement_header or f"Khata Statement - {party_info['name']}",
+        "statement_footer": biz_profile.statement_footer or "Thank you for doing business with us!",
+    }
+
+
+def generate_party_reminder(
+    db: Session,
+    user_id: str,
+    party_id: int,
+    lang: str = "ur",
+) -> Dict[str, Any]:
+    """
+    Generates polite bilingual WhatsApp & SMS payment reminder text and click-to-chat URL.
+    """
+    party_info = get_party_balance(db, user_id, party_id)
+    if not party_info.get("found"):
+        return {"status": "error", "message": "Party not found."}
+
+    biz = get_or_create_business_profile(db, user_id)
+    b_name = biz.business_name or "HisaabAI Store"
+    p_name = party_info["name"]
+    amount = f"{party_info['net_balance_pkr']:,.2f}"
+    due_str = party_info["nearest_due_date"] or "جلد از جلد (Immediate)"
+
+    raast = biz.raast_id or biz.easypaisa_number or biz.jazzcash_number or ""
+    contact_phone = biz.phone_number or ""
+
+    raw_phone = re.sub(r"\D", "", party_info["phone"] or "")
+    if raw_phone.startswith("0") and len(raw_phone) == 11:
+        wa_phone = "92" + raw_phone[1:]
+    elif raw_phone.startswith("92"):
+        wa_phone = raw_phone
+    else:
+        wa_phone = raw_phone
+
+    text_ur = (
+        f"محترم {p_name} صاحب!\n"
+        f"{b_name} کی طرف سے سلام۔\n"
+        f"آپ کے کھاتے کا بقایا حساب Rs {amount} ہے۔\n"
+        f"آخری تاریخ ادائیگی: {due_str}۔\n"
+    )
+    if raast:
+        text_ur += f"برائے مہربانی راست / ایزی پیسہ / جاز کیش ({raast}) پر رقم منتقل فرمائیں۔\n"
+    if contact_phone:
+        text_ur += f"کسی سوال یا تصدیق کے لیے رابطہ فرمائیں: {contact_phone}۔\n"
+    text_ur += "شکریہ!"
+
+    text_en = (
+        f"Dear {p_name},\n"
+        f"Greetings from {b_name}.\n"
+        f"Your current outstanding khata balance is PKR {amount}.\n"
+        f"Payment due: {due_str}.\n"
+    )
+    if raast:
+        text_en += f"Please remit via Raast / Mobile Wallet: {raast}.\n"
+    if contact_phone:
+        text_en += f"Contact {contact_phone} for inquiries.\n"
+    text_en += "Thank you for your valued business!"
+
+    import urllib.parse
+    encoded_ur = urllib.parse.quote(text_ur)
+    encoded_en = urllib.parse.quote(text_en)
+
+    wa_url_ur = f"https://wa.me/{wa_phone}?text={encoded_ur}" if wa_phone else None
+    wa_url_en = f"https://wa.me/{wa_phone}?text={encoded_en}" if wa_phone else None
+
+    return {
+        "status": "success",
+        "party_id": party_id,
+        "customer_name": p_name,
+        "phone": party_info["phone"],
+        "wa_phone": wa_phone,
+        "net_balance_pkr": party_info["net_balance_pkr"],
+        "due_date": party_info["nearest_due_date"],
+        "is_overdue": party_info["is_overdue"],
+        "formatted_text_ur": text_ur,
+        "formatted_text_en": text_en,
+        "whatsapp_url_ur": wa_url_ur,
+        "whatsapp_url_en": wa_url_en,
+        "whatsapp_url": wa_url_ur if lang == "ur" else wa_url_en,
+    }
+
