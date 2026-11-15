@@ -2534,6 +2534,48 @@ def get_tools_for_user(
                 turn_state.setdefault("udhaar_query_results", []).append(res_json)
             return res_json
 
+        def _sync_udhaar_party(
+            party_type: str,
+            opening_balance_type: str,
+            tx_type: str,
+            default_desc: str,
+        ) -> None:
+            try:
+                all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
+                p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
+                if not p_target:
+                    p_target = Party(
+                        user_id=user_id,
+                        book_id=book_id,
+                        name=person_name.strip(),
+                        phone=phone_number,
+                        party_type=party_type,
+                        opening_balance=0.0,
+                        opening_balance_type=opening_balance_type,
+                    )
+                    db.add(p_target)
+                    db.commit()
+                    db.refresh(p_target)
+                elif phone_number and not p_target.phone:
+                    p_target.phone = phone_number
+                    db.commit()
+
+                ptx = PartyTransaction(
+                    party_id=p_target.id,
+                    user_id=user_id,
+                    book_id=book_id,
+                    amount=float(amount),
+                    tx_type=tx_type,
+                    description=notes or default_desc,
+                    payment_method="cash",
+                    is_settlement=False,
+                )
+                db.add(ptx)
+                db.commit()
+            except Exception as sync_e:
+                db.rollback()
+                logger.warning(f"Note on party sync: {sync_e}")
+
         db: Session = SessionLocal()
         try:
             if clean_action in ("give_credit", "receivable", "lend", "lene_hain", "udhaar_diya", "credit", "udhaar", "khata", "saaman_diya", "maal_diya"):
@@ -2549,40 +2591,7 @@ def get_tools_for_user(
                     phone_number=phone_number,
                     book_id=book_id,
                 )
-                try:
-                    all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
-                    p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
-                    if not p_target:
-                        p_target = Party(
-                            user_id=user_id,
-                            book_id=book_id,
-                            name=person_name.strip(),
-                            phone=phone_number,
-                            party_type="customer",
-                            opening_balance=0.0,
-                            opening_balance_type="receivable",
-                        )
-                        db.add(p_target)
-                        db.commit()
-                        db.refresh(p_target)
-                    elif phone_number and not p_target.phone:
-                        p_target.phone = phone_number
-                        db.commit()
-
-                    ptx = PartyTransaction(
-                        party_id=p_target.id,
-                        user_id=user_id,
-                        book_id=book_id,
-                        amount=float(amount),
-                        tx_type="credit",
-                        description=notes or "Credit / ادھار",
-                        payment_method="cash",
-                        is_settlement=False,
-                    )
-                    db.add(ptx)
-                    db.commit()
-                except Exception as sync_e:
-                    logger.warning(f"Note on party sync: {sync_e}")
+                _sync_udhaar_party("customer", "receivable", "credit", "Credit / ادھار")
 
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 _attach_party_balance(res, person_name, "give_credit")
@@ -2600,40 +2609,7 @@ def get_tools_for_user(
                     phone_number=phone_number,
                     book_id=book_id,
                 )
-                try:
-                    all_parties = db.query(Party).filter(Party.user_id == user_id, Party.deleted_at.is_(None)).all()
-                    p_target = next((p for p in all_parties if analytics._norm(p.name) == analytics._norm(person_name)), None)
-                    if not p_target:
-                        p_target = Party(
-                            user_id=user_id,
-                            book_id=book_id,
-                            name=person_name.strip(),
-                            phone=phone_number,
-                            party_type="supplier",
-                            opening_balance=0.0,
-                            opening_balance_type="payable",
-                        )
-                        db.add(p_target)
-                        db.commit()
-                        db.refresh(p_target)
-                    elif phone_number and not p_target.phone:
-                        p_target.phone = phone_number
-                        db.commit()
-
-                    ptx = PartyTransaction(
-                        party_id=p_target.id,
-                        user_id=user_id,
-                        book_id=book_id,
-                        amount=float(amount),
-                        tx_type="debit",
-                        description=notes or "Supplier credit / مال ادھار",
-                        payment_method="cash",
-                        is_settlement=False,
-                    )
-                    db.add(ptx)
-                    db.commit()
-                except Exception as sync_e:
-                    logger.warning(f"Note on party sync: {sync_e}")
+                _sync_udhaar_party("supplier", "payable", "debit", "Supplier credit / مال ادھار")
 
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 _attach_party_balance(res, person_name, "take_credit")
@@ -2672,6 +2648,7 @@ def get_tools_for_user(
                             db.add(ptx)
                             db.commit()
                 except Exception as sync_e:
+                    db.rollback()
                     logger.warning(f"Note on settle sync: {sync_e}")
 
                 res["summary"] = udhaar_summary(db, user_id, book_id=book_id)

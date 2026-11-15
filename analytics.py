@@ -503,13 +503,21 @@ def ensure_default_books(db: Session, user_id: str) -> Dict[str, Any]:
         (RecurringExpense, pers_book.id),
         (UdhaarEntry, biz_book.id),
     ):
-        updated = (
-            db.query(model)
+        # Check with SELECT before issuing UPDATE: in SQLite, an UPDATE with 0 matching
+        # rows still acquires a RESERVED write lock until commit/close.
+        has_orphan = (
+            db.query(model.id)
             .filter(model.user_id == user_id, model.book_id.is_(None))
-            .update({model.book_id: target_id}, synchronize_session=False)
+            .first()
         )
-        if updated:
-            changed = True
+        if has_orphan is not None:
+            updated = (
+                db.query(model)
+                .filter(model.user_id == user_id, model.book_id.is_(None))
+                .update({model.book_id: target_id}, synchronize_session=False)
+            )
+            if updated:
+                changed = True
 
     if changed:
         db.commit()
