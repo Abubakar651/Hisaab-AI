@@ -312,12 +312,10 @@
     const signinBtn = document.getElementById('signin-header-btn');
     const accountBtn = document.getElementById('account-btn');
     const accountDropdown = document.getElementById('account-dropdown');
-    const activeEl = document.getElementById('active-user-display');
 
     if (signinBtn) signinBtn.classList.remove('hidden');
     if (accountBtn) accountBtn.classList.add('hidden');
     if (accountDropdown) accountDropdown.classList.add('hidden');
-    if (activeEl) activeEl.textContent = window.t ? window.t('header.guest') : 'Guest';
   }
 
   // Update header and dropdown UI
@@ -333,7 +331,6 @@
     const avatarEl = document.getElementById('user-avatar');
     const dropdownName = document.getElementById('dropdown-name');
     const dropdownSub = document.getElementById('dropdown-sub');
-    const activeUserDisplay = document.getElementById('active-user-display');
 
     // Switch buttons: hide generic "Sign In", reveal user account pill
     if (signinBtn) signinBtn.classList.add('hidden');
@@ -342,7 +339,6 @@
     if (nameEl) nameEl.textContent = name;
     if (dropdownName) dropdownName.textContent = name;
     if (dropdownSub) dropdownSub.textContent = email;
-    if (activeUserDisplay) activeUserDisplay.textContent = email;
 
     if (avatarEl) {
       avatarEl.textContent = '';

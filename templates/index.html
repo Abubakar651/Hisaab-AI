@@ -329,8 +329,7 @@
       <div id="book-switcher-wrap" class="book-switcher-wrap">
         <button id="book-switcher-btn" type="button" class="book-switcher-btn" aria-haspopup="true"
           aria-expanded="false" title="Switch Ledger Book">
-          <span id="book-type-icon" class="book-type-icon" aria-hidden="true">🏢</span>
-          <span id="active-book-label" class="book-switcher-label">My Business</span>
+          <span id="active-book-label" class="book-switcher-label" dir="auto">Business</span>
           <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-mut shrink-0"></i>
         </button>
         <div id="book-switcher-dropdown" class="book-dropdown-menu hidden" role="menu">
@@ -375,7 +374,6 @@
 
       <button id="lang-toggle-btn" class="lang-toggle-pill" role="button" aria-label="Toggle language"
         aria-pressed="false" title="Switch language / زبان تبدیل کریں">
-        <i data-lucide="globe" class="w-3.5 h-3.5 text-brass shrink-0"></i>
         <span class="lang-toggle-label flex items-center gap-0.5">
           <span class="lang-code-en">ENG</span>
           <span class="lang-code-sep">/</span>
@@ -431,23 +429,6 @@
     <!-- ========================================================================= -->
     <section id="chat-pane" class="pane-chat">
 
-      <!-- Chat Header -->
-      <div class="chat-subheader-bar px-5 py-2.5 border-b border-rule flex items-center justify-between gap-2 bg-s1">
-        <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-          <span class="w-2 h-2 rounded-full bg-brass animate-pulse shrink-0"></span>
-          <span class="chat-session-label text-mut font-ur flex items-center gap-1.5 min-w-0 overflow-hidden">
-            <span class="shrink-0" data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display"
-              class="font-bold text-tx font-mono truncate">—</span>
-          </span>
-        </div>
-        <button id="clear-chat-btn"
-          class="chat-clear-btn shrink-0 text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
-          data-i18n-title="chat.clear_screen" title="اسکرین صاف کریں">
-          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass shrink-0"></i> <span
-            data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
-        </button>
-      </div>
-
       <!-- Messages Scroll Feed -->
       <div id="messages-container" class="chat-messages-container">
 
@@ -455,21 +436,9 @@
         <div id="welcome-card" class="bubble-assistant welcome-bubble">
           <div class="welcome-title-row flex items-center gap-2 mb-2 text-brass">
             <i data-lucide="wallet" class="w-5 h-5 shrink-0"></i>
-            <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">السلام
-              علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
+            <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">حساب اے آئی میں خوش آمدید</strong>
           </div>
-          <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اپنے تمام
-            روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
-          <ul class="welcome-examples-list list-disc mt-2.5 space-y-2 text-tx font-ur text-base">
-            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" dir="rtl"
-                class="welcome-rtl-quote font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500
-                اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
-            <li><strong class="font-ur" data-i18n="chat.welcome_en">انگریزی:</strong> <span dir="ltr"
-                class="welcome-ltr-quote font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400
-                on weekly groceries and 1,200 on fuel"</span></li>
-            <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="welcome-ask-quote text-brass"
-                data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
-          </ul>
+          <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اردو یا انگریزی میں لکھ کر یا بول کر اپنے روزمرہ اخراجات باآسانی درج کریں</p>
         </div>
 
       </div>
@@ -516,10 +485,6 @@
             <i data-lucide="send" class="w-4 h-4"></i>
           </button>
         </form>
-        <p data-i18n="chat.tip" class="chat-tip-text text-xs text-mut text-center mt-2.5 font-ur">
-          ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا
-          ادویات)۔
-        </p>
       </div>
 
     </section>
@@ -534,13 +499,13 @@
         <div class="flex items-center gap-2 min-w-0">
           <span id="ledger-book-badge" class="book-type-pill book-badge-business font-ur"
             data-i18n="book.business_badge">کاروبار</span>
-          <span id="ledger-book-name" class="ledger-book-strip-name font-ur truncate">My Business</span>
+          <span id="ledger-book-name" class="ledger-book-strip-name font-ur truncate">Business</span>
         </div>
         <div class="book-quick-tabs" role="tablist" aria-label="Book mode">
           <button id="quick-tab-business" type="button" class="book-quick-tab active font-ur" data-book-type="business"
-            data-i18n="book.tab_business">🏢 کاروبار</button>
+            data-i18n="book.tab_business">کاروبار</button>
           <button id="quick-tab-personal" type="button" class="book-quick-tab font-ur" data-book-type="personal"
-            data-i18n="book.tab_personal">🏠 ذاتی</button>
+            data-i18n="book.tab_personal">ذاتی</button>
         </div>
       </div>
 
@@ -1094,7 +1059,7 @@
     </button>
     <button id="tab-dashboard" class="mobile-tab-btn">
       <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
-      <span data-i18n="tab.ledger">Live Ledger</span>
+      <span data-i18n="tab.ledger">Ledger</span>
     </button>
   </nav>
 

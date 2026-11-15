@@ -94,7 +94,6 @@ function getCurrentLang() {
 const elements = {};
 
 function initElements() {
-  elements.activeUserDisplay = document.getElementById('active-user-display');
   elements.chatForm = document.getElementById('chat-form');
   elements.messageInput = document.getElementById('message-input');
   elements.sendBtn = document.getElementById('send-btn');
@@ -104,7 +103,6 @@ function initElements() {
   elements.recordingTimer = document.getElementById('recording-timer');
   elements.cancelRecordingBtn = document.getElementById('cancel-recording-btn');
   elements.messagesContainer = document.getElementById('messages-container');
-  elements.clearChatBtn = document.getElementById('clear-chat-btn');
   elements.refreshDashboardBtn = document.getElementById('refresh-dashboard-btn');
   elements.kpiMonthlyTotal = document.getElementById('kpi-monthly-total');
   elements.kpiVisitCount = document.getElementById('kpi-visit-count');
@@ -162,9 +160,6 @@ function autosizeComposer(el) {
 // Initialize UI
 function initApp() {
   initElements();
-  if (elements.activeUserDisplay) {
-    elements.activeUserDisplay.textContent = state.userId || 'Guest';
-  }
 
   // Auto-resize textarea and auto-detect Nastaleeq script
   elements.messageInput.addEventListener('input', function () {
@@ -274,16 +269,6 @@ function bindEvents() {
   elements.micBtn.addEventListener('click', toggleRecording);
   elements.cancelRecordingBtn.addEventListener('click', cancelRecording);
 
-  // Clear Chat (preserve welcome card so chat feed is never a blank void)
-  elements.clearChatBtn.addEventListener('click', async () => {
-    clearChatMessagesPreservingWelcome();
-    state.chatHistory = [];
-    const fd = new FormData();
-    fd.append('user_id', state.userId);
-    authFetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
-    showToast(t('toast.chat_cleared'), 'info');
-  });
-
   // Mic Modal buttons
   if (elements.closeMicModalBtn) {
     elements.closeMicModalBtn.addEventListener('click', () => {
@@ -380,8 +365,6 @@ function updateAccountUI(account) {
       avatarBox.appendChild(span);
     }
   }
-
-  if (elements.activeUserDisplay) elements.activeUserDisplay.textContent = account.user_id;
 }
 
 function clearChatMessagesPreservingWelcome() {
@@ -1971,11 +1954,31 @@ function getHeaderBookLabel(book) {
   const isPersonal = book.book_type === 'personal';
   const isEn = getCurrentLang() === 'en';
   if (!raw) return isPersonal ? t('book.personal_badge') : t('book.business_badge');
-  if (raw === 'کاروبار / My Business' || (book.is_default && raw.includes('کاروبار') && raw.includes('My Business'))) {
-    return isEn ? 'My Business' : 'کاروبار';
+  if (
+    raw === 'کاروبار / My Business' ||
+    raw === 'My Business' ||
+    raw === 'Business' ||
+    raw === 'کاروبار' ||
+    (book.is_default && raw.includes('کاروبار') && raw.includes('My Business'))
+  ) {
+    return isEn ? 'Business' : 'کاروبار';
   }
-  if (raw === 'ذاتی حساب / Personal' || (raw.includes('ذاتی حساب') && raw.includes('Personal'))) {
+  if (
+    raw === 'ذاتی حساب / Personal' ||
+    raw === 'Personal' ||
+    raw === 'ذاتی حساب' ||
+    raw === 'ذاتی' ||
+    (raw.includes('ذاتی حساب') && raw.includes('Personal'))
+  ) {
     return isEn ? 'Personal' : 'ذاتی حساب';
+  }
+  if (raw.includes(' / ')) {
+    const parts = raw.split(' / ').map(s => s.trim()).filter(Boolean);
+    if (parts.length === 2) {
+      const urPart = parts.find(p => isUrduScript(p)) || parts[0];
+      const enPart = parts.find(p => !isUrduScript(p)) || parts[1];
+      return isEn ? (enPart === 'My Business' ? 'Business' : enPart) : urPart;
+    }
   }
   return raw;
 }
@@ -1986,10 +1989,14 @@ function renderBookSwitcher() {
     || { id: null, name: state.activeBookType === 'personal' ? t('book.personal_badge') : t('book.business_badge'), book_type: state.activeBookType || 'business' };
 
   const isPersonal = activeBook.book_type === 'personal';
-  const typeIconEl = document.getElementById('book-type-icon');
   const labelEl = document.getElementById('active-book-label');
-  if (typeIconEl) typeIconEl.textContent = isPersonal ? '🏠' : '🏢';
-  if (labelEl) labelEl.textContent = getHeaderBookLabel(activeBook);
+  if (labelEl) {
+    const headerLabel = getHeaderBookLabel(activeBook);
+    labelEl.textContent = headerLabel;
+    labelEl.setAttribute('dir', isUrduScript(headerLabel) ? 'rtl' : 'ltr');
+    labelEl.setAttribute('title', headerLabel);
+  }
+  syncBookSwitcherMaxWidth();
 
   const pane = elements.dashboardPane || document.getElementById('dashboard-pane');
   if (pane) {
@@ -2006,7 +2013,7 @@ function renderBookSwitcher() {
     stripBadge.classList.toggle('book-badge-business', !isPersonal);
   }
   if (stripName) {
-    stripName.textContent = activeBook.name || '';
+    stripName.textContent = getHeaderBookLabel(activeBook);
   }
 
   const quickBiz = document.getElementById('quick-tab-business');
@@ -2020,14 +2027,14 @@ function renderBookSwitcher() {
     (state.books || []).forEach(book => {
       const isCurr = Number(book.id) === Number(state.activeBookId);
       const isBookPersonal = book.book_type === 'personal';
+      const displayLabel = getHeaderBookLabel(book);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `book-option-btn${isCurr ? ' active' : ''}`;
       btn.setAttribute('role', 'menuitem');
       btn.innerHTML = `
             <span class="flex items-center gap-2 min-w-0">
-              <span class="shrink-0">${isBookPersonal ? '🏠' : '🏢'}</span>
-              <span class="truncate font-medium">${escapeHtml(book.name)}</span>
+              <span class="truncate font-medium">${escapeHtml(displayLabel)}</span>
             </span>
             <span class="flex items-center gap-1.5 shrink-0">
               <span class="book-type-pill ${isBookPersonal ? 'book-badge-personal' : 'book-badge-business'}">${escapeHtml(isBookPersonal ? t('book.personal_badge') : t('book.business_badge'))}</span>
@@ -2040,6 +2047,28 @@ function renderBookSwitcher() {
     if (window.lucide) lucide.createIcons();
   }
 }
+
+function syncBookSwitcherMaxWidth() {
+  const switcherBtn = document.getElementById('book-switcher-btn');
+  const logoEl = document.querySelector('.app-logo');
+  const headerRight = document.querySelector('.app-header-right');
+  if (!switcherBtn || !logoEl || !headerRight) return;
+
+  const viewSwitcher = document.getElementById('desktop-view-switcher');
+  const viewSwitcherVisible = viewSwitcher && window.getComputedStyle(viewSwitcher).display !== 'none';
+  const rightBoundaryEl = viewSwitcherVisible ? viewSwitcher : headerRight;
+
+  const logoRect = logoEl.getBoundingClientRect();
+  const rightRect = rightBoundaryEl.getBoundingClientRect();
+  if (!logoRect.width || !rightRect.width) return;
+
+  // Leave a clean 22px buffer (gap after logo + gap before theme toggle / center switcher)
+  const available = Math.floor(rightRect.left - logoRect.right - 22);
+  const capped = Math.max(68, Math.min(available, 200));
+  switcherBtn.style.setProperty('max-width', `${capped}px`, 'important');
+}
+
+window.addEventListener('resize', syncBookSwitcherMaxWidth);
 
 async function fetchBooks() {
   if (!state.userId) return;
@@ -2068,7 +2097,7 @@ function switchBook(bookId, silent = false) {
 
   fetchDashboard();
   if (!silent) {
-    showToast(`${t('toast.book_switched')}: ${target.name}`, 'info');
+    showToast(`${t('toast.book_switched')}: ${getHeaderBookLabel(target)}`, 'info');
   }
 }
 

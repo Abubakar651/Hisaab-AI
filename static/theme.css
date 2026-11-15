@@ -136,11 +136,6 @@ html.light .pane-chat {
   background-color: #f3f8f7;
 }
 
-html.light .chat-subheader-bar {
-  background-color: #ffffff !important;
-  border-bottom-color: #c5dbd7 !important;
-}
-
 html.light .chat-composer-box {
   background-color: #ffffff !important;
   border-top-color: #c5dbd7 !important;
@@ -362,7 +357,6 @@ body,
 .app-header,
 .pane-chat,
 .pane-ledger,
-.chat-subheader-bar,
 .chat-composer-box,
 .mobile-tab-bar,
 .bubble-user,
@@ -593,18 +587,33 @@ html[lang="ur"] .bubble-user[dir="rtl"] *,
   font-family: var(--ur) !important;
 }
 
-/* App header and its buttons strictly keep Figtree English font and LTR geometry */
+/* App header keeps LTR geometry; Urdu labels in header use Nastaleeq at readable size */
 html[lang="ur"] .app-header,
-html[lang="ur"] .app-header *,
-html[lang="ur"] .app-header [data-i18n],
-html[lang="ur"] .app-header button,
-html[lang="ur"] .view-switcher-bar,
-html[lang="ur"] .view-switcher-bar *,
 html[lang="ur"] #theme-toggle-btn,
-html[lang="ur"] #lang-toggle-btn,
-html[lang="ur"] #signin-header-btn,
-html[lang="ur"] #account-btn {
+html[lang="ur"] #account-btn,
+html[lang="ur"] .app-logo-text,
+html[lang="ur"] .lang-code-en {
   font-family: var(--ui) !important;
+}
+
+html[lang="ur"] .book-switcher-btn,
+html[lang="ur"] .view-pill-btn,
+html[lang="ur"] .header-signin-btn,
+html[lang="ur"] .book-dropdown-menu [data-i18n],
+html[lang="ur"] .account-dropdown-menu [data-i18n] {
+  font-family: var(--ur), var(--ui) !important;
+  font-size: 16px !important;
+  line-height: 1.45 !important;
+}
+
+html[lang="ur"] .view-pill-btn,
+html[lang="ur"] .header-signin-btn {
+  font-size: 15.5px !important;
+}
+
+html[lang="ur"] .lang-code-ur {
+  font-size: 17px !important;
+  line-height: 1.2 !important;
 }
 
 /* Never italicize Nastaliq script — preserve authentic calligraphy geometry */
@@ -641,72 +650,6 @@ html[lang="en"] .bubble-assistant [dir="rtl"] {
   font-size: 18.5px !important;
   word-spacing: 2.2px !important;
   letter-spacing: 0.2px !important;
-}
-
-/* Zero-Shift Chat Subheader Bar (Locked 48px Height in Both UR & EN) */
-.chat-subheader-bar {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  height: 48px !important;
-  min-height: 48px !important;
-  max-height: 48px !important;
-  padding: 0 20px !important;
-  direction: ltr !important;
-  box-sizing: border-box !important;
-}
-
-.chat-session-label {
-  direction: ltr !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  line-height: 1 !important;
-}
-
-html[lang="ur"] .chat-session-label [data-i18n="chat.active_session"] {
-  font-family: var(--ur) !important;
-  font-size: 16px !important;
-  line-height: 1 !important;
-}
-
-html[lang="en"] .chat-session-label [data-i18n="chat.active_session"] {
-  font-family: var(--ui) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  line-height: 1 !important;
-}
-
-#active-user-display {
-  font-family: var(--ui) !important;
-  font-size: 13px !important;
-  line-height: 1 !important;
-}
-
-.chat-clear-btn {
-  height: 34px !important;
-  min-height: 34px !important;
-  max-height: 34px !important;
-  padding: 0 12px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-  border-radius: 8px !important;
-  box-sizing: border-box !important;
-}
-
-html[lang="en"] .chat-clear-btn {
-  font-family: var(--ui) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  line-height: 1 !important;
-}
-
-html[lang="ur"] .chat-clear-btn {
-  font-family: var(--ur) !important;
-  font-size: 15.5px !important;
-  line-height: 1 !important;
 }
 
 /* Zero-Shift Composer Input (Locked 48px Base Height in Both UR & EN) */
@@ -804,46 +747,19 @@ html[lang="ur"] .prompt-chip {
   padding: 0 16px !important;
 }
 
-/* Zero-Shift Tip Footer (Locked 38px Height in Both UR & EN) */
-.chat-tip-text {
-  height: 38px !important;
-  min-height: 38px !important;
-  max-height: 38px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  margin-top: 6px !important;
-  margin-bottom: 0 !important;
-  overflow: hidden !important;
-}
-
-html[lang="en"] .chat-tip-text {
-  font-family: var(--ui) !important;
-  font-size: 12px !important;
-  line-height: 1.35 !important;
-  text-align: center !important;
-  direction: ltr !important;
-}
-
-html[lang="ur"] .chat-tip-text {
-  font-family: var(--ur) !important;
-  font-size: 14px !important;
-  line-height: 1.35 !important;
-  text-align: center !important;
-  direction: rtl !important;
-}
-
 /* Welcome Card & Chat Bubble Multi-Script Harmony */
 html[lang="en"] .chat-welcome-title {
   font-family: var(--ui) !important;
-  font-size: 17px !important;
+  font-size: 20px !important;
   line-height: 1.4 !important;
 }
 
 html[lang="ur"] .chat-welcome-title {
   font-family: var(--ur) !important;
-  font-size: 19.5px !important;
+  font-size: 25px !important;
   line-height: 1.9 !important;
+  direction: rtl !important;
+  text-align: right !important;
 }
 
 .welcome-bubble {
@@ -860,7 +776,12 @@ html[lang="ur"] .chat-welcome-title {
   direction: ltr !important;
 }
 
+html[lang="ur"] .welcome-title-row {
+  direction: rtl !important;
+}
+
 html[lang="ur"] .welcome-bubble {
+  direction: rtl !important;
   text-align: right !important;
 }
 
@@ -869,47 +790,20 @@ html[lang="en"] .welcome-bubble {
   text-align: left !important;
 }
 
-.welcome-examples-list {
-  padding-inline-start: 22px !important;
-  padding-inline-end: 6px !important;
-  margin-top: 10px !important;
-}
-
-html[lang="ur"] .welcome-examples-list li,
 html[lang="ur"] .welcome-sub-text {
   font-family: var(--ur) !important;
-  font-size: 18px !important;
+  font-size: 20px !important;
   line-height: 2.05 !important;
   direction: rtl !important;
   text-align: right !important;
 }
 
-html[lang="en"] .welcome-examples-list li,
 html[lang="en"] .welcome-sub-text {
   font-family: var(--ui) !important;
-  font-size: 14.5px !important;
+  font-size: 15.5px !important;
   line-height: 1.65 !important;
   direction: ltr !important;
   text-align: left !important;
-}
-
-.welcome-examples-list span[lang="ur"],
-.welcome-rtl-quote {
-  font-family: var(--ur) !important;
-  font-size: 18px !important;
-  line-height: 1.95 !important;
-  direction: rtl !important;
-  unicode-bidi: isolate !important;
-  display: inline;
-}
-
-.welcome-ltr-quote {
-  font-family: var(--ui) !important;
-  font-size: 14.5px !important;
-  line-height: 1.5 !important;
-  direction: ltr !important;
-  unicode-bidi: isolate !important;
-  display: inline-block;
 }
 
 @media (max-width: 639px) {
@@ -924,24 +818,21 @@ html[lang="en"] .welcome-sub-text {
   }
 
   html[lang="ur"] .chat-welcome-title {
-    font-size: 18px !important;
+    font-size: 22px !important;
     line-height: 1.75 !important;
   }
 
-  html[lang="ur"] .welcome-examples-list li,
-  html[lang="ur"] .welcome-sub-text,
-  .welcome-examples-list span[lang="ur"],
-  .welcome-rtl-quote {
-    font-size: 16.5px !important;
-    line-height: 1.8 !important;
+  html[lang="ur"] .welcome-sub-text {
+    font-size: 18.5px !important;
+    line-height: 1.85 !important;
   }
 
-  .welcome-examples-list {
-    margin-top: 6px !important;
+  html[lang="en"] .chat-welcome-title {
+    font-size: 18px !important;
   }
 
-  .welcome-examples-list>li+li {
-    margin-top: 4px !important;
+  html[lang="en"] .welcome-sub-text {
+    font-size: 14.5px !important;
   }
 }
 
@@ -1257,6 +1148,7 @@ select:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding-left: 20px;
   padding-right: 20px;
   flex-shrink: 0;
@@ -1269,6 +1161,7 @@ select:focus-visible {
   gap: 10px;
   text-decoration: none;
   color: var(--tx);
+  flex-shrink: 0;
 }
 
 .app-logo-icon {
@@ -1296,6 +1189,7 @@ select:focus-visible {
   align-items: center;
   gap: 12px;
   position: relative;
+  flex-shrink: 0;
 }
 
 /* Circular Header Icon Button (Theme toggle & mobile controls) */
@@ -3083,6 +2977,14 @@ html[lang="ur"] #auth-modal #google-signin-btn {
     flex-shrink: 0 !important;
   }
 
+  html[lang="ur"] .book-switcher-btn {
+    font-size: 15px !important;
+  }
+
+  html[lang="ur"] .lang-code-ur {
+    font-size: 15.5px !important;
+  }
+
   .header-icon-btn {
     width: 32px !important;
     height: 32px !important;
@@ -3097,21 +2999,6 @@ html[lang="ur"] #auth-modal #google-signin-btn {
     justify-content: center !important;
     gap: 0 !important;
     flex-shrink: 0 !important;
-  }
-
-  .chat-subheader-bar {
-    padding: 0 12px !important;
-  }
-
-  #active-user-display {
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chat-clear-btn {
-    padding: 0 8px !important;
   }
 
   .pane-ledger {
@@ -3307,13 +3194,18 @@ html[lang="ur"] .toast-stack span {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 0%;
   min-width: 0;
   position: relative;
 }
 
 .book-switcher-wrap {
   position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
 }
 
 .book-switcher-btn {
@@ -3331,7 +3223,11 @@ html[lang="ur"] .toast-stack span {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 190px;
+  overflow: hidden;
   white-space: nowrap;
   transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -3346,10 +3242,26 @@ html[lang="ur"] .toast-stack span {
 }
 
 .book-switcher-label {
+  display: block;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  max-width: 100%;
+  text-align: start !important;
+}
+
+.book-switcher-label[dir="ltr"] {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+.book-switcher-label[dir="rtl"],
+html[lang="ur"] .app-header .book-switcher-label[dir="rtl"] {
+  font-family: var(--ur), var(--ui) !important;
+  direction: rtl !important;
+  text-align: right !important;
 }
 
 .book-type-icon {
@@ -3692,7 +3604,7 @@ html[lang="ur"] .udhaar-filter-tab {
 /* Mobile 390px Viewport Narrow Breakpoint */
 @media (max-width: 420px) {
   .app-header-left {
-    flex: 1 1 auto !important;
+    flex: 1 1 0% !important;
     min-width: 0 !important;
     gap: 4px !important;
   }
@@ -3708,7 +3620,8 @@ html[lang="ur"] .udhaar-filter-tab {
 
   .book-switcher-wrap {
     min-width: 0 !important;
-    flex: 1 1 auto !important;
+    flex: 0 1 auto !important;
+    max-width: 100% !important;
   }
 
   .book-switcher-btn {

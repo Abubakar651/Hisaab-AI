@@ -457,7 +457,7 @@ def test_polish_compact_header_book_label_and_party_section_rules():
         html = f.read()
 
     assert "function getHeaderBookLabel(" in app_js
-    assert "return isEn ? 'My Business' : 'کاروبار';" in app_js
+    assert "return isEn ? 'Business' : 'کاروبار';" in app_js
     assert "document.querySelectorAll('.party-ledger-filter-tab')" in app_js
     assert "section-parties" in css and "book-mode-personal" in css
     assert 'id="party-ledger-filter-tabs"' in html

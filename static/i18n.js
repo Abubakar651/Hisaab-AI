@@ -30,19 +30,11 @@
 
       // Mobile Tabs
       'tab.chat': 'چیٹ اور آواز',
-      'tab.ledger': 'لائیو کھاتہ',
+      'tab.ledger': 'کھاتہ',
 
       // Chat Pane
-      'chat.active_session': 'ایکٹو سیشن:',
-      'chat.clear_screen': 'اسکرین صاف کریں',
-      'chat.welcome_title': 'السلام علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔',
-      'chat.welcome_sub': 'اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:',
-      'chat.welcome_ur': 'اردو:',
-      'chat.welcome_ur_eg': '"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"',
-      'chat.welcome_en': 'انگریزی:',
-      'chat.welcome_en_eg': '"Spent 3,400 on weekly groceries and 1,200 on fuel"',
-      'chat.welcome_ask': 'حساب پوچھیں:',
-      'chat.welcome_ask_eg': '"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"',
+      'chat.welcome_title': 'حساب اے آئی میں خوش آمدید',
+      'chat.welcome_sub': 'اردو یا انگریزی میں لکھ کر یا بول کر اپنے روزمرہ اخراجات باآسانی درج کریں',
       'chat.chip_month': 'اس مہینے کا خرچہ',
       'chat.chip_month_prompt': 'اس مہینے کا میرا کل خرچہ کتنا ہے؟',
       'chat.chip_3days': 'پچھلے ۳ دن',
@@ -59,7 +51,6 @@
       'chat.cancel': 'منسوخ کریں',
       'chat.placeholder': 'اردو یا انگریزی میں بولیں یا لکھیں...',
       'chat.transcribing_placeholder': 'آواز تحریر میں تبدیل ہو رہی ہے...',
-      'chat.tip': 'ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا ادویات)۔',
       'chat.loading': 'حساب کتاب دیکھا جا رہا ہے...',
       'chat.voice_tag': 'وائس نوٹ، تحریر شدہ',
       'chat.error_network': 'سرور سے رابطہ نہیں ہو سکا۔ انٹرنیٹ کنکشن چیک کریں اور دوبارہ کوشش کریں۔',
@@ -162,7 +153,6 @@
       'mic.retry': 'دوبارہ کوشش',
 
       // Toasts
-      'toast.chat_cleared': 'اسکرین سے چیٹ صاف کر دی گئی',
       'toast.ledger_refreshed': 'کھاتہ تازہ کر دیا گیا',
       'toast.csv_downloaded': 'CSV فائل ڈاؤن لوڈ ہو گئی',
       'toast.mic_transcribing': 'آواز تحریر میں تبدیل ہو رہی ہے...',
@@ -208,8 +198,8 @@
       'book.switcher_title': 'کھاتہ منتخب کریں',
       'book.business_badge': 'کاروبار',
       'book.personal_badge': 'ذاتی',
-      'book.tab_business': '🏢 کاروبار',
-      'book.tab_personal': '🏠 ذاتی',
+      'book.tab_business': 'کاروبار',
+      'book.tab_personal': 'ذاتی',
       'book.create_new': 'نیا کھاتہ بنائیں',
       'book.modal_title': 'نیا کھاتہ / رجسٹر بنائیں',
       'book.modal_subtitle': 'کاروباری اور ذاتی حساب علیحدہ رکھیں',
@@ -325,19 +315,11 @@
 
       // Mobile Tabs
       'tab.chat': 'Chat & Voice',
-      'tab.ledger': 'Live Ledger',
+      'tab.ledger': 'Ledger',
 
       // Chat Pane
-      'chat.active_session': 'Active Session:',
-      'chat.clear_screen': 'Clear Screen',
-      'chat.welcome_title': 'Welcome to HisaabAI!',
-      'chat.welcome_sub': 'Track your daily expenses easily by speaking or typing:',
-      'chat.welcome_ur': 'Urdu:',
-      'chat.welcome_ur_eg': '"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"',
-      'chat.welcome_en': 'English:',
-      'chat.welcome_en_eg': '"Spent 3,400 on weekly groceries and 1,200 on fuel"',
-      'chat.welcome_ask': 'Ask your ledger:',
-      'chat.welcome_ask_eg': '"What is my total spend this month?", "How much on groceries?"',
+      'chat.welcome_title': 'Welcome to Hisaab AI',
+      'chat.welcome_sub': 'Track your daily expenses easily by typing or speaking in Urdu or English',
       'chat.chip_month': 'This month\'s spend',
       'chat.chip_month_prompt': 'What is my total spend this month?',
       'chat.chip_3days': 'Last 3 days',
@@ -354,7 +336,6 @@
       'chat.cancel': 'Cancel',
       'chat.placeholder': 'Speak or type in Urdu or English...',
       'chat.transcribing_placeholder': 'Converting speech to text...',
-      'chat.tip': 'Tip: Speak or type expenses from any store, market or bill (e.g. groceries, fuel, dining, electricity, healthcare).',
       'chat.loading': 'Calculating ledger...',
       'chat.voice_tag': 'Voice note, transcribed',
       'chat.error_network': 'Unable to connect to server. Please check your internet connection and try again.',
@@ -457,7 +438,6 @@
       'mic.retry': 'Retry',
 
       // Toasts
-      'toast.chat_cleared': 'Chat history cleared from view',
       'toast.ledger_refreshed': 'Ledger refreshed',
       'toast.csv_downloaded': 'CSV export downloaded',
       'toast.mic_transcribing': 'Converting speech to text...',
@@ -503,8 +483,8 @@
       'book.switcher_title': 'Select Ledger',
       'book.business_badge': 'Business',
       'book.personal_badge': 'Personal',
-      'book.tab_business': '🏢 Business',
-      'book.tab_personal': '🏠 Personal',
+      'book.tab_business': 'Business',
+      'book.tab_personal': 'Personal',
       'book.create_new': 'Create New Book',
       'book.modal_title': 'Create New Ledger Book',
       'book.modal_subtitle': 'Keep business & personal records separated',
