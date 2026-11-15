@@ -627,3 +627,20 @@ def test_sentry_disabled_in_test_environment():
         src = f.read()
 
     assert 'if SENTRY_DSN and APP_ENV != "test" and "pytest" not in sys.modules:' in src
+
+
+def test_jameel_noori_urdu_font_preserved_in_english_mode():
+    """Verify Jameel Noori Nastaleeq applies to Urdu text even when UI is switched to English."""
+    root = os.path.dirname(os.path.dirname(__file__))
+    with open(os.path.join(root, "static", "theme.css"), "r", encoding="utf-8") as f:
+        css = f.read()
+    with open(os.path.join(root, "static", "app.js"), "r", encoding="utf-8") as f:
+        app_js = f.read()
+
+    assert "font-family: 'Jameel Noori Urdu Script';" in css
+    assert "unicode-range: U+0600-06FF" in css
+    assert "font-weight: 100 900;" in css
+    assert '--ui: "Figtree", "Jameel Noori Urdu Script"' in css
+    assert '--num: "Fraunces", "Jameel Noori Urdu Script"' in css
+    assert "html[lang=\"en\"] .font-ur:not([lang=\"ur\"]):not([dir=\"rtl\"]):not(.has-urdu):not(.font-nastaleeq)" in css
+    assert 'dir="rtl" lang="ur"' in app_js

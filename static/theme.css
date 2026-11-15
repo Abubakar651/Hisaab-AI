@@ -11,7 +11,7 @@
     url('/static/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
     url('https://cdn.jsdelivr.net/npm/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
     url('https://unpkg.com/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2');
-  font-weight: normal;
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -24,9 +24,24 @@
     url('/static/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
     url('https://cdn.jsdelivr.net/npm/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
     url('https://unpkg.com/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2');
-  font-weight: normal;
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
+}
+
+/* Arabic/Urdu Unicode-scoped Nastaleeq fallback so Urdu characters keep Jameel Noori Nastaleeq even inside --ui / --num in ENG mode */
+@font-face {
+  font-family: 'Jameel Noori Urdu Script';
+  src: local('Jameel Noori Nastaleeq'),
+    local('Jameel Noori Nastaliq'),
+    local('Noori Nastaleeq'),
+    url('/static/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
+    url('https://cdn.jsdelivr.net/npm/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2'),
+    url('https://unpkg.com/jameel-noori/fonts/jameel-noori-nastaleeq4.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F;
 }
 
 :root {
@@ -54,8 +69,8 @@
   /* Amber 400 warning */
   --bad: #f87171;
   /* Coral-Red 400 error / over-budget */
-  --ui: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --num: "Fraunces", Georgia, serif;
+  --ui: "Figtree", "Jameel Noori Urdu Script", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --num: "Fraunces", "Jameel Noori Urdu Script", Georgia, serif;
   --ur: "Jameel Noori Nastaleeq", "Noori Nastaleeq", "JameelNooriNastaliq", "Noto Nastaliq Urdu", serif;
   color-scheme: dark;
 }
@@ -579,18 +594,38 @@ html[lang="ur"] #account-btn {
 
 /* Never italicize Nastaliq script — preserve authentic calligraphy geometry */
 html[lang="ur"] *,
-[lang="ur"] {
+[lang="ur"],
+.has-urdu,
+.has-urdu * {
   font-style: normal !important;
 }
 
-html[lang="en"] .font-ur:not([lang="ur"]),
-html[lang="en"] .font-nastaleeq:not([lang="ur"]) {
+html[lang="en"] .font-ur:not([lang="ur"]):not([dir="rtl"]):not(.has-urdu):not(.font-nastaleeq),
+html[lang="en"] .font-nastaleeq:not([lang="ur"]):not([dir="rtl"]):not(.has-urdu) {
   font-family: var(--ui) !important;
   line-height: 1.5 !important;
   letter-spacing: normal !important;
   word-spacing: normal !important;
   direction: ltr !important;
   text-align: left !important;
+}
+
+html[lang="en"] .bubble-assistant.has-urdu .prose,
+html[lang="en"] .bubble-user.has-urdu p {
+  font-family: var(--ur) !important;
+}
+
+html[lang="en"] .bubble-user.has-urdu .font-nastaleeq,
+html[lang="en"] .bubble-assistant.has-urdu .font-nastaleeq,
+html[lang="en"] .bubble-user [dir="rtl"],
+html[lang="en"] .bubble-assistant [dir="rtl"] {
+  font-family: var(--ur) !important;
+  direction: rtl !important;
+  text-align: right !important;
+  line-height: 2.15 !important;
+  font-size: 18.5px !important;
+  word-spacing: 2.2px !important;
+  letter-spacing: 0.2px !important;
 }
 
 /* Zero-Shift Chat Subheader Bar (Locked 48px Height in Both UR & EN) */
