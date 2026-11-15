@@ -894,7 +894,7 @@ function appendUserMessage(text, voiceSubtext) {
   const isUrdu = isUrduScript(text);
   if (isUrdu) wrapper.classList.add('has-urdu');
   const nastaleeqClass = isUrdu ? 'font-ur font-nastaleeq' : 'text-sm sm:text-base leading-relaxed';
-  const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
+  const dirAttr = isUrdu ? 'dir="rtl" lang="ur"' : 'dir="ltr"';
 
   let innerContent = `<p class="whitespace-pre-wrap ${nastaleeqClass}" ${dirAttr}>${escapeHtml(text)}</p>`;
   if (voiceSubtext) {
@@ -919,7 +919,7 @@ function appendAssistantMessage(markdownContent) {
   const isUrdu = isUrduScript(markdownContent);
   if (isUrdu) wrapper.classList.add('has-urdu');
   const nastaleeqClass = isUrdu ? 'font-ur font-nastaleeq' : 'text-sm sm:text-base leading-relaxed';
-  const dirAttr = isUrdu ? 'dir="rtl"' : 'dir="ltr"';
+  const dirAttr = isUrdu ? 'dir="rtl" lang="ur"' : 'dir="ltr"';
   const parsedHtml = DOMPurify.sanitize(marked.parse(markdownContent || ''));
 
   wrapper.innerHTML = `

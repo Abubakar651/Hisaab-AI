@@ -445,7 +445,7 @@ def test_sw_js_every_respond_with_has_safe_response_fallback():
     with open("static/sw.js", "r", encoding="utf-8") as f:
         sw = f.read()
 
-    assert "CACHE = 'hisaabai-shell-v27'" in sw
+    assert "CACHE = 'hisaabai-shell-v28'" in sw
     assert "function safeOfflineResponse()" in sw
     assert "new Response(" in sw and ("status: 503" in sw or "status: 504" in sw)
     assert "ignoreSearch: true" in sw
