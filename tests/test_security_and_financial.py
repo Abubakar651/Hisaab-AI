@@ -1689,6 +1689,127 @@ def test_update_last_expense_tool(db):
     assert items[0].price == 5500.0
 
 
+def test_multi_book_crud_idor_and_strict_math_isolation(client, auth_headers, db):
+    """
+    Verifies:
+    1. Auto-provisioning Business & Personal default books via /api/books/{user_id}.
+    2. Creating, listing, renaming, and deleting custom books via /api/books endpoints.
+    3. Cross-tenant IDOR protection: Bob cannot read, modify, delete, or move Alice's books/transactions.
+    4. Strict book-scoped financial math: Personal expenses do NOT leak into Business Galla/Udhaar,
+       and 1-tap move-book transfers transactions cleanly between books.
+    """
+    from database import Book
+
+    headers_alice = auth_headers("alice")
+    headers_bob = auth_headers("bob")
+
+    # 1. Default book provisioning
+    r_books = client.get("/api/books/alice", headers=headers_alice)
+    assert r_books.status_code == 200
+    books_data = r_books.json()
+    assert len(books_data["books"]) >= 2
+    biz_book = next(b for b in books_data["books"] if b["book_type"] == "business")
+    pers_book = next(b for b in books_data["books"] if b["book_type"] == "personal")
+
+    # 2. Create custom Business book
+    r_create = client.post(
+        "/api/books",
+        data={"user_id": "alice", "name": "Marble Godown", "book_type": "business"},
+        headers=headers_alice,
+    )
+    assert r_create.status_code == 200
+    custom_book = r_create.json()["book"]
+    assert custom_book["name"] == "Marble Godown"
+
+    # 3. IDOR checks from Bob against Alice
+    assert client.get("/api/books/alice", headers=headers_bob).status_code == 403
+    assert client.patch(f"/api/books/alice/{custom_book['id']}", data={"name": "Hacked"}, headers=headers_bob).status_code == 403
+    assert client.delete(f"/api/books/alice/{custom_book['id']}", headers=headers_bob).status_code == 403
+    assert client.get(f"/api/transactions/bob?book_id={biz_book['id']}", headers=headers_bob).status_code == 404
+
+    # 4. Log isolated Business & Personal activity directly scoped to respective books
+    tmap_pers = {t.name: t for t in get_tools_for_user("alice", book_id=pers_book["id"], active_book_type="personal")}
+    res_pers_tx = json.loads(
+        tmap_pers["log_expense"].invoke({
+            "store_name": "local store",
+            "total_amount": 4000.0,
+            "items": "آٹا: 2500, چینی: 1500",
+            "payment_method": "cash",
+        })
+    )
+    assert res_pers_tx["status"] == "success"
+    pers_tx_id = res_pers_tx["transaction_id"]
+
+    tmap_biz = {t.name: t for t in get_tools_for_user("alice", book_id=biz_book["id"], active_book_type="business")}
+    res_biz_sale = json.loads(
+        tmap_biz["log_sale"].invoke({
+            "total_amount": 20000.0,
+            "payment_method": "cash",
+            "customer_or_note": "3000 فٹ بلیک ماربل",
+        })
+    )
+    assert res_biz_sale["status"] == "success"
+
+    res_biz_exp = json.loads(
+        tmap_biz["log_expense"].invoke({
+            "store_name": "Shop Loader",
+            "total_amount": 5000.0,
+            "items": "Diesel: 5000",
+            "payment_method": "cash",
+        })
+    )
+    assert res_biz_exp["status"] == "success"
+
+    r_udhaar = client.post(
+        "/api/udhaar",
+        data={"user_id": "alice", "book_id": str(biz_book["id"]), "person_name": "Kamran", "amount": "3000", "direction": "receivable"},
+        headers=headers_alice,
+    )
+    assert r_udhaar.status_code == 200
+
+    # Verify Business book math does NOT include Personal PKR 4,000 expense
+    r_dash_biz = client.get(f"/api/transactions/alice?book_id={biz_book['id']}", headers=headers_alice)
+    assert r_dash_biz.status_code == 200
+    dash_biz = r_dash_biz.json()
+    assert dash_biz["galla"]["today_sales_pkr"] == 20000.0
+    assert dash_biz["galla"]["today_expenses_pkr"] == 5000.0
+    assert dash_biz["galla"]["today_net_pkr"] == 15000.0
+    assert dash_biz["udhaar"]["total_receivable_pkr"] == 3000.0
+    assert all(tx["id"] != pers_tx_id for tx in dash_biz["recent_transactions"])
+
+    # Verify Personal book math does NOT include Business sale/expense/udhaar
+    r_dash_pers = client.get(f"/api/transactions/alice?book_id={pers_book['id']}", headers=headers_alice)
+    assert r_dash_pers.status_code == 200
+    dash_pers = r_dash_pers.json()
+    assert dash_pers["monthly_total"] == 4000.0
+    assert dash_pers["udhaar"]["open_entries"] == []
+    assert [tx["id"] for tx in dash_pers["recent_transactions"]] == [pers_tx_id]
+    assert "آٹا" in (dash_pers["recent_transactions"][0]["display_title"] or "")
+
+    # 5. IDOR on move-book + legitimate move-book recalculates Business Galla cleanly
+    assert client.post(
+        f"/api/transactions/bob/{pers_tx_id}/move-book",
+        data={"target_book_id": str(biz_book["id"])},
+        headers=headers_bob,
+    ).status_code == 404
+
+    r_move = client.post(
+        f"/api/transactions/alice/{pers_tx_id}/move-book",
+        data={"target_book_id": str(biz_book["id"])},
+        headers=headers_alice,
+    )
+    assert r_move.status_code == 200
+    r_dash_biz_after = client.get(f"/api/transactions/alice?book_id={biz_book['id']}", headers=headers_alice).json()
+    assert r_dash_biz_after["galla"]["today_expenses_pkr"] == 9000.0
+    assert r_dash_biz_after["galla"]["today_net_pkr"] == 11000.0
+
+    # 6. Soft-delete custom book
+    r_del = client.delete(f"/api/books/alice/{custom_book['id']}", headers=headers_alice)
+    assert r_del.status_code == 200
+    db_row = db.query(Book).filter(Book.id == custom_book["id"]).first()
+    assert db_row.deleted_at is not None
+
+
 
 
 

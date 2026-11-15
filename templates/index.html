@@ -3,7 +3,8 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <title>HisaabAI — Voice & Text Expense Ledger</title>
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
@@ -115,8 +116,10 @@
 
       <!-- Actions -->
       <div class="flex gap-2 justify-end">
-        <button id="dismiss-mic-modal-btn" class="btn-outlined-s2 text-xs py-1.5 px-3 w-auto min-h-0" data-i18n="mic.dismiss">Dismiss</button>
-        <button id="retry-mic-btn" class="btn-primary-brass text-xs py-1.5 px-3 w-auto min-h-0" data-i18n="mic.retry">Retry</button>
+        <button id="dismiss-mic-modal-btn" class="btn-outlined-s2 text-xs py-1.5 px-3 w-auto min-h-0"
+          data-i18n="mic.dismiss">Dismiss</button>
+        <button id="retry-mic-btn" class="btn-primary-brass text-xs py-1.5 px-3 w-auto min-h-0"
+          data-i18n="mic.retry">Retry</button>
       </div>
     </div>
   </div>
@@ -136,7 +139,8 @@
           <i data-lucide="shield-check" class="w-5 h-5"></i>
         </div>
         <div>
-          <h3 id="auth-modal-title" class="modal-title text-base sm:text-lg" data-i18n="auth.title">Sign In to HisaabAI</h3>
+          <h3 id="auth-modal-title" class="modal-title text-base sm:text-lg" data-i18n="auth.title">Sign In to HisaabAI
+          </h3>
           <p class="modal-subtitle mb-0" data-i18n="auth.subtitle">Multilingual Voice & Text Ledger</p>
         </div>
       </div>
@@ -144,13 +148,16 @@
       <!-- Main Auth Flow Panel -->
       <div id="auth-main-panel">
         <p class="text-xs text-mut leading-relaxed mb-4" data-i18n="auth.desc">
-          Sign in securely or create an account to automatically sync and access your expense ledger from any browser or device.
+          Sign in securely or create an account to automatically sync and access your expense ledger from any browser or
+          device.
         </p>
 
         <!-- Tabs: Sign in vs Create account -->
         <div class="modal-tab-row">
-          <button type="button" id="auth-tab-signin" class="modal-tab-btn active" data-i18n="auth.tab_signin">Sign In</button>
-          <button type="button" id="auth-tab-signup" class="modal-tab-btn" data-i18n="auth.tab_signup">Create Account</button>
+          <button type="button" id="auth-tab-signin" class="modal-tab-btn active" data-i18n="auth.tab_signin">Sign
+            In</button>
+          <button type="button" id="auth-tab-signup" class="modal-tab-btn" data-i18n="auth.tab_signup">Create
+            Account</button>
         </div>
 
         <!-- Inline Auth Alert Banner -->
@@ -159,32 +166,40 @@
         <!-- Email & Password Form -->
         <form id="auth-email-form" class="space-y-3">
           <div id="auth-name-field" class="hidden">
-            <label for="auth-name" class="block text-xs font-medium text-mut mb-1" data-i18n="auth.name">Full Name</label>
+            <label for="auth-name" class="block text-xs font-medium text-mut mb-1" data-i18n="auth.name">Full
+              Name</label>
             <input id="auth-name" type="text" autocomplete="name" dir="auto" placeholder="Abu Bakar Iqbal"
               class="input-base w-full text-xs" data-i18n-placeholder="auth.name_placeholder" />
           </div>
 
           <div>
-            <label for="auth-email" class="block text-xs font-medium text-mut mb-1" data-i18n="auth.email">Email Address</label>
+            <label for="auth-email" class="block text-xs font-medium text-mut mb-1" data-i18n="auth.email">Email
+              Address</label>
             <input id="auth-email" type="email" autocomplete="email" dir="ltr" placeholder="name@example.com" required
               class="input-base w-full text-xs font-mono" />
           </div>
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label for="auth-password" class="block text-xs font-medium text-mut" data-i18n="auth.password">Password</label>
-              <button type="button" id="auth-forgot-btn" class="text-[11px] text-brass hover:underline" data-i18n="auth.forgot_password">Forgot password?</button>
+              <label for="auth-password" class="block text-xs font-medium text-mut"
+                data-i18n="auth.password">Password</label>
+              <button type="button" id="auth-forgot-btn" class="text-[11px] text-brass hover:underline"
+                data-i18n="auth.forgot_password">Forgot password?</button>
             </div>
             <div class="relative">
-              <input id="auth-password" type="password" autocomplete="current-password" dir="ltr" placeholder="Minimum 8 characters" minlength="8" required
-                class="input-base w-full text-xs pr-10" data-i18n-placeholder="auth.password_placeholder" />
-              <button type="button" id="toggle-password-btn" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-mut hover:text-tx transition-colors p-1 flex items-center justify-center focus:outline-none" title="Toggle password visibility" aria-label="Toggle password visibility">
+              <input id="auth-password" type="password" autocomplete="current-password" dir="ltr"
+                placeholder="Minimum 8 characters" minlength="8" required class="input-base w-full text-xs pr-10"
+                data-i18n-placeholder="auth.password_placeholder" />
+              <button type="button" id="toggle-password-btn"
+                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-mut hover:text-tx transition-colors p-1 flex items-center justify-center focus:outline-none"
+                title="Toggle password visibility" aria-label="Toggle password visibility">
                 <i data-lucide="eye" id="password-eye-icon" class="w-4 h-4"></i>
               </button>
             </div>
           </div>
 
-          <button type="submit" id="auth-submit-btn" class="btn-primary-brass w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 mt-2">
+          <button type="submit" id="auth-submit-btn"
+            class="btn-primary-brass w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 mt-2">
             <span data-i18n="auth.tab_signin">Sign In</span>
           </button>
         </form>
@@ -197,8 +212,10 @@
         </div>
 
         <!-- Google Sign In Button -->
-        <button type="button" id="google-signin-btn" class="btn-outlined-s2 w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2.5">
-          <svg class="shrink-0" width="18" height="18" viewBox="0 0 24 24" style="width: 18px; height: 18px; min-width: 18px; max-width: 18px;">
+        <button type="button" id="google-signin-btn"
+          class="btn-outlined-s2 w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2.5">
+          <svg class="shrink-0" width="18" height="18" viewBox="0 0 24 24"
+            style="width: 18px; height: 18px; min-width: 18px; max-width: 18px;">
             <path fill="#EA4335"
               d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
             <path fill="#4285F4"
@@ -219,26 +236,31 @@
       <!-- Verify Email Panel (Hidden until needed) -->
       <div id="auth-verify-panel" class="hidden space-y-4">
         <div class="text-center py-2">
-          <div class="w-12 h-12 rounded-full bg-brass/15 border border-brass/35 flex items-center justify-center text-brass mx-auto mb-3">
+          <div
+            class="w-12 h-12 rounded-full bg-brass/15 border border-brass/35 flex items-center justify-center text-brass mx-auto mb-3">
             <i data-lucide="mail-check" class="w-6 h-6"></i>
           </div>
-          <h4 class="font-ui text-sm font-semibold text-tx mb-1" data-i18n="auth.verify_title">Verify Your Email Address</h4>
+          <h4 class="font-ui text-sm font-semibold text-tx mb-1" data-i18n="auth.verify_title">Verify Your Email Address
+          </h4>
           <p id="verify-email-text" class="text-xs text-mut leading-relaxed" data-i18n="auth.verify_desc">
             A verification link has been sent to your email. Please click the link to activate your account.
           </p>
         </div>
 
-        <button type="button" id="btn-verify-done" class="btn-primary-brass w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2">
+        <button type="button" id="btn-verify-done"
+          class="btn-primary-brass w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2">
           <span data-i18n="auth.verify_done">I've Verified My Email</span>
         </button>
 
         <div class="flex items-center justify-between text-xs pt-1">
-          <button type="button" id="btn-verify-resend" class="text-brass hover:underline text-xs" data-i18n="auth.verify_resend">Resend verification email</button>
+          <button type="button" id="btn-verify-resend" class="text-brass hover:underline text-xs"
+            data-i18n="auth.verify_resend">Resend verification email</button>
           <span id="verify-resend-countdown" class="text-mut text-xs hidden"></span>
         </div>
 
         <div class="pt-2 border-t border-rule text-center">
-          <button type="button" id="btn-verify-cancel" class="text-xs text-mut hover:text-tx hover:underline" data-i18n="auth.verify_different">
+          <button type="button" id="btn-verify-cancel" class="text-xs text-mut hover:text-tx hover:underline"
+            data-i18n="auth.verify_different">
             Use a different account / Sign out
           </button>
         </div>
@@ -247,15 +269,84 @@
     </div>
   </div>
 
+  <!-- Create New Ledger Book Modal -->
+  <div id="create-book-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+    aria-labelledby="create-book-modal-title">
+    <div class="modal-panel-420">
+      <button id="close-book-modal-btn" type="button" class="modal-close-btn" title="Close" aria-label="Close dialog">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+      <div class="flex items-center gap-3 mb-4">
+        <div
+          class="w-10 h-10 rounded-xl bg-brass/15 border border-brass/35 flex items-center justify-center text-brass shrink-0">
+          <i data-lucide="book-plus" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 id="create-book-modal-title" class="modal-title text-base sm:text-lg font-ur"
+            data-i18n="book.modal_title">نیا کھاتہ / رجسٹر بنائیں</h3>
+          <p class="text-xs text-mut font-ur" data-i18n="book.modal_subtitle">کاروباری اور ذاتی حساب علیحدہ رکھیں</p>
+        </div>
+      </div>
+      <form id="create-book-form" class="space-y-3.5">
+        <div>
+          <label for="new-book-name" class="block text-xs font-semibold text-mut mb-1.5 font-ur"
+            data-i18n="book.name_label">کھاتے کا نام</label>
+          <input id="new-book-name" type="text" maxlength="80" required data-i18n-placeholder="book.name_placeholder"
+            placeholder="مثلاً ماربل شاپ، گھر کا خرچہ، کریانہ" class="input-base font-ur w-full">
+        </div>
+        <div>
+          <label for="new-book-type" class="block text-xs font-semibold text-mut mb-1.5 font-ur"
+            data-i18n="book.type_label">کھاتے کی قسم</label>
+          <select id="new-book-type" class="input-base font-ur w-full">
+            <option value="business" data-i18n="book.type_business">کاروبار (فروخت، گلہ اور ادھار کھاتہ)</option>
+            <option value="personal" data-i18n="book.type_personal">ذاتی حساب (روزمرہ اخراجات اور ماہانہ بجٹ)</option>
+          </select>
+        </div>
+        <div class="flex gap-2 justify-end pt-2">
+          <button id="cancel-book-modal-btn" type="button"
+            class="btn-outlined-s2 text-xs py-2 px-3.5 w-auto min-h-0 font-ur" data-i18n="btn.cancel">منسوخ
+            کریں</button>
+          <button id="submit-book-modal-btn" type="submit"
+            class="btn-primary-brass text-xs py-2 px-4 w-auto min-h-0 font-ur" data-i18n="book.btn_create">کھاتہ
+            بنائیں</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Top Header (60px) -->
   <header class="app-header">
-    <!-- Brand & Title -->
-    <a href="/" class="app-logo">
-      <div class="app-logo-icon">
-        <i data-lucide="wallet" class="w-4 h-4"></i>
+    <div class="app-header-left">
+      <!-- Brand & Title -->
+      <a href="/" class="app-logo">
+        <div class="app-logo-icon">
+          <i data-lucide="wallet" class="w-4 h-4"></i>
+        </div>
+        <span class="app-logo-text">HisaabAI</span>
+      </a>
+
+      <!-- Multi-Book Header Switcher -->
+      <div id="book-switcher-wrap" class="book-switcher-wrap">
+        <button id="book-switcher-btn" type="button" class="book-switcher-btn" aria-haspopup="true"
+          aria-expanded="false" title="Switch Ledger Book">
+          <span id="book-type-icon" class="book-type-icon" aria-hidden="true">🏢</span>
+          <span id="active-book-label" class="book-switcher-label">My Business</span>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-mut shrink-0"></i>
+        </button>
+        <div id="book-switcher-dropdown" class="book-dropdown-menu hidden" role="menu">
+          <div class="dropdown-header-box flex items-center justify-between">
+            <span class="text-xs font-semibold text-mut uppercase tracking-wider" data-i18n="book.switcher_title">Select
+              Ledger</span>
+          </div>
+          <div id="book-options-list" class="book-options-list"></div>
+          <div class="book-dropdown-divider"></div>
+          <button id="create-book-btn" type="button" class="dropdown-item-btn text-brass font-medium">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span data-i18n="book.create_new">Create New Book</span>
+          </button>
+        </div>
       </div>
-      <span class="app-logo-text">HisaabAI</span>
-    </a>
+    </div>
 
     <!-- Desktop View Mode Switcher (visible on desktop >=980px) -->
     <div id="desktop-view-switcher" class="view-switcher-bar">
@@ -276,12 +367,14 @@
     <!-- User Account & Auth Button -->
     <div class="app-header-right">
       <!-- Light / Dark Mode Toggle Button -->
-      <button id="theme-toggle-btn" class="header-icon-btn" role="button" aria-label="Toggle color theme" title="Switch to Light Mode">
+      <button id="theme-toggle-btn" class="header-icon-btn" role="button" aria-label="Toggle color theme"
+        title="Switch to Light Mode">
         <i data-lucide="sun" class="w-4 h-4 text-brass theme-icon-sun"></i>
         <i data-lucide="moon" class="w-4 h-4 text-brass theme-icon-moon hidden"></i>
       </button>
 
-      <button id="lang-toggle-btn" class="lang-toggle-pill" role="button" aria-label="Toggle language" aria-pressed="false" title="Switch language / زبان تبدیل کریں">
+      <button id="lang-toggle-btn" class="lang-toggle-pill" role="button" aria-label="Toggle language"
+        aria-pressed="false" title="Switch language / زبان تبدیل کریں">
         <i data-lucide="globe" class="w-3.5 h-3.5 text-brass shrink-0"></i>
         <span class="lang-toggle-label flex items-center gap-0.5">
           <span class="lang-code-en">ENG</span>
@@ -291,13 +384,15 @@
       </button>
 
       <!-- Unauthenticated State: Direct Sign-In CTA (No chevron, opens modal directly) -->
-      <button id="signin-header-btn" class="header-signin-btn" role="button" aria-label="Sign In" title="Sign In to HisaabAI">
+      <button id="signin-header-btn" class="header-signin-btn" role="button" aria-label="Sign In"
+        title="Sign In to HisaabAI">
         <i data-lucide="user" class="w-4 h-4 text-brass"></i>
         <span class="hidden sm:inline font-semibold text-xs" data-i18n="header.sign_in">Sign In</span>
       </button>
 
       <!-- Authenticated State: User Account Pill (revealed only after sign-in) -->
-      <button id="account-btn" class="user-pill hidden" title="Account Settings" aria-haspopup="true" aria-expanded="false">
+      <button id="account-btn" class="user-pill hidden" title="Account Settings" aria-haspopup="true"
+        aria-expanded="false">
         <div id="user-avatar" class="user-avatar-circle">
           <span id="avatar-letter">?</span>
         </div>
@@ -318,7 +413,8 @@
           <i data-lucide="download" class="w-4 h-4 text-ok"></i> <span data-i18n="header.export_csv">Export CSV</span>
         </a>
         <button id="open-auth-modal-btn" class="dropdown-item-btn">
-          <i data-lucide="user-check" class="w-4 h-4 text-brass"></i> <span data-i18n="header.switch_account">Switch Account</span>
+          <i data-lucide="user-check" class="w-4 h-4 text-brass"></i> <span data-i18n="header.switch_account">Switch
+            Account</span>
         </button>
         <button id="signout-btn" class="dropdown-item-btn text-bad">
           <i data-lucide="log-out" class="w-4 h-4"></i> <span data-i18n="header.sign_out">Sign Out</span>
@@ -340,12 +436,15 @@
         <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
           <span class="w-2 h-2 rounded-full bg-brass animate-pulse shrink-0"></span>
           <span class="chat-session-label text-mut font-ur flex items-center gap-1.5 min-w-0 overflow-hidden">
-            <span class="shrink-0" data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display" class="font-bold text-tx font-mono truncate">—</span>
+            <span class="shrink-0" data-i18n="chat.active_session">ایکٹو سیشن:</span> <span id="active-user-display"
+              class="font-bold text-tx font-mono truncate">—</span>
           </span>
         </div>
-        <button id="clear-chat-btn" class="chat-clear-btn shrink-0 text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
+        <button id="clear-chat-btn"
+          class="chat-clear-btn shrink-0 text-mut hover:text-tx flex items-center gap-2 transition-colors font-ur py-1 px-3 rounded-lg hover:bg-s2"
           data-i18n-title="chat.clear_screen" title="اسکرین صاف کریں">
-          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass shrink-0"></i> <span data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
+          <i data-lucide="rotate-ccw" class="w-4 h-4 text-brass shrink-0"></i> <span
+            data-i18n="chat.clear_screen">اسکرین صاف کریں</span>
         </button>
       </div>
 
@@ -356,13 +455,20 @@
         <div id="welcome-card" class="bubble-assistant welcome-bubble">
           <div class="welcome-title-row flex items-center gap-2 mb-2 text-brass">
             <i data-lucide="wallet" class="w-5 h-5 shrink-0"></i>
-            <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">السلام علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
+            <strong data-i18n="chat.welcome_title" class="chat-welcome-title font-ur text-lg font-semibold">السلام
+              علیکم! حساب اے آئی (HisaabAI) میں خوش آمدید۔</strong>
           </div>
-          <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اپنے تمام روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
+          <p data-i18n="chat.welcome_sub" class="welcome-sub-text text-tx font-ur text-base leading-relaxed">اپنے تمام
+            روزمرہ اخراجات بول کر یا لکھ کر باآسانی درج کریں:</p>
           <ul class="welcome-examples-list list-disc mt-2.5 space-y-2 text-tx font-ur text-base">
-            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" dir="rtl" class="welcome-rtl-quote font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500 اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
-            <li><strong class="font-ur" data-i18n="chat.welcome_en">انگریزی:</strong> <span dir="ltr" class="welcome-ltr-quote font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400 on weekly groceries and 1,200 on fuel"</span></li>
-            <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="welcome-ask-quote text-brass" data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
+            <li><strong data-i18n="chat.welcome_ur">اردو:</strong> <span lang="ur" dir="rtl"
+                class="welcome-rtl-quote font-nastaleeq text-brass" data-i18n="chat.welcome_ur_eg">"گھر کے راشن پر 2500
+                اور بجلی کے بل پر 8000 خرچ ہوئے"</span></li>
+            <li><strong class="font-ur" data-i18n="chat.welcome_en">انگریزی:</strong> <span dir="ltr"
+                class="welcome-ltr-quote font-ui text-[14.5px] text-brass" data-i18n="chat.welcome_en_eg">"Spent 3,400
+                on weekly groceries and 1,200 on fuel"</span></li>
+            <li><strong data-i18n="chat.welcome_ask">حساب پوچھیں:</strong> <span class="welcome-ask-quote text-brass"
+                data-i18n="chat.welcome_ask_eg">"میرا اس مہینے کا کل خرچ کتنا ہے؟"، "راشن پر کتنا خرچ ہوا؟"</span></li>
           </ul>
         </div>
 
@@ -370,11 +476,16 @@
 
       <!-- Suggestion Chips Bar -->
       <div class="chat-suggestions-box">
-        <button class="prompt-chip font-ur" data-prompt="اس مہینے کا میرا کل خرچہ کتنا ہے؟" data-i18n="chat.chip_month" data-i18n-prompt="chat.chip_month_prompt">اس مہینے کا خرچہ</button>
-        <button class="prompt-chip font-ur" data-prompt="آج کا گلہ اور فروخت بتائیں" data-i18n="chat.chip_galla" data-i18n-prompt="chat.chip_galla_prompt">آج کا گلہ</button>
-        <button class="prompt-chip font-ur" data-prompt="ادھار کھاتہ دکھائیں کس سے پیسے لینے ہیں؟" data-i18n="chat.chip_udhaar" data-i18n-prompt="chat.chip_udhaar_prompt">ادھار کھاتہ</button>
-        <button class="prompt-chip font-ur" data-prompt="میرا اس مہینے کا بجٹ سیٹ کریں" data-i18n="chat.chip_budget" data-i18n-prompt="chat.chip_budget_prompt">بجٹ سیٹ کریں</button>
-        <button class="prompt-chip font-ur" data-prompt="میرا آخری اندراج مٹا دیں" data-i18n="chat.chip_undo" data-i18n-prompt="chat.chip_undo_prompt">آخری اندراج مٹائیں</button>
+        <button class="prompt-chip font-ur" data-prompt="اس مہینے کا میرا کل خرچہ کتنا ہے؟" data-i18n="chat.chip_month"
+          data-i18n-prompt="chat.chip_month_prompt">اس مہینے کا خرچہ</button>
+        <button class="prompt-chip font-ur" data-prompt="آج کا گلہ اور فروخت بتائیں" data-i18n="chat.chip_galla"
+          data-i18n-prompt="chat.chip_galla_prompt">آج کا گلہ</button>
+        <button class="prompt-chip font-ur" data-prompt="ادھار کھاتہ دکھائیں کس سے پیسے لینے ہیں؟"
+          data-i18n="chat.chip_udhaar" data-i18n-prompt="chat.chip_udhaar_prompt">ادھار کھاتہ</button>
+        <button class="prompt-chip font-ur" data-prompt="میرا اس مہینے کا بجٹ سیٹ کریں" data-i18n="chat.chip_budget"
+          data-i18n-prompt="chat.chip_budget_prompt">بجٹ سیٹ کریں</button>
+        <button class="prompt-chip font-ur" data-prompt="میرا آخری اندراج مٹا دیں" data-i18n="chat.chip_undo"
+          data-i18n-prompt="chat.chip_undo_prompt">آخری اندراج مٹائیں</button>
       </div>
 
       <!-- Voice Recording Status Banner with Live Wave Visualizer -->
@@ -382,18 +493,20 @@
         class="hidden px-5 py-2.5 bg-bad/15 border-t border-bad/30 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-bad animate-pulse"></span>
-          <span id="recording-status-text" data-i18n="chat.recording" class="text-xs font-semibold text-bad font-ur">آواز ریکارڈ ہو رہی ہے...</span>
+          <span id="recording-status-text" data-i18n="chat.recording"
+            class="text-xs font-semibold text-bad font-ur">آواز ریکارڈ ہو رہی ہے...</span>
           <canvas id="voice-wave-canvas" width="160" height="28" class="voice-wave-canvas"></canvas>
           <span id="recording-timer" class="recording-timer font-num tabular">00:00</span>
         </div>
-        <button id="cancel-recording-btn" data-i18n="chat.cancel" class="recording-cancel-btn font-ur">منسوخ کریں</button>
+        <button id="cancel-recording-btn" data-i18n="chat.cancel" class="recording-cancel-btn font-ur">منسوخ
+          کریں</button>
       </div>
 
       <!-- Bottom Chat Composer -->
       <div class="chat-composer-box">
         <form id="chat-form" class="composer-input-row">
-          <textarea id="message-input" rows="1" data-i18n-placeholder="chat.placeholder" placeholder="اردو یا انگریزی میں بولیں یا لکھیں..."
-            class="composer-input font-ur" dir="auto"></textarea>
+          <textarea id="message-input" rows="1" data-i18n-placeholder="chat.placeholder"
+            placeholder="اردو یا انگریزی میں بولیں یا لکھیں..." class="composer-input font-ur" dir="auto"></textarea>
 
           <button type="button" id="mic-btn" class="composer-btn-circle btn-mic-brass" title="آواز ریکارڈ کریں">
             <i data-lucide="mic" id="mic-icon" class="w-5 h-5"></i>
@@ -404,7 +517,8 @@
           </button>
         </form>
         <p data-i18n="chat.tip" class="chat-tip-text text-xs text-mut text-center mt-2.5 font-ur">
-          ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا ادویات)۔
+          ٹپ: کسی بھی دکان، مارکیٹ، خریداری یا بل کی رقم بولیں یا لکھیں (مثلاً راشن، پیٹرول، کھانا، بجلی کا بل یا
+          ادویات)۔
         </p>
       </div>
 
@@ -413,13 +527,29 @@
     <!-- ========================================================================= -->
     <!-- RIGHT COLUMN: Live Ledger & Analytics (1.12fr on var(--ink)) -->
     <!-- ========================================================================= -->
-    <section id="dashboard-pane" class="pane-ledger hidden">
+    <section id="dashboard-pane" class="pane-ledger hidden" data-book-mode="business">
+
+      <!-- Active Book Context Strip -->
+      <div id="ledger-book-strip" class="ledger-book-strip">
+        <div class="flex items-center gap-2 min-w-0">
+          <span id="ledger-book-badge" class="book-type-pill book-badge-business font-ur"
+            data-i18n="book.business_badge">کاروبار</span>
+          <span id="ledger-book-name" class="ledger-book-strip-name font-ur truncate">My Business</span>
+        </div>
+        <div class="book-quick-tabs" role="tablist" aria-label="Book mode">
+          <button id="quick-tab-business" type="button" class="book-quick-tab active font-ur" data-book-type="business"
+            data-i18n="book.tab_business">🏢 کاروبار</button>
+          <button id="quick-tab-personal" type="button" class="book-quick-tab font-ur" data-book-type="personal"
+            data-i18n="book.tab_personal">🏠 ذاتی</button>
+        </div>
+      </div>
 
       <!-- Ledger Hero Card -->
       <div class="ledger-hero-card">
         <div class="flex items-center justify-between mb-1">
           <div class="ledger-hero-label font-ur" data-i18n="ledger.total_spend">اس مہینے کا کل خرچ</div>
-          <button id="refresh-dashboard-btn" class="btn-icon-del text-mut hover:text-tx" data-i18n-title="ledger.refresh" title="تازہ کریں">
+          <button id="refresh-dashboard-btn" class="btn-icon-del text-mut hover:text-tx"
+            data-i18n-title="ledger.refresh" title="تازہ کریں">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -431,22 +561,29 @@
           <div class="ledger-hero-bar" style="width: 0%;"></div>
         </div>
         <div class="ledger-hero-facts font-ur">
-          <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> <span data-i18n="ledger.purchases">خریداری</span></span>
+          <span><strong id="kpi-visit-count" class="tabular font-num">0</strong> <span
+              data-i18n="ledger.purchases">خریداری</span></span>
           <span class="hero-fact-divider">•</span>
-          <span><span data-i18n="ledger.top_store">ٹاپ ٹرانزیکشن:</span> <strong id="kpi-top-store" data-i18n="ledger.not_recorded">درج نہیں</strong></span>
+          <span><span data-i18n="ledger.top_store">ٹاپ ٹرانزیکشن:</span> <strong id="kpi-top-store"
+              data-i18n="ledger.not_recorded">درج نہیں</strong></span>
           <span id="tx-empty-divider" class="hero-fact-divider hidden">•</span>
-          <span id="tx-count-badge" class="font-ur hidden" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج نہیں ہے</span>
+          <span id="tx-count-badge" class="font-ur hidden" data-i18n="ledger.no_tx_this_month">اس مہینے کا کوئی خرچہ درج
+            نہیں ہے</span>
         </div>
       </div>
 
       <!-- Shopkeeper Daily Galla (Today's Cash Drawer) -->
-      <section class="ledger-section">
-        <div class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-2.5">
+      <section id="galla-section" class="ledger-section section-galla">
+        <div
+          class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-2.5">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="galla.title">آج کا گلہ (روزانہ فروخت اور خرچہ)</h2>
           <span id="galla-cash-split" class="text-xs text-mut font-ur">
-            <span class="inline-flex items-center gap-1"><span class="font-ur" data-i18n="galla.cash_short">نقد</span>: <span class="font-num font-semibold" dir="ltr">Rs 0</span></span>
+            <span class="inline-flex items-center gap-1"><span class="font-ur" data-i18n="galla.cash_short">نقد</span>:
+              <span class="font-num font-semibold" dir="ltr">Rs 0</span></span>
             <span class="text-mut px-1">•</span>
-            <span class="inline-flex items-center gap-1"><span class="font-ur" data-i18n="galla.digital_short">ڈیجیٹل</span>: <span class="font-num font-semibold" dir="ltr">Rs 0</span></span>
+            <span class="inline-flex items-center gap-1"><span class="font-ur"
+                data-i18n="galla.digital_short">ڈیجیٹل</span>: <span class="font-num font-semibold" dir="ltr">Rs
+                0</span></span>
           </span>
         </div>
         <div class="grid grid-cols-3 gap-2.5 font-ur">
@@ -466,8 +603,9 @@
       </section>
 
       <!-- Udhaar / Khata Book (Lend & Borrow Money) -->
-      <section class="ledger-section">
-        <div class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-3">
+      <section id="udhaar-section" class="ledger-section section-udhaar">
+        <div
+          class="ledger-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 mb-3">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="udhaar.title">ادھار کھاتہ (لین دین)</h2>
           <div class="flex items-center gap-2 text-xs font-ur">
             <span class="udhaar-pill udhaar-pill-in">
@@ -480,35 +618,42 @@
             </span>
           </div>
         </div>
+        <div id="udhaar-filter-tabs" class="udhaar-filter-tabs mb-3" role="tablist">
+          <button type="button" class="udhaar-filter-tab active font-ur" data-udhaar-filter="all"
+            data-i18n="udhaar.filter_all">سب</button>
+          <button type="button" class="udhaar-filter-tab font-ur" data-udhaar-filter="receivable"
+            data-i18n="udhaar.filter_customers">گاہک (لینے ہیں)</button>
+          <button type="button" class="udhaar-filter-tab font-ur" data-udhaar-filter="payable"
+            data-i18n="udhaar.filter_suppliers">سپلائر (دینے ہیں)</button>
+        </div>
         <div id="udhaar-list-container" class="space-y-2 font-ur">
-          <span class="budget-empty-hint font-ur" data-i18n="udhaar.empty">کوئی ادھار درج نہیں ہے۔ نیچے شامل کریں یا چیٹ میں کہیں "علی کو 1500 ادھار دیا"۔</span>
+          <span class="budget-empty-hint font-ur" data-i18n="udhaar.empty">کوئی ادھار درج نہیں ہے۔ نیچے شامل کریں یا چیٹ
+            میں کہیں "علی کو 1500 ادھار دیا"۔</span>
         </div>
         <form id="udhaar-form" class="mt-4 grid grid-cols-12 gap-2.5 font-ur">
           <input id="udhaar-person" type="text" maxlength="100" required
-            data-i18n-placeholder="udhaar.person_placeholder"
-            placeholder="نام (مثلاً علی بھائی، طارق کریانہ)"
+            data-i18n-placeholder="udhaar.person_placeholder" placeholder="نام (مثلاً علی بھائی، طارق کریانہ)"
             class="col-span-12 sm:col-span-4 input-base font-ur">
           <input id="udhaar-amount" type="number" min="1" step="1" required
-            data-i18n-placeholder="udhaar.amount_placeholder"
-            placeholder="رقم (PKR)"
+            data-i18n-placeholder="udhaar.amount_placeholder" placeholder="رقم (PKR)"
             class="col-span-6 sm:col-span-3 input-base font-ur">
           <select id="udhaar-direction" class="col-span-6 sm:col-span-3 input-base font-ur">
             <option value="receivable" data-i18n="udhaar.opt_receivable">لینے ہیں (دیے)</option>
             <option value="payable" data-i18n="udhaar.opt_payable">دینے ہیں (لیے)</option>
           </select>
-          <input id="udhaar-notes" type="text" maxlength="140"
-            data-i18n-placeholder="udhaar.notes_placeholder"
-            placeholder="تفصیل / فون نمبر (اختیاری)"
-            class="col-span-8 sm:col-span-9 input-base font-ur">
-          <button type="submit" class="col-span-4 sm:col-span-3 btn-primary font-ur" data-i18n="btn.add">شامل کریں</button>
+          <input id="udhaar-notes" type="text" maxlength="140" data-i18n-placeholder="udhaar.notes_placeholder"
+            placeholder="تفصیل / فون نمبر (اختیاری)" class="col-span-8 sm:col-span-9 input-base font-ur">
+          <button type="submit" class="col-span-4 sm:col-span-3 btn-primary font-ur" data-i18n="btn.add">شامل
+            کریں</button>
         </form>
       </section>
 
       <!-- Monthly Budgets -->
-      <section class="ledger-section">
+      <section id="budgets-section" class="ledger-section section-budgets">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.budgets_title">ماہانہ بجٹ</h2>
         <div id="budgets-container" class="space-y-2 font-ur">
-          <span class="budget-empty-hint font-ur" data-i18n="ledger.budgets_empty">کوئی بجٹ سیٹ نہیں ہے۔ نیچے بجٹ شامل کریں یا لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>
+          <span class="budget-empty-hint font-ur" data-i18n="ledger.budgets_empty">کوئی بجٹ سیٹ نہیں ہے۔ نیچے بجٹ شامل
+            کریں یا لکھیں "میرا ماہانہ بجٹ 50000 ہے"۔</span>
         </div>
         <form id="budget-form" class="mt-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
           <div class="flex-1 min-w-[200px] flex flex-col gap-2">
@@ -530,18 +675,18 @@
               placeholder="بجٹ کا کسٹم نام لکھیں (مثلاً جم، سفر، مرمت)"
               class="input-base font-ur budget-input-base hidden">
           </div>
-          <input id="budget-limit" type="number" min="1" step="1"
-            data-i18n-placeholder="placeholder.monthly_budget_pkr"
-            placeholder="بجٹ رقم (PKR)" required
-            class="input-base font-ur budget-input-base flex-1 min-w-[140px]">
-          <button type="submit" class="btn-primary font-ur budget-input-base shrink-0" data-i18n="btn.save">محفوظ کریں</button>
+          <input id="budget-limit" type="number" min="1" step="1" data-i18n-placeholder="placeholder.monthly_budget_pkr"
+            placeholder="بجٹ رقم (PKR)" required class="input-base font-ur budget-input-base flex-1 min-w-[140px]">
+          <button type="submit" class="btn-primary font-ur budget-input-base shrink-0" data-i18n="btn.save">محفوظ
+            کریں</button>
         </form>
       </section>
 
       <!-- Where It Went (Category Doughnut) -->
-      <section class="ledger-section">
+      <section id="category-section" class="ledger-section section-category">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.where_it_went">کہاں کتنا خرچ ہوا</h2>
-        <div id="category-empty" class="text-xs text-mut italic font-ur text-sm py-2" data-i18n="ledger.no_category_spend">اس مہینے کا کوئی خرچہ درج نہیں ہے۔</div>
+        <div id="category-empty" class="text-xs text-mut italic font-ur text-sm py-2"
+          data-i18n="ledger.no_category_spend">اس مہینے کا کوئی خرچہ درج نہیں ہے۔</div>
         <div class="category-analytics-row hidden">
           <div class="category-chart-wrap">
             <canvas id="category-chart"></canvas>
@@ -551,7 +696,7 @@
       </section>
 
       <!-- 30-Day Trend Bar Chart -->
-      <section class="ledger-section">
+      <section id="trend-section" class="ledger-section section-trend">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.trend_title">روزانہ اخراجات (گزشتہ ۳۰ دن)</h2>
         <div class="trend-chart-box">
           <canvas id="trend-chart"></canvas>
@@ -559,51 +704,53 @@
       </section>
 
       <!-- Store Breakdown -->
-      <section class="ledger-section">
+      <section id="stores-section" class="ledger-section section-stores">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.stores_title">دکانوں کے لحاظ سے تفصیل</h2>
         <div id="store-breakdown-container" class="flex flex-wrap gap-2 font-ur">
-          <span class="text-xs text-mut italic font-ur" data-i18n="ledger.stores_empty">ابھی تک کوئی دکان ریکارڈ میں نہیں۔</span>
+          <span class="text-xs text-mut italic font-ur" data-i18n="ledger.stores_empty">ابھی تک کوئی دکان ریکارڈ میں
+            نہیں۔</span>
         </div>
       </section>
 
       <!-- Cash vs Digital Split -->
-      <section class="ledger-section">
-        <h2 class="ledger-section-title font-ur" data-i18n="ledger.payment_split_title">ادائیگی کا طریقہ (نقد بمقابلہ ڈیجیٹل)</h2>
+      <section id="payment-section" class="ledger-section section-payment">
+        <h2 class="ledger-section-title font-ur" data-i18n="ledger.payment_split_title">ادائیگی کا طریقہ (نقد بمقابلہ
+          ڈیجیٹل)</h2>
         <div id="payment-split-container" class="space-y-2 font-ur">
-          <span class="text-xs text-mut italic font-ur" data-i18n="ledger.payment_split_empty">ادائیگی کا کوئی ڈیٹا درج نہیں۔</span>
+          <span class="text-xs text-mut italic font-ur" data-i18n="ledger.payment_split_empty">ادائیگی کا کوئی ڈیٹا درج
+            نہیں۔</span>
         </div>
       </section>
 
       <!-- Recurring Monthly Bills -->
-      <section class="ledger-section">
+      <section id="recurring-section" class="ledger-section section-recurring">
         <h2 class="ledger-section-title font-ur" data-i18n="ledger.recurring_title">ماہانہ بل اور ضروری واجبات</h2>
         <div id="recurring-container" class="space-y-2 font-ur">
-          <span class="bill-empty-hint font-ur" data-i18n="ledger.recurring_empty">کوئی بل شامل نہیں ہے۔ نیچے کرایہ، بجلی، اسکول فیس وغیرہ درج کریں۔</span>
+          <span class="bill-empty-hint font-ur" data-i18n="ledger.recurring_empty">کوئی بل شامل نہیں ہے۔ نیچے کرایہ،
+            بجلی، اسکول فیس وغیرہ درج کریں۔</span>
         </div>
         <form id="recurring-form" class="mt-4 grid grid-cols-12 gap-3 font-ur">
-          <input id="rec-title" type="text" maxlength="100"
-            data-i18n-placeholder="placeholder.bill_title"
+          <input id="rec-title" type="text" maxlength="100" data-i18n-placeholder="placeholder.bill_title"
             placeholder="بل کا نام (مثلاً مکان کا کرایہ، بجلی بل)" required
             class="col-span-12 sm:col-span-5 input-base font-ur">
-          <input id="rec-amount" type="number" min="1" step="1"
-            data-i18n-placeholder="placeholder.bill_amount"
-            placeholder="رقم (PKR)" required
-            class="col-span-7 sm:col-span-3 input-base font-ur">
+          <input id="rec-amount" type="number" min="1" step="1" data-i18n-placeholder="placeholder.bill_amount"
+            placeholder="رقم (PKR)" required class="col-span-7 sm:col-span-3 input-base font-ur">
           <input id="rec-day" type="number" min="1" max="28" value="1" title="مہینے کی تاریخ"
-            data-i18n-placeholder="placeholder.bill_due_day"
-            placeholder="تاریخ (1-28)"
+            data-i18n-placeholder="placeholder.bill_due_day" placeholder="تاریخ (1-28)"
             class="col-span-5 sm:col-span-2 input-base font-ur">
-          <button type="submit" class="col-span-12 sm:col-span-2 btn-primary font-ur" data-i18n="btn.add">شامل کریں</button>
+          <button type="submit" class="col-span-12 sm:col-span-2 btn-primary font-ur" data-i18n="btn.add">شامل
+            کریں</button>
         </form>
       </section>
 
       <!-- Recent Transactions -->
-      <section class="ledger-section">
+      <section id="recent-tx-section" class="ledger-section section-recent-tx">
         <div class="flex items-center justify-between mb-3">
           <h2 class="ledger-section-title mb-0 font-ur" data-i18n="ledger.recent_tx_title">حالیہ اخراجات کی تفصیل</h2>
         </div>
         <div id="transactions-list" class="space-y-2 font-ur">
-          <div class="text-center py-10 text-mut text-xs font-ur" data-i18n="ledger.recent_tx_empty" data-i18n-html="true">
+          <div class="text-center py-10 text-mut text-xs font-ur" data-i18n="ledger.recent_tx_empty"
+            data-i18n-html="true">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
             ابھی تک کوئی خرچہ ریکارڈ نہیں ہوا۔<br>چیٹ میں اپنا پہلا خرچہ بولیں یا لکھیں!
           </div>

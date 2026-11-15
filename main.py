@@ -4,6 +4,7 @@ import io
 import re
 import csv
 import hmac
+import inspect
 import time
 import json
 import uuid
@@ -48,6 +49,7 @@ from database import (
     SessionLocal,
     Transaction,
     TransactionItem,
+    Book,
     Budget,
     RecurringExpense,
     UserAccount,
@@ -470,7 +472,9 @@ async def chat_endpoint(
     audio: Optional[UploadFile] = File(None),
     history: Optional[str] = Form(None),
     lang: Optional[str] = Form(None),
+    book_id: Optional[int] = Form(None),
     current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Accepts text message, audio voice note, or both from the frontend.
@@ -481,6 +485,17 @@ async def chat_endpoint(
         verify_user_access(user_id, current_user)
 
     effective_user_id = current_user
+    books_info = analytics.ensure_default_books(db, effective_user_id)
+    if book_id is not None:
+        active_book = next((b for b in books_info["books"] if b.id == int(book_id)), None)
+        if not active_book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found.",
+            )
+    else:
+        active_book = books_info["default_book"]
+
     transcript_text: Optional[str] = None
 
     # Handle voice note upload
@@ -560,19 +575,44 @@ async def chat_endpoint(
 
     # Execute LangChain Agent in threadpool
     try:
-        reply = await run_in_threadpool(
-            run_agent,
-            user_id=effective_user_id,
-            user_text=effective_text,
-            raw_transcript=raw_transcript_record,
-            chat_history=parsed_history,
-            ui_lang=lang,
-        )
-        return {
+        agent_meta: Dict[str, Any] = {}
+        agent_kwargs: Dict[str, Any] = {
             "user_id": effective_user_id,
+            "user_text": effective_text,
+            "raw_transcript": raw_transcript_record,
+            "chat_history": parsed_history,
+            "ui_lang": lang,
+        }
+        sig_params = inspect.signature(run_agent).parameters
+        accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values())
+        if accepts_var_kw or "book_id" in sig_params:
+            agent_kwargs["book_id"] = active_book.id
+            agent_kwargs["active_book_type"] = active_book.book_type
+            agent_kwargs["active_book_name"] = active_book.name
+        if accepts_var_kw or "_meta_out" in sig_params:
+            agent_kwargs["_meta_out"] = agent_meta
+
+        reply = await run_in_threadpool(run_agent, **agent_kwargs)
+        resp_payload: Dict[str, Any] = {
+            "user_id": effective_user_id,
+            "book_id": active_book.id,
             "transcript": transcript_text,
             "reply": reply,
         }
+        sug = agent_meta.get("cross_book_suggestion")
+        if isinstance(sug, dict):
+            target_book = (
+                books_info["business_book"]
+                if sug.get("suggested_book_type") == "business"
+                else books_info["personal_book"]
+            )
+            if target_book and target_book.id != active_book.id:
+                resp_payload["cross_book_suggestion"] = {
+                    **sug,
+                    "target_book_id": target_book.id,
+                    "target_book_name": target_book.name,
+                }
+        return resp_payload
     except Exception as e:
         req_id = str(uuid.uuid4())
         logger.error(f"Error running agent for user '{effective_user_id}' [request_id={req_id}]: {e}")
@@ -651,17 +691,19 @@ async def clear_chat_history(
 # ---------------------------------------------------------------------------
 @app.get("/api/transactions/pending")
 async def get_active_pending_transaction(
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retrieves any active pending transaction awaiting user confirmation."""
     now = get_pkt_now()
-    pending = (
-        db.query(PendingTransaction)
-        .filter(PendingTransaction.user_id == current_user, PendingTransaction.expires_at > now)
-        .order_by(PendingTransaction.created_at.desc())
-        .first()
+    q = db.query(PendingTransaction).filter(
+        PendingTransaction.user_id == current_user,
+        PendingTransaction.expires_at > now,
     )
+    if book_id is not None:
+        q = q.filter(PendingTransaction.book_id == int(book_id))
+    pending = q.order_by(PendingTransaction.created_at.desc()).first()
     return {"pending": pending.to_dict() if pending else None}
 
 
@@ -706,23 +748,175 @@ async def cancel_pending_transaction(
 
 
 # ---------------------------------------------------------------------------
+# API: Multi-Book Management & Cross-Book Move
+# ---------------------------------------------------------------------------
+@app.get("/api/books/{user_id}")
+async def list_books(
+    user_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lists user's active ledgers (auto-creating Business & Personal defaults + migrating orphans)."""
+    verify_user_access(user_id, current_user)
+    info = analytics.ensure_default_books(db, current_user)
+    return {
+        "books": [b.to_dict() for b in info["books"]],
+        "default_book_id": info["default_book"].id if info["default_book"] else None,
+    }
+
+
+@app.post("/api/books")
+async def create_book(
+    request: Request,
+    name: Optional[str] = Form(None),
+    book_type: str = Form("business"),
+    user_id: Optional[str] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Creates a new Business or Personal book for the authenticated user."""
+    if "application/json" in request.headers.get("content-type", ""):
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                name = body.get("name", name)
+                book_type = body.get("book_type", book_type)
+                user_id = body.get("user_id", user_id)
+        except Exception:
+            pass
+    if user_id and str(user_id).strip() != current_user:
+        verify_user_access(str(user_id), current_user)
+    try:
+        book = analytics.create_user_book(db, current_user, name=name or "", book_type=book_type or "business")
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    info = analytics.ensure_default_books(db, current_user)
+    return {
+        "status": "success",
+        "book": book.to_dict(),
+        "books": [b.to_dict() for b in info["books"]],
+    }
+
+
+@app.patch("/api/books/{user_id}/{book_id}")
+async def update_book(
+    user_id: str,
+    book_id: int,
+    request: Request,
+    name: Optional[str] = Form(None),
+    book_type: Optional[str] = Form(None),
+    is_default: Optional[bool] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Updates an existing book owned by the authenticated user."""
+    verify_user_access(user_id, current_user)
+    if "application/json" in request.headers.get("content-type", ""):
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                if "name" in body:
+                    name = body["name"]
+                if "book_type" in body:
+                    book_type = body["book_type"]
+                if "is_default" in body:
+                    is_default = body["is_default"]
+        except Exception:
+            pass
+    try:
+        updated = analytics.update_user_book(
+            db, current_user, book_id=book_id, name=name, book_type=book_type, is_default=is_default
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found.")
+    info = analytics.ensure_default_books(db, current_user)
+    return {
+        "status": "success",
+        "book": updated.to_dict(),
+        "books": [b.to_dict() for b in info["books"]],
+    }
+
+
+@app.delete("/api/books/{user_id}/{book_id}")
+async def delete_book(
+    user_id: str,
+    book_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft-deletes a book if another active book remains."""
+    verify_user_access(user_id, current_user)
+    res = analytics.delete_user_book(db, current_user, book_id=book_id)
+    if res["status"] == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=res["message"])
+    if res["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res["message"])
+    info = analytics.ensure_default_books(db, current_user)
+    return {**res, "books": [b.to_dict() for b in info["books"]]}
+
+
+@app.post("/api/transactions/{user_id}/{transaction_id}/move-book")
+async def move_transaction_book(
+    user_id: str,
+    transaction_id: int,
+    request: Request,
+    target_book_id: Optional[int] = Form(None),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Moves a transaction from its current book to another active book owned by the same user."""
+    verify_user_access(user_id, current_user)
+    if target_book_id is None and "application/json" in request.headers.get("content-type", ""):
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and body.get("target_book_id") is not None:
+                target_book_id = int(body["target_book_id"])
+        except Exception:
+            pass
+    if target_book_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="target_book_id is required.")
+    res = analytics.move_transaction_to_book(db, current_user, transaction_id, int(target_book_id))
+    if res["status"] == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=res["message"])
+    return res
+
+
+# ---------------------------------------------------------------------------
 # API: User Transactions Ledger & Summary
 # ---------------------------------------------------------------------------
 @app.get("/api/transactions/{user_id}")
 async def get_user_transactions(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Returns the user's monthly spending total, store-wise breakdown,
     and recent transactions for the live ledger dashboard.
-    Strictly isolated: does not merge with any other user.
+    Strictly isolated: does not merge with any other user, and scopes by `book_id` when specified.
     """
     verify_user_access(user_id, current_user)
     clean_user_id = current_user
+    books_info = analytics.ensure_default_books(db, clean_user_id)
+    active_book = None
+    if book_id is not None:
+        active_book = next((b for b in books_info["books"] if b.id == int(book_id)), None)
+        if not active_book:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found.")
 
     month_start = analytics.month_start()
+
+    base_expense_filters = [
+        Transaction.user_id == clean_user_id,
+        Transaction.transaction_date >= month_start,
+        Transaction.deleted_at.is_(None),
+        analytics._is_expense_clause(),
+    ]
+    if book_id is not None:
+        base_expense_filters.append(Transaction.book_id == int(book_id))
 
     # 1. Total monthly spending (expenses only)
     monthly_stats = (
@@ -730,39 +924,34 @@ async def get_user_transactions(
             func.coalesce(func.sum(Transaction.total_amount), 0.0).label("total"),
             func.count(Transaction.id).label("count"),
         )
-        .filter(
-            Transaction.user_id == clean_user_id,
-            Transaction.transaction_date >= month_start,
-            Transaction.deleted_at.is_(None),
-            analytics._is_expense_clause(),
-        )
+        .filter(*base_expense_filters)
         .first()
     )
 
     monthly_total = float(monthly_stats.total) if monthly_stats else 0.0
     monthly_count = int(monthly_stats.count) if monthly_stats else 0
 
-    # 2. Store-wise spending for this month (expenses only)
+    # 2. Store/Highlight-wise spending for this month (expenses only)
+    display_label_expr = func.coalesce(Transaction.title, Transaction.store_name)
     store_stats = (
         db.query(
-            Transaction.store_name,
+            display_label_expr.label("display_label"),
             func.sum(Transaction.total_amount).label("store_total"),
             func.count(Transaction.id).label("visit_count"),
         )
-        .filter(
-            Transaction.user_id == clean_user_id,
-            Transaction.transaction_date >= month_start,
-            Transaction.deleted_at.is_(None),
-            analytics._is_expense_clause(),
-        )
-        .group_by(Transaction.store_name)
+        .filter(*base_expense_filters)
+        .group_by(display_label_expr)
         .order_by(func.sum(Transaction.total_amount).desc())
         .all()
     )
 
     store_breakdown = [
         {
-            "store_name": s.store_name.title(),
+            "store_name": (
+                s.display_label.title()
+                if s.display_label and not analytics._has_urdu_script(s.display_label) and s.display_label == s.display_label.lower()
+                else (s.display_label or "Daily Expense")
+            ),
             "total_pkr": round(float(s.store_total), 2),
             "visit_count": s.visit_count,
         }
@@ -771,28 +960,27 @@ async def get_user_transactions(
 
     largest_tx = (
         db.query(Transaction)
-        .filter(
-            Transaction.user_id == clean_user_id,
-            Transaction.transaction_date >= month_start,
-            Transaction.deleted_at.is_(None),
-            analytics._is_expense_clause(),
-        )
+        .filter(*base_expense_filters)
         .order_by(Transaction.total_amount.desc(), Transaction.id.desc())
         .first()
     )
-    top_store = (
-        f"{largest_tx.store_name.title()} (PKR {largest_tx.total_amount:,.0f})"
-        if largest_tx and largest_tx.store_name
+    top_label = (
+        (largest_tx.title or largest_tx.store_name.title())
+        if largest_tx and (largest_tx.title or largest_tx.store_name)
         else None
     )
+    top_store = f"{top_label} (PKR {largest_tx.total_amount:,.0f})" if largest_tx and top_label else None
 
     # 3. Recent 25 transactions with line items
+    recent_filters = [
+        Transaction.user_id == clean_user_id,
+        Transaction.deleted_at.is_(None),
+    ]
+    if book_id is not None:
+        recent_filters.append(Transaction.book_id == int(book_id))
     recent_txs = (
         db.query(Transaction)
-        .filter(
-            Transaction.user_id == clean_user_id,
-            Transaction.deleted_at.is_(None),
-        )
+        .filter(*recent_filters)
         .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
         .limit(25)
         .all()
@@ -800,17 +988,20 @@ async def get_user_transactions(
 
     return {
         "user_id": clean_user_id,
+        "book_id": int(book_id) if book_id is not None else None,
+        "active_book": active_book.to_dict() if active_book else None,
+        "books": [b.to_dict() for b in books_info["books"]],
         "monthly_total": round(monthly_total, 2),
         "monthly_count": monthly_count,
         "top_store": top_store,
         "store_breakdown": store_breakdown,
-        "category_breakdown": analytics.category_breakdown(db, clean_user_id, month_start),
-        "daily_trend": analytics.daily_trend(db, clean_user_id, days=30),
-        "payment_split": analytics.payment_split(db, clean_user_id, month_start),
-        "budgets": analytics.budget_status(db, clean_user_id),
-        "recurring": analytics.recurring_status(db, clean_user_id),
-        "galla": analytics.galla_summary(db, clean_user_id),
-        "udhaar": analytics.udhaar_summary(db, clean_user_id),
+        "category_breakdown": analytics.category_breakdown(db, clean_user_id, month_start, book_id=book_id),
+        "daily_trend": analytics.daily_trend(db, clean_user_id, days=30, book_id=book_id),
+        "payment_split": analytics.payment_split(db, clean_user_id, month_start, book_id=book_id),
+        "budgets": analytics.budget_status(db, clean_user_id, book_id=book_id),
+        "recurring": analytics.recurring_status(db, clean_user_id, book_id=book_id),
+        "galla": analytics.galla_summary(db, clean_user_id, book_id=book_id),
+        "udhaar": analytics.udhaar_summary(db, clean_user_id, book_id=book_id),
         "recent_transactions": [tx.to_dict() for tx in recent_txs],
     }
 
@@ -901,6 +1092,7 @@ async def delete_my_account(
     db.query(Budget).filter(Budget.user_id == user_str).delete(synchronize_session=False)
     db.query(RecurringExpense).filter(RecurringExpense.user_id == user_str).delete(synchronize_session=False)
     db.query(PendingTransaction).filter(PendingTransaction.user_id == user_str).delete(synchronize_session=False)
+    db.query(Book).filter(Book.user_id == user_str).delete(synchronize_session=False)
     db.query(UserAccount).filter(UserAccount.user_id == user_str).delete(synchronize_session=False)
     db.commit()
     clear_user_history(user_str)
@@ -913,15 +1105,18 @@ async def delete_my_account(
 @app.get("/api/export/{user_id}/udhaar")
 async def export_udhaar_csv(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
     clean_user_id = current_user
+    if book_id is not None and analytics.resolve_book_for_user(db, clean_user_id, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(analytics.UDHAAR_EXPORT_HEADER)
-    writer.writerows(analytics.export_udhaar_rows(db, clean_user_id))
+    writer.writerows(analytics.export_udhaar_rows(db, clean_user_id, book_id=book_id))
     filename = f"hisaabai_udhaar_{clean_user_id}_{get_pkt_now().strftime('%Y%m%d')}.csv"
     return Response(
         content="\ufeff" + buf.getvalue(),
@@ -933,29 +1128,39 @@ async def export_udhaar_csv(
 @app.get("/api/export/{user_id}/full")
 async def export_full_json(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
     clean_user_id = current_user
-    txs = (
-        db.query(Transaction)
-        .filter(Transaction.user_id == clean_user_id, Transaction.deleted_at.is_(None))
-        .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
-        .all()
+    if book_id is not None and analytics.resolve_book_for_user(db, clean_user_id, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    tx_q = db.query(Transaction).filter(
+        Transaction.user_id == clean_user_id, Transaction.deleted_at.is_(None)
     )
-    udhaars = (
-        db.query(UdhaarEntry)
-        .filter(UdhaarEntry.user_id == clean_user_id, UdhaarEntry.deleted_at.is_(None))
-        .order_by(UdhaarEntry.created_at.desc(), UdhaarEntry.id.desc())
-        .all()
+    ud_q = db.query(UdhaarEntry).filter(
+        UdhaarEntry.user_id == clean_user_id, UdhaarEntry.deleted_at.is_(None)
     )
-    budgets = db.query(Budget).filter(Budget.user_id == clean_user_id).all()
-    recurring = db.query(RecurringExpense).filter(RecurringExpense.user_id == clean_user_id).all()
+    b_q = db.query(Budget).filter(Budget.user_id == clean_user_id)
+    r_q = db.query(RecurringExpense).filter(RecurringExpense.user_id == clean_user_id)
+    if book_id is not None:
+        bid = int(book_id)
+        tx_q = tx_q.filter(Transaction.book_id == bid)
+        ud_q = ud_q.filter(UdhaarEntry.book_id == bid)
+        b_q = b_q.filter(Budget.book_id == bid)
+        r_q = r_q.filter(RecurringExpense.book_id == bid)
+    txs = tx_q.order_by(Transaction.transaction_date.desc(), Transaction.id.desc()).all()
+    udhaars = ud_q.order_by(UdhaarEntry.created_at.desc(), UdhaarEntry.id.desc()).all()
+    budgets = b_q.all()
+    recurring = r_q.all()
+    books_info = analytics.ensure_default_books(db, clean_user_id)
 
     return {
         "status": "success",
         "user_id": clean_user_id,
+        "book_id": int(book_id) if book_id is not None else None,
+        "books": [bk.to_dict() for bk in books_info["books"]],
         "transactions": [t.to_dict() for t in txs],
         "udhaar": [u.to_dict() for u in udhaars],
         "budgets": [b.to_dict() for b in budgets],
@@ -966,15 +1171,18 @@ async def export_full_json(
 @app.get("/api/export/{user_id}")
 async def export_csv(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
     clean_user_id = current_user
+    if book_id is not None and analytics.resolve_book_for_user(db, clean_user_id, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(analytics.EXPORT_HEADER)
-    writer.writerows(analytics.export_rows(db, clean_user_id))
+    writer.writerows(analytics.export_rows(db, clean_user_id, book_id=book_id))
     filename = f"hisaabai_{clean_user_id}_{get_pkt_now().strftime('%Y%m%d')}.csv"
     return Response(
         content="\ufeff" + buf.getvalue(),
@@ -989,11 +1197,14 @@ async def export_csv(
 @app.get("/api/budgets/{user_id}")
 async def list_budgets(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
-    return {"budgets": analytics.budget_status(db, current_user)}
+    if book_id is not None and analytics.resolve_book_for_user(db, current_user, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    return {"budgets": analytics.budget_status(db, current_user, book_id=book_id)}
 
 
 @app.post("/api/budgets")
@@ -1001,6 +1212,7 @@ async def save_budget(
     monthly_limit: float = Form(...),
     category: str = Form("total"),
     user_id: Optional[str] = Form(None),
+    book_id: Optional[int] = Form(None),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1010,13 +1222,24 @@ async def save_budget(
     cat = (category or "total").strip().lower()
     if monthly_limit <= 0:
         raise HTTPException(status_code=400, detail="Budget must be greater than 0.")
-    b = db.query(Budget).filter(Budget.user_id == uid, Budget.category == cat).first()
+    books_info = analytics.ensure_default_books(db, uid)
+    if book_id is not None:
+        if not any(b.id == int(book_id) for b in books_info["books"]):
+            raise HTTPException(status_code=404, detail="Book not found.")
+        target_book_id = int(book_id)
+    else:
+        target_book_id = books_info["personal_book"].id
+    b = (
+        db.query(Budget)
+        .filter(Budget.user_id == uid, Budget.category == cat, Budget.book_id == target_book_id)
+        .first()
+    )
     if b:
         b.monthly_limit = monthly_limit
     else:
-        db.add(Budget(user_id=uid, category=cat, monthly_limit=monthly_limit))
+        db.add(Budget(user_id=uid, book_id=target_book_id, category=cat, monthly_limit=monthly_limit))
     db.commit()
-    return {"budgets": analytics.budget_status(db, uid)}
+    return {"budgets": analytics.budget_status(db, uid, book_id=book_id)}
 
 
 @app.delete("/api/budgets/{user_id}/{budget_id}")
@@ -1041,11 +1264,14 @@ async def delete_budget(
 @app.get("/api/recurring/{user_id}")
 async def list_recurring(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
-    return {"recurring": analytics.recurring_status(db, current_user)}
+    if book_id is not None and analytics.resolve_book_for_user(db, current_user, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    return {"recurring": analytics.recurring_status(db, current_user, book_id=book_id)}
 
 
 @app.post("/api/recurring")
@@ -1055,6 +1281,7 @@ async def save_recurring(
     due_day: int = Form(1),
     category: str = Form("utilities"),
     user_id: Optional[str] = Form(None),
+    book_id: Optional[int] = Form(None),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1065,9 +1292,20 @@ async def save_recurring(
     if not clean_title or amount <= 0:
         raise HTTPException(status_code=400, detail="Title and a positive amount are required.")
     day = min(max(due_day, 1), 28)
+    books_info = analytics.ensure_default_books(db, uid)
+    if book_id is not None:
+        if not any(b.id == int(book_id) for b in books_info["books"]):
+            raise HTTPException(status_code=404, detail="Book not found.")
+        target_book_id = int(book_id)
+    else:
+        target_book_id = books_info["personal_book"].id
     item = (
         db.query(RecurringExpense)
-        .filter(RecurringExpense.user_id == uid, RecurringExpense.title == clean_title)
+        .filter(
+            RecurringExpense.user_id == uid,
+            RecurringExpense.title == clean_title,
+            RecurringExpense.book_id == target_book_id,
+        )
         .first()
     )
     if item:
@@ -1076,6 +1314,7 @@ async def save_recurring(
         db.add(
             RecurringExpense(
                 user_id=uid,
+                book_id=target_book_id,
                 title=clean_title,
                 amount=amount,
                 due_day=day,
@@ -1083,7 +1322,7 @@ async def save_recurring(
             )
         )
     db.commit()
-    return {"recurring": analytics.recurring_status(db, uid)}
+    return {"recurring": analytics.recurring_status(db, uid, book_id=book_id)}
 
 
 @app.post("/api/recurring/{user_id}/{recurring_id}/pay")
@@ -1102,7 +1341,7 @@ async def pay_recurring_item(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Recurring expense not found.")
-    return analytics.pay_recurring(db, uid, item)
+    return analytics.pay_recurring(db, uid, item, book_id=item.book_id)
 
 
 @app.delete("/api/recurring/{user_id}/{recurring_id}")
@@ -1131,11 +1370,14 @@ async def delete_recurring_item(
 @app.get("/api/udhaar/{user_id}")
 async def list_udhaar(
     user_id: str,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
-    return {"udhaar": analytics.udhaar_summary(db, current_user)}
+    if book_id is not None and analytics.resolve_book_for_user(db, current_user, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    return {"udhaar": analytics.udhaar_summary(db, current_user, book_id=book_id)}
 
 
 @app.post("/api/udhaar")
@@ -1146,11 +1388,19 @@ async def create_udhaar(
     notes: Optional[str] = Form(None),
     phone_number: Optional[str] = Form(None),
     user_id: Optional[str] = Form(None),
+    book_id: Optional[int] = Form(None),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if user_id and user_id.strip() != current_user:
         verify_user_access(user_id, current_user)
+    books_info = analytics.ensure_default_books(db, current_user)
+    if book_id is not None:
+        if not any(b.id == int(book_id) for b in books_info["books"]):
+            raise HTTPException(status_code=404, detail="Book not found.")
+        target_book_id = int(book_id)
+    else:
+        target_book_id = books_info["business_book"].id
     res = analytics.add_udhaar_entry(
         db,
         user_id=current_user,
@@ -1159,10 +1409,11 @@ async def create_udhaar(
         direction=direction,
         notes=notes,
         phone_number=phone_number,
+        book_id=target_book_id,
     )
     if res.get("status") == "error":
         raise HTTPException(status_code=400, detail=res.get("message", "Invalid udhaar entry"))
-    return {"status": "success", "entry": res["entry"], "udhaar": analytics.udhaar_summary(db, current_user)}
+    return {"status": "success", "entry": res["entry"], "udhaar": analytics.udhaar_summary(db, current_user, book_id=book_id)}
 
 
 @app.patch("/api/udhaar/{user_id}/{entry_id}")
@@ -1215,10 +1466,13 @@ async def settle_udhaar_item(
     user_id: str,
     entry_id: int,
     amount: Optional[float] = Form(None),
+    book_id: Optional[int] = Form(None),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
+    if book_id is not None and analytics.resolve_book_for_user(db, current_user, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
     res = analytics.settle_udhaar(
         db,
         user_id=current_user,
@@ -1227,17 +1481,20 @@ async def settle_udhaar_item(
     )
     if res.get("status") == "not_found":
         raise HTTPException(status_code=404, detail=res.get("message", "Udhaar entry not found"))
-    return {**res, "udhaar": analytics.udhaar_summary(db, current_user)}
+    return {**res, "udhaar": analytics.udhaar_summary(db, current_user, book_id=book_id)}
 
 
 @app.delete("/api/udhaar/{user_id}/{entry_id}")
 async def delete_udhaar_item(
     user_id: str,
     entry_id: int,
+    book_id: Optional[int] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     verify_user_access(user_id, current_user)
+    if book_id is not None and analytics.resolve_book_for_user(db, current_user, book_id) is None:
+        raise HTTPException(status_code=404, detail="Book not found.")
     entry = (
         db.query(UdhaarEntry)
         .filter(
@@ -1251,7 +1508,7 @@ async def delete_udhaar_item(
         raise HTTPException(status_code=404, detail="Udhaar entry not found.")
     entry.deleted_at = get_pkt_now()
     db.commit()
-    return {"status": "success", "udhaar": analytics.udhaar_summary(db, current_user)}
+    return {"status": "success", "udhaar": analytics.udhaar_summary(db, current_user, book_id=book_id)}
 
 
 # ---------------------------------------------------------------------------
@@ -1302,7 +1559,7 @@ async def delete_transaction(
             detail=f"Transaction #{transaction_id} not found for user '{clean_user_id}'.",
         )
 
-    deleted_store = tx.store_name.title()
+    deleted_store = tx.title or tx.store_name.title()
     deleted_amount = tx.total_amount
 
     # Soft-delete preserves data for undo buffer

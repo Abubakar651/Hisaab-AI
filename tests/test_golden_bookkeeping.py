@@ -445,7 +445,7 @@ def test_sw_js_every_respond_with_has_safe_response_fallback():
     with open("static/sw.js", "r", encoding="utf-8") as f:
         sw = f.read()
 
-    assert "CACHE = 'hisaabai-shell-v24'" in sw
+    assert "CACHE = 'hisaabai-shell-v25'" in sw
     assert "function safeOfflineResponse()" in sw
     assert "new Response(" in sw and ("status: 503" in sw or "status: 504" in sw)
     assert "ignoreSearch: true" in sw
@@ -676,6 +676,162 @@ def test_mobile_auth_clock_skew_tolerance_and_popup_prewarm(client):
     assert "_popupRedirectResolver" in auth_js
     assert "signInSyncPromise" in auth_js
     assert "if (currentUser)" in auth_js
+
+
+def test_smart_highlight_title_derivation_and_log_expense(clean_db):
+    import analytics
+    from database import Book
+
+    # 1. Multi-item Urdu grocery with generic 'local store' must produce descriptive Urdu highlight title
+    t_ur_2 = analytics.compute_transaction_title(
+        store_name="local store",
+        items=[{"item_name": "بوتلیں"}, {"item_name": "ٹیشو"}],
+        raw_transcript="چھ سو کی بوتلیں اور دو سو کی ٹیشو",
+    )
+    assert "بوتلیں" in t_ur_2 and "ٹیشو" in t_ur_2
+    assert "local store" not in t_ur_2.lower()
+    assert "general store" not in t_ur_2.lower()
+
+    # 2. Four-item Urdu list summarizes concisely with count
+    t_ur_4 = analytics.compute_transaction_title(
+        store_name="general store",
+        items=[
+            {"item_name": "انڈے"},
+            {"item_name": "بوتلیں"},
+            {"item_name": "بریڈ"},
+            {"item_name": "رس"},
+        ],
+    )
+    assert "انڈے" in t_ur_4 and "بوتلیں" in t_ur_4 and "4" in t_ur_4
+
+    # 3. Explicit non-generic vendor is preserved cleanly
+    t_vendor = analytics.compute_transaction_title(
+        store_name="al-fatah",
+        items=[{"item_name": "Milk"}],
+    )
+    assert "al-fatah" in t_vendor.lower()
+
+    # 4. Utility lump-sum expense with generic store derives highlight title from category/transcript
+    t_util = analytics.compute_transaction_title(
+        store_name="general store",
+        items=[{"item_name": "general item", "category": "utilities"}],
+        raw_transcript="بجلی کا بل 8000",
+        inferred_category="utilities",
+    )
+    assert "بجلی" in t_util
+
+    # 5. Daily sale highlights stone/product name rather than 'cash sale' / 'local store'
+    t_sale = analytics.compute_transaction_title(
+        store_name="local store",
+        items=[{"item_name": "2000 فٹ سنی گرے پتھر"}],
+        raw_transcript="2000 فٹ سنی گرے پتھر بیچا",
+        tx_type="sale",
+    )
+    assert "سنی گرے پتھر" in t_sale
+
+    # 6. End-to-end tool call persists rich title & keeps legacy store_name untouched
+    user_id = "highlight_title_user@example.com"
+    tmap = _tool_map(user_id, raw_transcript="چھ سو کی بوتلیں اور دو سو کی ٹیشو")
+    res = json.loads(
+        tmap["log_expense"].invoke(
+            {
+                "store_name": "local store",
+                "total_amount": 800,
+                "items": "بوتلیں: 600, ٹیشو: 200",
+                "payment_method": "cash",
+            }
+        )
+    )
+    assert res["status"] == "success"
+    db = agent.SessionLocal()
+    try:
+        tx = db.query(Transaction).filter(Transaction.id == res["transaction_id"]).first()
+        assert tx is not None
+        assert tx.store_name == "local store"
+        assert "بوتلیں" in (tx.title or "") and "ٹیشو" in (tx.title or "")
+        assert "local store" not in (tx.to_dict().get("display_title") or tx.title or "").lower()
+        books_info = analytics.ensure_default_books(db, user_id)
+        assert len(books_info["books"]) >= 2
+        db.expire_all()
+        assert db.query(Transaction).filter(Transaction.id == tx.id).first().book_id == books_info["personal_book"].id
+    finally:
+        db.close()
+
+
+def test_detect_cross_book_signal_and_historical_backfill(clean_db):
+    import analytics
+    from database import get_pkt_now
+
+    # 1. Cross-book detector triggers only on clear mismatches
+    sig_personal = analytics.detect_cross_book_signal("گھر کا راشن 3000 روپے", "business")
+    assert sig_personal is not None and sig_personal["suggested_book_type"] == "personal"
+
+    sig_biz = analytics.detect_cross_book_signal("آج 15000 کی فروخت ہوئی گلے میں لکھ دو", "personal")
+    assert sig_biz is not None and sig_biz["suggested_book_type"] == "business"
+
+    assert analytics.detect_cross_book_signal("دکان کا بجلی بل 5000", "business") is None
+
+    from agent import _build_cross_book_suggestion
+    cross_meta = _build_cross_book_suggestion(
+        "گھر کا راشن 3000 روپے",
+        {"last_transaction_id": 42, "last_tx_type": "expense"},
+        "business",
+    )
+    assert cross_meta is not None and cross_meta["transaction_id"] == 42 and cross_meta["suggested_book_type"] == "personal"
+
+    # 2. Orphan backfill splits historical rows properly and backfills generic-store highlight titles
+    user_id = "backfill_user@example.com"
+    db = agent.SessionLocal()
+    try:
+        sale_tx = Transaction(
+            user_id=user_id,
+            store_name="cash sale",
+            tx_type="sale",
+            total_amount=50000.0,
+            transaction_date=get_pkt_now(),
+        )
+        exp_tx = Transaction(
+            user_id=user_id,
+            store_name="general store",
+            tx_type="expense",
+            total_amount=800.0,
+            transaction_date=get_pkt_now(),
+        )
+        db.add_all([sale_tx, exp_tx])
+        db.flush()
+        db.add_all([
+            TransactionItem(transaction_id=sale_tx.id, item_name="2000 فٹ سنی گرے پتھر", price=50000.0, category="sales"),
+            TransactionItem(transaction_id=exp_tx.id, item_name="بوتلیں", price=600.0, category="groceries"),
+            TransactionItem(transaction_id=exp_tx.id, item_name="ٹیشو", price=200.0, category="groceries"),
+        ])
+        udhaar = UdhaarEntry(
+            user_id=user_id,
+            person_name="Tariq",
+            amount=3500.0,
+            paid_amount=0.0,
+            direction="receivable",
+            status="open",
+        )
+        budget = Budget(user_id=user_id, category="groceries", monthly_limit=20000.0)
+        rec = RecurringExpense(user_id=user_id, title="Home Rent", amount=25000.0, due_day=1)
+        db.add_all([udhaar, budget, rec])
+        db.commit()
+
+        info = analytics.ensure_default_books(db, user_id)
+        biz_id = info["business_book"].id
+        pers_id = info["personal_book"].id
+
+        db.expire_all()
+        assert db.query(Transaction).filter(Transaction.id == sale_tx.id).first().book_id == biz_id
+        backfilled_exp = db.query(Transaction).filter(Transaction.id == exp_tx.id).first()
+        assert backfilled_exp.book_id == pers_id
+        assert backfilled_exp.store_name == "general store"
+        assert "بوتلیں" in (backfilled_exp.title or "") and "ٹیشو" in (backfilled_exp.title or "")
+        assert db.query(UdhaarEntry).filter(UdhaarEntry.id == udhaar.id).first().book_id == biz_id
+        assert db.query(Budget).filter(Budget.id == budget.id).first().book_id == pers_id
+        assert db.query(RecurringExpense).filter(RecurringExpense.id == rec.id).first().book_id == pers_id
+    finally:
+        db.close()
 
 
 

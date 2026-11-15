@@ -66,16 +66,46 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class Book(Base):
+    """
+    Ledger / Business Book profile per user (Multi-Book Pattern).
+    - book_type='business': Daily Cashbook (Galla), Sales, Customer & Supplier Udhaar Khata.
+    - book_type='personal': Household & personal expense ledger, monthly budgets, personal bills.
+    """
+
+    __tablename__ = "books"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    book_type = Column(String(20), index=True, default="personal", nullable=False)  # 'business' or 'personal'
+    is_default = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=get_pkt_now, nullable=False)
+    deleted_at = Column(DateTime, index=True, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "name": self.name,
+            "book_type": self.book_type or "personal",
+            "is_default": bool(self.is_default),
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
+        }
+
+
 class Transaction(Base):
     """
-    Main expense transaction table.
+    Main expense & sale transaction table.
     All dates and timestamps are stored in Pakistan Standard Time (Asia/Karachi).
     """
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(100), index=True, nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id", ondelete="SET NULL"), index=True, nullable=True)
     store_name = Column(String(150), index=True, nullable=False)
+    title = Column(String(200), index=True, nullable=True)
     total_amount = Column(Float, nullable=False)
     transaction_date = Column(DateTime, index=True, default=get_pkt_now, nullable=False)
     raw_transcript = Column(Text, nullable=True)
@@ -94,7 +124,10 @@ class Transaction(Base):
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "book_id": self.book_id,
             "store_name": self.store_name,
+            "title": self.title,
+            "display_title": self.title or self.store_name,
             "total_amount": round(self.total_amount, 2),
             "transaction_date": (
                 self.transaction_date.strftime("%Y-%m-%d %H:%M")
@@ -153,12 +186,14 @@ class Budget(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(100), index=True, nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id"), index=True, nullable=True)
     category = Column(String(100), index=True, default="total", nullable=False)
     monthly_limit = Column(Float, nullable=False)
 
     def to_dict(self):
         return {
             "id": self.id,
+            "book_id": self.book_id,
             "category": self.category,
             "monthly_limit": round(self.monthly_limit, 2),
         }
@@ -171,6 +206,7 @@ class RecurringExpense(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(100), index=True, nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id"), index=True, nullable=True)
     title = Column(String(150), nullable=False)
     amount = Column(Float, nullable=False)
     due_day = Column(Integer, default=1, nullable=False)  # day of month 1-28
@@ -181,6 +217,7 @@ class RecurringExpense(Base):
         current_month = get_pkt_now().strftime("%Y-%m")
         return {
             "id": self.id,
+            "book_id": self.book_id,
             "title": self.title,
             "amount": round(self.amount, 2),
             "due_day": self.due_day,
@@ -240,7 +277,9 @@ class PendingTransaction(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(100), index=True, nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id"), index=True, nullable=True)
     store_name = Column(String(150), nullable=False)
+    title = Column(String(200), nullable=True)
     total_amount = Column(Float, nullable=False)
     payment_method = Column(String(30), default="cash", nullable=False)
     date_str = Column(String(20), nullable=True)
@@ -253,7 +292,10 @@ class PendingTransaction(Base):
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "book_id": self.book_id,
             "store_name": self.store_name,
+            "title": self.title,
+            "display_title": self.title or self.store_name,
             "total_amount": round(self.total_amount, 2),
             "payment_method": self.payment_method,
             "date_str": self.date_str,
@@ -274,6 +316,7 @@ class UdhaarEntry(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(100), index=True, nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id"), index=True, nullable=True)
     person_name = Column(String(150), index=True, nullable=False)
     phone_number = Column(String(50), nullable=True)
     direction = Column(String(20), index=True, default="receivable", nullable=False)  # 'receivable' or 'payable'
@@ -292,6 +335,7 @@ class UdhaarEntry(Base):
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "book_id": self.book_id,
             "person_name": self.person_name,
             "phone_number": self.phone_number or "",
             "direction": self.direction or "receivable",
@@ -329,6 +373,28 @@ def _migrate_sqlite():
                     "VARCHAR(20) NOT NULL DEFAULT 'expense'"
                 )
             )
+        if cols and "book_id" not in cols:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN book_id INTEGER NULL"))
+        if cols and "title" not in cols:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN title VARCHAR(200) NULL"))
+
+        pending_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(pending_transactions)"))]
+        if pending_cols and "book_id" not in pending_cols:
+            conn.execute(text("ALTER TABLE pending_transactions ADD COLUMN book_id INTEGER NULL"))
+        if pending_cols and "title" not in pending_cols:
+            conn.execute(text("ALTER TABLE pending_transactions ADD COLUMN title VARCHAR(200) NULL"))
+
+        budget_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(budgets)"))]
+        if budget_cols and "book_id" not in budget_cols:
+            conn.execute(text("ALTER TABLE budgets ADD COLUMN book_id INTEGER NULL"))
+
+        rec_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(recurring_expenses)"))]
+        if rec_cols and "book_id" not in rec_cols:
+            conn.execute(text("ALTER TABLE recurring_expenses ADD COLUMN book_id INTEGER NULL"))
+
+        udhaar_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(udhaar_entries)"))]
+        if udhaar_cols and "book_id" not in udhaar_cols:
+            conn.execute(text("ALTER TABLE udhaar_entries ADD COLUMN book_id INTEGER NULL"))
 
         user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user_accounts)"))]
         if user_cols and "firebase_uid" not in user_cols:

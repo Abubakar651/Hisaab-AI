@@ -9,12 +9,14 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
+import re
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import (
     Transaction,
     TransactionItem,
+    Book,
     Budget,
     RecurringExpense,
     PendingTransaction,
@@ -143,6 +145,526 @@ def sanitize_transaction_amount(
         return 0.0
 
 
+GENERIC_STORE_NAMES = frozenset(
+    {
+        "",
+        "general store",
+        "local store",
+        "local shop",
+        "general",
+        "store",
+        "shop",
+        "mart",
+        "market",
+        "bazaar",
+        "dukan",
+        "dukkan",
+        "misc",
+        "unknown",
+        "other",
+        "general purchase",
+        "دکان",
+        "جنرل سٹور",
+        "جنرل اسٹور",
+        "لوکل سٹور",
+        "لوکل اسٹور",
+        "سمار",
+        "سودا",
+        "خریداری",
+        "متفرق",
+    }
+)
+
+GENERIC_SALE_NAMES = frozenset(
+    {
+        "customer / cash sale",
+        "cash sale",
+        "customer",
+        "sale",
+        "galla",
+        "farokht",
+        "فروخت",
+        "گلہ",
+        "گالا",
+        "آج کا گلہ",
+        "نقد فروخت",
+        "کسٹمر",
+        "گاہک",
+    }
+)
+
+GENERIC_ITEM_NAMES = frozenset(
+    GENERIC_STORE_NAMES
+    | GENERIC_SALE_NAMES
+    | {"item", "items", "general item", "misc item", "general expense", "expense", "purchase", "samann", "samaan", "سامان"}
+)
+
+_URDU_RE = re.compile(r"[\u0600-\u06FF]")
+
+_TRANSCRIPT_HIGHLIGHTS = (
+    (("بجلی", "electricity", "wapda", "lesco", "k-electric", "kelectric", "iesco"), "بجلی کا بل", "Electricity Bill"),
+    (("گیس", "sui gas", "ssgc", "sngpl"), "گیس کا بل", "Gas Bill"),
+    (("انٹرنیٹ", "وائی فائی", "wifi", "internet", "ptcl", "nayatel", "fiber"), "انٹرنیٹ بل", "Internet Bill"),
+    (("پانی کا بل", "water bill", "wasa"), "پانی کا بل", "Water Bill"),
+    (("پیٹرول", "پٹرول", "petrol", "diesel", "ڈیزل", "cng", "fuel"), "پیٹرول / ایندھن", "Fuel / Petrol"),
+    (("راشن", "گھر کا راشن", "ration", "groceries", "grocery", "کریانہ"), "گھر کا راشن", "Groceries / Ration"),
+    (("دوائی", "دوا", "میڈیکل", "medicine", "pharmacy", "doctor", "clinic", "hospital"), "دوائی / میڈیکل", "Medical / Pharmacy"),
+    (("کرایہ", "rent", "kiraya"), "کرایہ", "Rent"),
+    (("فیس", "fee", "fees", "tuition", "school"), "فیس / تعلیم", "School / Tuition Fee"),
+    (("مزدوری", "تنخواہ", "wages", "salary", "labor", "mazdoori"), "مزدوری / تنخواہ", "Labor / Wages"),
+    (("مال", "اسٹاک", "stock", "inventory", "wholesale", "thok"), "دکان کا مال / اسٹاک", "Shop Inventory"),
+)
+
+_CATEGORY_HIGHLIGHTS = {
+    "utilities": ("یوٹیلیٹی بل", "Utility Bill"),
+    "groceries": ("راشن / گروسری", "Groceries"),
+    "fuel": ("پیٹرول / ایندھن", "Fuel"),
+    "transport": ("سفر / کرایہ", "Transport"),
+    "medical": ("دوائی / میڈیکل", "Medical"),
+    "food": ("کھانا / ناشتہ", "Food & Dining"),
+    "education": ("فیس / تعلیم", "Education"),
+    "rent": ("کرایہ", "Rent"),
+    "inventory": ("دکان کا مال", "Shop Inventory"),
+    "labor": ("مزدوری / تنخواہ", "Labor & Wages"),
+    "maintenance": ("مرمت", "Maintenance"),
+    "clothes": ("کپڑے", "Clothing"),
+    "entertainment": ("تفریح", "Entertainment"),
+}
+
+
+def _has_urdu_script(text: str) -> bool:
+    return bool(text and _URDU_RE.search(text))
+
+
+def _format_label(text: str, max_len: int = 56) -> str:
+    cleaned = " ".join((text or "").strip().split())
+    if not cleaned:
+        return ""
+    if not _has_urdu_script(cleaned) and cleaned == cleaned.lower():
+        cleaned = cleaned.title()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 1].rstrip() + "…"
+    return cleaned
+
+
+def compute_transaction_title(
+    store_name: str,
+    items: Optional[List[Dict[str, Any]]] = None,
+    raw_transcript: str = "",
+    tx_type: str = "expense",
+    inferred_category: str = "",
+) -> str:
+    """
+    Computes a concise, descriptive highlight title for a transaction so users never
+    see 'general store' / 'local store' everywhere in their ledger.
+    Priority:
+      - Sales: meaningful line items -> explicit non-generic customer/description -> transcript / Cash Sale
+      - Expenses: explicit named vendor -> concise line item highlight -> keyword/category -> transcript snippet
+    """
+    s_clean = " ".join((store_name or "").strip().split())
+    s_low = s_clean.lower()
+    t_clean = " ".join((raw_transcript or "").strip().split())
+
+    clean_items: List[str] = []
+    seen_items = set()
+    for it in items or []:
+        if isinstance(it, dict):
+            raw_name = it.get("item_name") or it.get("name") or ""
+        else:
+            raw_name = getattr(it, "item_name", "") or ""
+        name = " ".join(str(raw_name).strip().split())
+        low = name.lower()
+        if not name or low in GENERIC_ITEM_NAMES or low in seen_items:
+            continue
+        seen_items.add(low)
+        clean_items.append(_format_label(name, max_len=32))
+
+    is_urdu = _has_urdu_script(t_clean) or _has_urdu_script(s_clean) or any(_has_urdu_script(x) for x in clean_items)
+
+    def _join_items(names: List[str]) -> str:
+        if len(names) == 1:
+            return _format_label(names[0], max_len=56)
+        if len(names) == 2:
+            sep = " اور " if is_urdu else " & "
+            return _format_label(f"{names[0]}{sep}{names[1]}", max_len=60)
+        if is_urdu:
+            return _format_label(f"{names[0]}، {names[1]} وغیرہ ({len(names)} اشیاء)", max_len=64)
+        return _format_label(f"{names[0]}, {names[1]} (+{len(names) - 2} more)", max_len=64)
+
+    if tx_type == "sale":
+        if clean_items:
+            return _join_items(clean_items)
+        if s_low and s_low not in GENERIC_STORE_NAMES and s_low not in GENERIC_SALE_NAMES:
+            return _format_label(s_clean, max_len=56)
+        return "نقد فروخت" if is_urdu else "Cash Sale"
+
+    # Priority 1: Explicit named vendor / shop / biller
+    if s_low and s_low not in GENERIC_STORE_NAMES and s_low not in GENERIC_SALE_NAMES:
+        return _format_label(s_clean, max_len=56)
+
+    # Priority 2: Specific items bought
+    if clean_items:
+        return _join_items(clean_items)
+
+    # Priority 3: Specific keyword match from transcript
+    t_low = t_clean.lower()
+    for keywords, ur_label, en_label in _TRANSCRIPT_HIGHLIGHTS:
+        if any(kw in t_low for kw in keywords):
+            return ur_label if is_urdu else en_label
+
+    # Priority 3b: Inferred category highlight
+    cat_key = (inferred_category or "").strip().lower()
+    if cat_key in _CATEGORY_HIGHLIGHTS:
+        ur_cat, en_cat = _CATEGORY_HIGHLIGHTS[cat_key]
+        return ur_cat if is_urdu else en_cat
+
+    # Priority 4: Meaningful transcript snippet
+    if len(t_clean) >= 4:
+        snippet = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:rupees|rs|pkr|روپے)?\b", "", t_clean, flags=re.I).strip(" ,.-،۔")
+        if len(snippet) >= 4:
+            return _format_label(snippet, max_len=44)
+
+    return "روزمرہ خرچ" if is_urdu else "Daily Expense"
+
+
+def detect_cross_book_signal(transcript: str, active_book_type: Optional[str]) -> Optional[Dict[str, str]]:
+    """
+    Lightweight lexical detector that spots obvious cross-book intent:
+    - Household/family expense logged inside a Business book -> suggest Personal book.
+    - Sales/Galla/Customer/Supplier activity logged inside a Personal book -> suggest Business book.
+    Returns suggestion dict or None (never blocks or alters the primary write).
+    """
+    if not transcript or active_book_type not in ("business", "personal"):
+        return None
+    low = " ".join(transcript.strip().lower().split())
+    if not low:
+        return None
+
+    personal_markers = (
+        "گھر کا راشن",
+        "گھر کے راشن",
+        "گھریلو",
+        "بچوں کی فیس",
+        "اسکول فیس",
+        "سکول فیس",
+        "home ration",
+        "home groceries",
+        "household",
+        "school fee",
+        "tuition fee",
+        "family expense",
+        "personal expense",
+        "ذاتی خرچ",
+        "گھر کی دوائی",
+    )
+    business_markers = (
+        "فروخت",
+        "بیچا",
+        "بیچی",
+        "پیچا",
+        "پیچھا",
+        "گلہ",
+        "گالا",
+        "farokht",
+        "galla",
+        "بکری",
+        "کسٹمر",
+        "گاہک",
+        "سپلائر",
+        "کاروبار",
+        "مزدوری",
+        "دکان کا مال",
+        "دکان کا کرایہ",
+        "shop sale",
+        "customer sale",
+        "supplier",
+        "inventory",
+    )
+
+    if active_book_type == "business":
+        if any(m in low for m in personal_markers) and not any(b in low for b in business_markers):
+            return {
+                "suggested_book_type": "personal",
+                "reason": "household_expense",
+                "message_ur": "یہ گھریلو/ذاتی خرچ لگتا ہے — ذاتی حساب میں منتقل کریں؟",
+                "message_en": "This looks like a personal/household expense — move to Personal book?",
+            }
+    elif active_book_type == "personal":
+        if any(m in low for m in business_markers) and not any(p in low for p in personal_markers):
+            return {
+                "suggested_book_type": "business",
+                "reason": "business_activity",
+                "message_ur": "یہ کاروباری لین دین لگتا ہے — کاروبار کتاب میں منتقل کریں؟",
+                "message_en": "This looks like a business transaction — move to Business book?",
+            }
+    return None
+
+
+def ensure_default_books(db: Session, user_id: str) -> Dict[str, Any]:
+    """
+    Ensures every user has default Business and Personal books and idempotently backfills
+    any legacy/orphan rows (book_id IS NULL) as well as missing highlight titles on
+    generic-store transactions.
+    """
+    now = get_pkt_now()
+    books = (
+        db.query(Book)
+        .filter(Book.user_id == user_id, Book.deleted_at.is_(None))
+        .order_by(Book.is_default.desc(), Book.id.asc())
+        .all()
+    )
+
+    changed = False
+    if not books:
+        biz = Book(
+            user_id=user_id,
+            name="کاروبار / My Business",
+            book_type="business",
+            is_default=True,
+            created_at=now,
+        )
+        pers = Book(
+            user_id=user_id,
+            name="ذاتی حساب / Personal",
+            book_type="personal",
+            is_default=False,
+            created_at=now,
+        )
+        db.add(biz)
+        db.add(pers)
+        db.flush()
+        books = [biz, pers]
+        changed = True
+
+    biz_book = next((b for b in books if b.book_type == "business"), books[0])
+    pers_book = next((b for b in books if b.book_type == "personal"), books[0])
+
+    # Backfill orphan transactions cleanly: sales -> business, expenses -> personal
+    orphan_txs = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == user_id, Transaction.book_id.is_(None))
+        .all()
+    )
+    for tx in orphan_txs:
+        tx.book_id = biz_book.id if tx.tx_type == "sale" else pers_book.id
+        if not tx.title and (
+            (tx.store_name or "").strip().lower() in GENERIC_STORE_NAMES
+            or tx.tx_type == "sale"
+        ):
+            tx.title = compute_transaction_title(
+                tx.store_name,
+                items=tx.items,
+                raw_transcript=tx.raw_transcript or "",
+                tx_type=tx.tx_type or "expense",
+            )
+        changed = True
+
+    # Also backfill missing highlight titles on generic-store rows created before this feature
+    generic_untitled = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.deleted_at.is_(None),
+            Transaction.title.is_(None),
+        )
+        .all()
+    )
+    for tx in generic_untitled:
+        s_low = (tx.store_name or "").strip().lower()
+        if s_low in GENERIC_STORE_NAMES or tx.tx_type == "sale":
+            tx.title = compute_transaction_title(
+                tx.store_name,
+                items=tx.items,
+                raw_transcript=tx.raw_transcript or "",
+                tx_type=tx.tx_type or "expense",
+            )
+            changed = True
+
+    for model, target_id in (
+        (PendingTransaction, pers_book.id),
+        (Budget, pers_book.id),
+        (RecurringExpense, pers_book.id),
+        (UdhaarEntry, biz_book.id),
+    ):
+        updated = (
+            db.query(model)
+            .filter(model.user_id == user_id, model.book_id.is_(None))
+            .update({model.book_id: target_id}, synchronize_session=False)
+        )
+        if updated:
+            changed = True
+
+    if changed:
+        db.commit()
+        books = (
+            db.query(Book)
+            .filter(Book.user_id == user_id, Book.deleted_at.is_(None))
+            .order_by(Book.is_default.desc(), Book.id.asc())
+            .all()
+        )
+        biz_book = next((b for b in books if b.book_type == "business"), books[0])
+        pers_book = next((b for b in books if b.book_type == "personal"), books[0])
+
+    default_book = next((b for b in books if b.is_default), books[0])
+    return {
+        "books": books,
+        "business_book": biz_book,
+        "personal_book": pers_book,
+        "default_book": default_book,
+    }
+
+
+def resolve_book_for_user(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> Optional[Book]:
+    """
+    Ensures user books exist and resolves `book_id` with strict tenant ownership.
+    - If `book_id` is None, returns the user's default active book.
+    - If `book_id` is provided, returns that Book only if owned by `user_id` and active; else None.
+    """
+    info = ensure_default_books(db, user_id)
+    if book_id is None:
+        return info["default_book"]
+    return (
+        db.query(Book)
+        .filter(
+            Book.id == int(book_id),
+            Book.user_id == user_id,
+            Book.deleted_at.is_(None),
+        )
+        .first()
+    )
+
+
+def create_user_book(db: Session, user_id: str, name: str, book_type: str = "business") -> Book:
+    """Creates a new Business or Personal book owned by `user_id`."""
+    clean_name = " ".join((name or "").strip().split())
+    if not clean_name:
+        raise ValueError("Book name cannot be empty.")
+    if len(clean_name) > 120:
+        clean_name = clean_name[:120]
+    clean_type = "personal" if str(book_type or "").strip().lower() == "personal" else "business"
+    ensure_default_books(db, user_id)
+    book = Book(
+        user_id=user_id,
+        name=clean_name,
+        book_type=clean_type,
+        is_default=False,
+        created_at=get_pkt_now(),
+    )
+    db.add(book)
+    db.commit()
+    db.refresh(book)
+    return book
+
+
+def update_user_book(
+    db: Session,
+    user_id: str,
+    book_id: int,
+    name: Optional[str] = None,
+    book_type: Optional[str] = None,
+    is_default: Optional[bool] = None,
+) -> Optional[Book]:
+    """Renames or updates an existing Book owned by `user_id`."""
+    ensure_default_books(db, user_id)
+    book = (
+        db.query(Book)
+        .filter(Book.id == int(book_id), Book.user_id == user_id, Book.deleted_at.is_(None))
+        .first()
+    )
+    if not book:
+        return None
+    if name is not None:
+        clean_name = " ".join(name.strip().split())
+        if not clean_name:
+            raise ValueError("Book name cannot be empty.")
+        book.name = clean_name[:120]
+    if book_type is not None:
+        book.book_type = "personal" if str(book_type).strip().lower() == "personal" else "business"
+    if is_default is True:
+        db.query(Book).filter(Book.user_id == user_id, Book.deleted_at.is_(None)).update(
+            {Book.is_default: False}, synchronize_session=False
+        )
+        book.is_default = True
+    db.commit()
+    db.refresh(book)
+    return book
+
+
+def delete_user_book(db: Session, user_id: str, book_id: int) -> Dict[str, Any]:
+    """Soft-deletes a Book if the user owns it and still has at least one other active Book."""
+    ensure_default_books(db, user_id)
+    active_books = (
+        db.query(Book)
+        .filter(Book.user_id == user_id, Book.deleted_at.is_(None))
+        .order_by(Book.id.asc())
+        .all()
+    )
+    target = next((b for b in active_books if b.id == int(book_id)), None)
+    if not target:
+        return {"status": "not_found", "message": "Book not found."}
+    if len(active_books) <= 1:
+        return {"status": "error", "message": "Cannot delete your only remaining book."}
+
+    target.deleted_at = get_pkt_now()
+    was_default = target.is_default
+    target.is_default = False
+    remaining = [b for b in active_books if b.id != target.id]
+    if was_default and remaining:
+        remaining[0].is_default = True
+    db.commit()
+    return {
+        "status": "success",
+        "deleted_book_id": int(book_id),
+        "fallback_book_id": remaining[0].id if remaining else None,
+    }
+
+
+def move_transaction_to_book(
+    db: Session,
+    user_id: str,
+    transaction_id: int,
+    target_book_id: int,
+) -> Dict[str, Any]:
+    """Moves a transaction owned by `user_id` into another active Book owned by `user_id`."""
+    ensure_default_books(db, user_id)
+    tx = (
+        db.query(Transaction)
+        .filter(
+            Transaction.id == int(transaction_id),
+            Transaction.user_id == user_id,
+            Transaction.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not tx:
+        return {"status": "not_found", "message": "Transaction not found."}
+
+    target_book = (
+        db.query(Book)
+        .filter(
+            Book.id == int(target_book_id),
+            Book.user_id == user_id,
+            Book.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not target_book:
+        return {"status": "not_found", "message": "Target book not found."}
+
+    tx.book_id = target_book.id
+    db.commit()
+    db.refresh(tx)
+    return {
+        "status": "success",
+        "transaction": tx.to_dict(),
+        "book": target_book.to_dict(),
+    }
+
+
 def month_start(now: Optional[datetime] = None) -> datetime:
     """Returns midnight on the 1st of the current month in Pakistan Standard Time."""
     now = now or get_pkt_now()
@@ -154,20 +676,28 @@ def _is_expense_clause():
     return or_(Transaction.tx_type == "expense", Transaction.tx_type.is_(None))
 
 
-def category_breakdown(db: Session, user_id: str, since: datetime) -> List[Dict]:
+def category_breakdown(
+    db: Session,
+    user_id: str,
+    since: datetime,
+    book_id: Optional[int] = None,
+) -> List[Dict]:
     """SUM(price) per category since `since`, largest first, with percentage share."""
+    filters = [
+        Transaction.user_id == user_id,
+        Transaction.transaction_date >= since,
+        Transaction.deleted_at.is_(None),
+        _is_expense_clause(),
+    ]
+    if book_id is not None:
+        filters.append(Transaction.book_id == int(book_id))
     rows = (
         db.query(
             TransactionItem.category,
             func.sum(TransactionItem.price).label("total"),
         )
         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
-        .filter(
-            Transaction.user_id == user_id,
-            Transaction.transaction_date >= since,
-            Transaction.deleted_at.is_(None),
-            _is_expense_clause(),
-        )
+        .filter(*filters)
         .group_by(TransactionItem.category)
         .order_by(func.sum(TransactionItem.price).desc())
         .all()
@@ -183,7 +713,12 @@ def category_breakdown(db: Session, user_id: str, since: datetime) -> List[Dict]
     ]
 
 
-def daily_trend(db: Session, user_id: str, days: int = 30) -> List[Dict]:
+def daily_trend(
+    db: Session,
+    user_id: str,
+    days: int = 30,
+    book_id: Optional[int] = None,
+) -> List[Dict]:
     """Per-day spending for the last `days` days (zero-filled so the chart has no gaps)."""
     today = get_pkt_now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = today - timedelta(days=days - 1)
@@ -194,17 +729,21 @@ def daily_trend(db: Session, user_id: str, days: int = 30) -> List[Dict]:
     else:
         day_expr = func.strftime("%Y-%m-%d", Transaction.transaction_date)
 
+    filters = [
+        Transaction.user_id == user_id,
+        Transaction.transaction_date >= start,
+        Transaction.deleted_at.is_(None),
+        _is_expense_clause(),
+    ]
+    if book_id is not None:
+        filters.append(Transaction.book_id == int(book_id))
+
     rows = (
         db.query(
             day_expr.label("day"),
             func.sum(Transaction.total_amount).label("total"),
         )
-        .filter(
-            Transaction.user_id == user_id,
-            Transaction.transaction_date >= start,
-            Transaction.deleted_at.is_(None),
-            _is_expense_clause(),
-        )
+        .filter(*filters)
         .group_by("day")
         .all()
     )
@@ -216,20 +755,29 @@ def daily_trend(db: Session, user_id: str, days: int = 30) -> List[Dict]:
     return out
 
 
-def payment_split(db: Session, user_id: str, since: datetime) -> List[Dict]:
+def payment_split(
+    db: Session,
+    user_id: str,
+    since: datetime,
+    book_id: Optional[int] = None,
+) -> List[Dict]:
     """SUM(total_amount) per payment method, plus cash-vs-digital totals."""
+    filters = [
+        Transaction.user_id == user_id,
+        Transaction.transaction_date >= since,
+        Transaction.deleted_at.is_(None),
+        _is_expense_clause(),
+    ]
+    if book_id is not None:
+        filters.append(Transaction.book_id == int(book_id))
+
     rows = (
         db.query(
             Transaction.payment_method,
             func.sum(Transaction.total_amount).label("total"),
             func.count(Transaction.id).label("count"),
         )
-        .filter(
-            Transaction.user_id == user_id,
-            Transaction.transaction_date >= since,
-            Transaction.deleted_at.is_(None),
-            _is_expense_clause(),
-        )
+        .filter(*filters)
         .group_by(Transaction.payment_method)
         .order_by(func.sum(Transaction.total_amount).desc())
         .all()
@@ -244,21 +792,34 @@ def payment_split(db: Session, user_id: str, since: datetime) -> List[Dict]:
     ]
 
 
-def budget_status(db: Session, user_id: str) -> List[Dict]:
+def budget_status(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> List[Dict]:
     """Spent / limit / percent for every budget the user has set (current month)."""
     start = month_start()
-    budgets = db.query(Budget).filter(Budget.user_id == user_id).all()
+    budget_query = db.query(Budget).filter(Budget.user_id == user_id)
+    if book_id is not None:
+        budget_query = budget_query.filter(Budget.book_id == int(book_id))
+    budgets = budget_query.all()
     result = []
     for b in budgets:
+        tx_filters = [
+            Transaction.user_id == user_id,
+            Transaction.transaction_date >= start,
+            Transaction.deleted_at.is_(None),
+            _is_expense_clause(),
+        ]
+        if book_id is not None:
+            tx_filters.append(Transaction.book_id == int(book_id))
+        elif b.book_id is not None:
+            tx_filters.append(or_(Transaction.book_id == int(b.book_id), Transaction.book_id.is_(None)))
+
         if b.category == "total":
             spent = (
                 db.query(func.coalesce(func.sum(Transaction.total_amount), 0.0))
-                .filter(
-                    Transaction.user_id == user_id,
-                    Transaction.transaction_date >= start,
-                    Transaction.deleted_at.is_(None),
-                    _is_expense_clause(),
-                )
+                .filter(*tx_filters)
                 .scalar()
             )
         else:
@@ -266,10 +827,7 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
                 db.query(func.coalesce(func.sum(TransactionItem.price), 0.0))
                 .join(Transaction, Transaction.id == TransactionItem.transaction_id)
                 .filter(
-                    Transaction.user_id == user_id,
-                    Transaction.transaction_date >= start,
-                    Transaction.deleted_at.is_(None),
-                    _is_expense_clause(),
+                    *tx_filters,
                     or_(
                         TransactionItem.category.ilike(b.category),
                         TransactionItem.item_name.ilike(f"%{b.category}%"),
@@ -288,6 +846,7 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
         result.append(
             {
                 "id": b.id,
+                "book_id": b.book_id,
                 "category": b.category,
                 "monthly_limit": round(b.monthly_limit, 2),
                 "spent_pkr": round(spent, 2),
@@ -299,7 +858,11 @@ def budget_status(db: Session, user_id: str) -> List[Dict]:
     return result
 
 
-def galla_summary(db: Session, user_id: str) -> Dict[str, Any]:
+def galla_summary(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Computes deterministic 'Aaj Ka Galla' (Today's Cash Drawer) and Monthly Cash-In vs Cash-Out.
     - Sales (tx_type='sale'): Cash-In / Farokht
@@ -309,15 +872,15 @@ def galla_summary(db: Session, user_id: str) -> Dict[str, Any]:
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     m_start = month_start(now)
 
-    month_txs = (
-        db.query(Transaction)
-        .filter(
-            Transaction.user_id == user_id,
-            Transaction.transaction_date >= m_start,
-            Transaction.deleted_at.is_(None),
-        )
-        .all()
-    )
+    filters = [
+        Transaction.user_id == user_id,
+        Transaction.transaction_date >= m_start,
+        Transaction.deleted_at.is_(None),
+    ]
+    if book_id is not None:
+        filters.append(Transaction.book_id == int(book_id))
+
+    month_txs = db.query(Transaction).filter(*filters).all()
 
     today_sales = 0.0
     today_expenses = 0.0
@@ -364,19 +927,27 @@ def galla_summary(db: Session, user_id: str) -> Dict[str, Any]:
     }
 
 
-def udhaar_summary(db: Session, user_id: str) -> Dict[str, Any]:
+def udhaar_summary(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Returns deterministic Udhaar (Lend & Borrow) Khata summary for the user:
     - total_receivable_pkr: Maine Lene Hain (Customer owes shopkeeper)
     - total_payable_pkr: Maine Dene Hain (Shopkeeper owes supplier/lender)
     - entries: active open Udhaar entries
     """
+    filters = [
+        UdhaarEntry.user_id == user_id,
+        UdhaarEntry.deleted_at.is_(None),
+    ]
+    if book_id is not None:
+        filters.append(UdhaarEntry.book_id == int(book_id))
+
     rows = (
         db.query(UdhaarEntry)
-        .filter(
-            UdhaarEntry.user_id == user_id,
-            UdhaarEntry.deleted_at.is_(None),
-        )
+        .filter(*filters)
         .order_by(UdhaarEntry.status.asc(), UdhaarEntry.updated_at.desc(), UdhaarEntry.id.desc())
         .all()
     )
@@ -413,6 +984,7 @@ def add_udhaar_entry(
     direction: str = "receivable",
     notes: Optional[str] = "",
     phone_number: Optional[str] = "",
+    book_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Creates a new Udhaar entry ('receivable' = Maine Lene Hain, 'payable' = Maine Dene Hain)."""
     clean_name = (person_name or "").strip()
@@ -427,6 +999,7 @@ def add_udhaar_entry(
 
     entry = UdhaarEntry(
         user_id=user_id,
+        book_id=int(book_id) if book_id is not None else None,
         person_name=clean_name,
         phone_number=(phone_number or "").strip() or None,
         direction=clean_dir,
@@ -455,6 +1028,7 @@ def settle_udhaar(
     payment_amount: Optional[float] = None,
     direction: Optional[str] = None,
     confirm_overpay: bool = False,
+    book_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Settles full or partial Udhaar balance by entry_id or person_name (FIFO across open entries).
@@ -471,13 +1045,16 @@ def settle_udhaar(
             return {"status": "error", "message": f"Invalid direction '{direction}'. Use 'receivable' or 'payable'."}
 
     try:
+        udhaar_filters = [
+            UdhaarEntry.user_id == user_id,
+            UdhaarEntry.deleted_at.is_(None),
+            UdhaarEntry.status == "open",
+        ]
+        if book_id is not None:
+            udhaar_filters.append(UdhaarEntry.book_id == int(book_id))
         entries = (
             db.query(UdhaarEntry)
-            .filter(
-                UdhaarEntry.user_id == user_id,
-                UdhaarEntry.deleted_at.is_(None),
-                UdhaarEntry.status == "open",
-            )
+            .filter(*udhaar_filters)
             .order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc())
             .with_for_update()
             .all()
@@ -659,6 +1236,7 @@ def update_udhaar_entry(
     notes: Optional[str] = None,
     phone_number: Optional[str] = None,
     direction: Optional[str] = None,
+    book_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Locates an open UdhaarEntry by entry_id or most recent open entry matching person_name.
@@ -678,13 +1256,16 @@ def update_udhaar_entry(
         if not entry:
             return {"status": "not_found", "message": f"Udhaar entry #{entry_id} not found."}
     elif person_name and _norm(person_name):
+        filters = [
+            UdhaarEntry.user_id == user_id,
+            UdhaarEntry.deleted_at.is_(None),
+            UdhaarEntry.status == "open",
+        ]
+        if book_id is not None:
+            filters.append(UdhaarEntry.book_id == int(book_id))
         open_entries = (
             db.query(UdhaarEntry)
-            .filter(
-                UdhaarEntry.user_id == user_id,
-                UdhaarEntry.deleted_at.is_(None),
-                UdhaarEntry.status == "open",
-            )
+            .filter(*filters)
             .order_by(UdhaarEntry.created_at.desc(), UdhaarEntry.id.desc())
             .all()
         )
@@ -738,11 +1319,18 @@ def update_udhaar_entry(
     return {"status": "success", "entry": entry.to_dict()}
 
 
-def undo_last_udhaar_entry(db: Session, user_id: str) -> Dict[str, Any]:
+def undo_last_udhaar_entry(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Soft-deletes the most recently created active UdhaarEntry for the user."""
+    filters = [UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None)]
+    if book_id is not None:
+        filters.append(UdhaarEntry.book_id == int(book_id))
     entry = (
         db.query(UdhaarEntry)
-        .filter(UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None))
+        .filter(*filters)
         .order_by(UdhaarEntry.id.desc())
         .first()
     )
@@ -754,10 +1342,17 @@ def undo_last_udhaar_entry(db: Session, user_id: str) -> Dict[str, Any]:
     return {"status": "success", "deleted_entry": entry.to_dict()}
 
 
-def recurring_status(db: Session, user_id: str) -> List[Dict]:
+def recurring_status(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> List[Dict]:
+    filters = [RecurringExpense.user_id == user_id]
+    if book_id is not None:
+        filters.append(RecurringExpense.book_id == int(book_id))
     items = (
         db.query(RecurringExpense)
-        .filter(RecurringExpense.user_id == user_id)
+        .filter(*filters)
         .order_by(RecurringExpense.due_day.asc())
         .all()
     )
@@ -770,7 +1365,13 @@ def recurring_status(db: Session, user_id: str) -> List[Dict]:
     return out
 
 
-def pay_recurring(db: Session, user_id: str, item: RecurringExpense, raw_transcript: Optional[str] = None) -> Dict:
+def pay_recurring(
+    db: Session,
+    user_id: str,
+    item: RecurringExpense,
+    raw_transcript: Optional[str] = None,
+    book_id: Optional[int] = None,
+) -> Dict:
     """
     Marks a recurring obligation paid for the current month and logs it as a real
     transaction so every total (chat + dashboard) stays consistent.
@@ -785,9 +1386,12 @@ def pay_recurring(db: Session, user_id: str, item: RecurringExpense, raw_transcr
             "paid_month": current_month,
         }
     now_pkt = get_pkt_now()
+    target_book_id = int(book_id) if book_id is not None else item.book_id
     tx = Transaction(
         user_id=user_id,
+        book_id=target_book_id,
         store_name=item.title,
+        title=_format_label(item.title, max_len=56) or item.title,
         total_amount=round(item.amount, 2),
         transaction_date=now_pkt,
         raw_transcript=raw_transcript or None,
@@ -826,28 +1430,36 @@ def sanitize_csv_cell(value: Any) -> Any:
     return value
 
 
-def export_rows(db: Session, user_id: str) -> List[List]:
+def export_rows(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> List[List]:
     """One CSV row per line item (with the transaction context repeated)."""
+    filters = [
+        Transaction.user_id == user_id,
+        Transaction.deleted_at.is_(None),
+    ]
+    if book_id is not None:
+        filters.append(Transaction.book_id == int(book_id))
     txs = (
         db.query(Transaction)
-        .filter(
-            Transaction.user_id == user_id,
-            Transaction.deleted_at.is_(None),
-        )
+        .filter(*filters)
         .order_by(Transaction.transaction_date.asc(), Transaction.id.asc())
         .all()
     )
     rows: List[List] = []
     for tx in txs:
         date = tx.transaction_date.strftime("%Y-%m-%d %H:%M")
+        label = tx.title or tx.store_name
         if not tx.items:
-            raw_row = [tx.id, date, tx.store_name, "", "", 1, tx.total_amount, tx.payment_method, tx.total_amount]
+            raw_row = [tx.id, date, label, "", "", 1, tx.total_amount, tx.payment_method, tx.total_amount]
             rows.append([sanitize_csv_cell(c) for c in raw_row])
         for it in tx.items:
             raw_row = [
                 tx.id,
                 date,
-                tx.store_name,
+                label,
                 it.item_name,
                 it.category,
                 it.quantity,
@@ -885,11 +1497,18 @@ UDHAAR_EXPORT_HEADER = [
 ]
 
 
-def export_udhaar_rows(db: Session, user_id: str) -> List[List]:
+def export_udhaar_rows(
+    db: Session,
+    user_id: str,
+    book_id: Optional[int] = None,
+) -> List[List]:
     """Generates sanitized rows for Udhaar CSV export."""
+    filters = [UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None)]
+    if book_id is not None:
+        filters.append(UdhaarEntry.book_id == int(book_id))
     entries = (
         db.query(UdhaarEntry)
-        .filter(UdhaarEntry.user_id == user_id, UdhaarEntry.deleted_at.is_(None))
+        .filter(*filters)
         .order_by(UdhaarEntry.created_at.asc(), UdhaarEntry.id.asc())
         .all()
     )
@@ -932,6 +1551,8 @@ def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
         }
 
     pending_id = pending.id
+    pending_book_id = pending.book_id
+    pending_title = pending.title
     store_name = pending.store_name
     total_amount = round(pending.total_amount, 2)
     payment_method = pending.payment_method
@@ -966,9 +1587,19 @@ def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
             except Exception:
                 pass
 
+        p_items = json.loads(items_json) if items_json else []
+        final_title = pending_title or compute_transaction_title(
+            store_name=store_name,
+            items=p_items,
+            raw_transcript=raw_transcript or "",
+            tx_type="expense",
+        )
+
         tx = Transaction(
             user_id=user_id,
+            book_id=pending_book_id,
             store_name=store_name,
+            title=final_title,
             total_amount=total_amount,
             transaction_date=tx_date,
             raw_transcript=raw_transcript,
@@ -978,8 +1609,7 @@ def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
         db.flush()
 
         logged_items = []
-        if items_json:
-            p_items = json.loads(items_json)
+        if p_items:
             for it in p_items:
                 t_item = TransactionItem(
                     transaction_id=tx.id,
@@ -1004,11 +1634,16 @@ def commit_pending_transaction(db: Session, user_id: str) -> Dict[str, Any]:
         db.commit()
         db.refresh(tx)
 
-        alerts = [b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")]
+        alerts = [
+            b
+            for b in budget_status(db, user_id, book_id=pending_book_id)
+            if b["level"] in ("warning", "over")
+        ]
 
+        label = tx.title or tx.store_name
         return {
             "status": "success",
-            "message": f"Confirmed and logged PKR {tx.total_amount:,.2f} at {tx.store_name.title()}.",
+            "message": f"Confirmed and logged PKR {tx.total_amount:,.2f} ({label}).",
             "transaction": tx.to_dict(),
             "budget_alerts": alerts,
         }

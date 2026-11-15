@@ -23,7 +23,7 @@ except ImportError:
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from database import SessionLocal, Transaction, TransactionItem, Budget, RecurringExpense, PendingTransaction, UdhaarEntry, get_pkt_now
+from database import SessionLocal, Transaction, TransactionItem, Book, Budget, RecurringExpense, PendingTransaction, UdhaarEntry, get_pkt_now
 import analytics
 from analytics import (
     normalize_payment_method,
@@ -31,6 +31,8 @@ from analytics import (
     validate_transaction_amount,
     check_amount_plausibility,
     sanitize_transaction_amount,
+    compute_transaction_title,
+    detect_cross_book_signal,
     budget_status,
     recurring_status,
     month_start,
@@ -588,6 +590,10 @@ class LogExpenseInput(BaseModel):
         default="general store",
         description="Canonical lowercase English store, vendor, shop, brand, item/bill name, or person/recipient name for money transfers/payments, e.g. 'imtiaz', 'al-fatah', 'groceries', 'electricity bill', 'abid hussain', 'petrol pump', 'general store'. Defaults to 'general store' if no shop is named.",
     )
+    highlight_title: Optional[str] = Field(
+        default=None,
+        description="Crisp 2-5 word highlight title describing the transaction's main purpose or items in the user's language (e.g. 'بجلی کا بل', 'بوتلیں اور ٹیشو', 'Grocery Ration', 'Fuel at PSO'), NEVER 'general store' or 'local store'.",
+    )
     items: Optional[Any] = Field(
         default=None,
         description="List of purchased items with item_name, price, quantity, category, or a text summary like 'cooking oil: 1500, bread: 450'",
@@ -612,6 +618,10 @@ class UpdateLastExpenseInput(BaseModel):
     store_name: Optional[str] = Field(
         default=None,
         description="Updated store name or recipient/vendor person name (e.g. 'Abid Hussain', 'Al-Fatah', 'Ali', 'Landlord').",
+    )
+    highlight_title: Optional[str] = Field(
+        default=None,
+        description="Updated short highlight title for the expense (e.g. 'House Rent', 'Shop Stock').",
     )
     category: Optional[str] = Field(
         default=None,
@@ -714,6 +724,10 @@ class LogSaleInput(BaseModel):
         default="daily sale",
         description="Customer name or sale description, e.g. 'daily sale', 'walk-in customer', 'sugar and oil sale'",
     )
+    highlight_title: Optional[str] = Field(
+        default=None,
+        description="Short 2-5 word sale highlight title matching sold goods or customer (e.g. '3000 فٹ بلیک ماربل', 'Atta & Oil Sale').",
+    )
     items: Optional[Any] = Field(
         default=None,
         description="Sold items list with item_name, price, quantity, or text summary",
@@ -763,7 +777,11 @@ class ManageUdhaarInput(BaseModel):
 # ---------------------------------------------------------------------------
 # Dynamic System Prompt
 # ---------------------------------------------------------------------------
-def build_system_prompt(ui_lang: Optional[str] = None) -> str:
+def build_system_prompt(
+    ui_lang: Optional[str] = None,
+    active_book_name: Optional[str] = None,
+    active_book_type: Optional[str] = None,
+) -> str:
     """
     Builds dynamic system prompt injecting current dates and Pakistani context in PKT.
     Optimized for compact token footprint to strictly respect Groq ITPM rate limits.
@@ -777,12 +795,17 @@ def build_system_prompt(ui_lang: Optional[str] = None) -> str:
     three_days_ago_str = (now - timedelta(days=3)).strftime("%Y-%m-%d")
     seven_days_ago_str = (now - timedelta(days=7)).strftime("%Y-%m-%d")
 
+    book_clause = ""
+    if active_book_name:
+        kind = "Business Ledger / کاروبار" if active_book_type == "business" else "Personal Ledger / ذاتی حساب"
+        book_clause = f'\n- **ACTIVE BOOK:** "{active_book_name}" ({kind}).'
+
     lang_pref_clause = ""
     if ui_lang == "en":
         lang_pref_clause = (
             "\n### UI LANGUAGE OVERRIDE: ACTIVE INTERFACE IS ENGLISH\n"
-            "- Active UI is English. Respond in 100% clear English unless the user explicitly types in Urdu script (Nastaliq).\n"
-            "- Use English headers ('Date', 'Store', 'Amount (PKR)', 'Payment') and English categories/payment methods.\n"
+            "- Active UI is English. Reply in clear English unless user writes Urdu script.\n"
+            "- Headers: ('Date', 'Title / Store', 'Amount (PKR)', 'Payment').\n"
         )
     elif ui_lang == "ur":
         lang_pref_clause = (
@@ -813,7 +836,7 @@ State summary first (Total PKR, count, dates). Tables:
 - **Urdu:** `| تاریخ | دکان | رقم (PKR) | ادائیگی |` (نقد، کارڈ، ایزی پیسہ، جاز کیش، بینک ٹرانسفر; 'local store'->'لوکل اسٹور', 'fuel'->'پیٹرول پمپ'). No raw keys.
 
 ### MANDATORY TOOL CALLING & DATABASE INTEGRITY:
-1. **EXPENSE (`log_expense`):** Purchases/transfers ("spent", "kharcha", "Ali ko 5000 bheje") -> lowercase `store_name` (default `'general store'`), `items` (`quantity=1`), `date_str`, `payment_method`. Log immediately when prices are given!
+1. **EXPENSE (`log_expense`):** Purchases/transfers ("spent", "kharcha", "Ali ko 5000 bheje") -> lowercase `store_name` (default `'general store'`), concise `highlight_title` (never `'general store'`), `items` (`quantity=1`), `date_str`, `payment_method`. Log immediately when prices are given!
 2. **UPDATE RECENT (`update_last_expense`):** Follow-up or fixing amount ("add name Abid Hussain", "naam Tariq hai", "3500 not 3000", "اسے صحیح کرو") -> CALL `update_last_expense`, NEVER `log_expense` or ask to delete!
 3. **DAILY SALES (`log_sale`):** Sold items ("sold 2 bags flour for 5400", "aaj 15000 ki farokht hui", "پتھر بیچا", "آمدن ہوئی", "گلے میں ایڈ کر دو") -> CALL `log_sale` (use revenue/آمدن as `total_amount`), NEVER `log_expense` or text-only table!
 4. **UDHAAR (`manage_udhaar`):**
@@ -838,7 +861,7 @@ NEVER ask follow-ups when items/purpose (groceries, bills, fuel, bottles) are st
 
 ### CALENDAR CONTEXT:
 - Today ("aaj"): {today_str} ({day_name}) | Yesterday ("kal"): {yesterday_str} | Month Start ("is mahine"): {month_start_str}
-- 2d Ago ("pichle 2 din"): {two_days_ago_str} | 3d Ago ("pichle 3 din"): {three_days_ago_str} | 7d Ago ("is hafte"): {seven_days_ago_str}{lang_pref_clause}
+- 2d Ago ("pichle 2 din"): {two_days_ago_str} | 3d Ago ("pichle 3 din"): {three_days_ago_str} | 7d Ago ("is hafte"): {seven_days_ago_str}{book_clause}{lang_pref_clause}
 """
 
 
@@ -849,6 +872,8 @@ def get_tools_for_user(
     user_id: str,
     raw_transcript: str = "",
     turn_state: Optional[Dict[str, Any]] = None,
+    book_id: Optional[int] = None,
+    active_book_type: Optional[str] = None,
 ) -> list:
     """
     Creates user-scoped LangChain tools bound via Python closure to user_id.
@@ -881,13 +906,57 @@ def get_tools_for_user(
                 if isinstance(parsed, dict) and parsed.get("status") in ("success", "needs_confirmation", "cancelled"):
                     turn_state.setdefault("mutations_by_tool", {})[tool_name] = res_str
                     turn_state.setdefault("_mutations_list_by_tool", {}).setdefault(tool_name, []).append(res_str)
+                    if parsed.get("transaction_id"):
+                        turn_state["last_transaction_id"] = parsed["transaction_id"]
+                        turn_state["last_tx_type"] = parsed.get("tx_type") or "expense"
             except Exception:
                 pass
         return res_str
 
+    def _build_highlight_title(
+        store: str,
+        llm_highlight: Optional[str],
+        item_list: Optional[Any],
+        transcript_text: str,
+        tx_type: str = "expense",
+        inferred_cat: str = "",
+    ) -> str:
+        computed = compute_transaction_title(
+            store_name=store,
+            items=item_list,
+            raw_transcript=transcript_text,
+            tx_type=tx_type,
+            inferred_category=inferred_cat,
+        )
+        ht = " ".join((llm_highlight or "").strip().split())
+        if not ht or ht.lower() in analytics.GENERIC_ITEM_NAMES:
+            return computed
+        generic_fallbacks = {
+            "daily expense",
+            "روزمرہ خرچ",
+            "cash sale",
+            "نقد فروخت",
+            "utility bill",
+            "یوٹیلیٹی بل",
+            "groceries",
+            "راشن / گروسری",
+        }
+        has_specific_items = any(
+            ((it.get("item_name") if isinstance(it, dict) else getattr(it, "item_name", "")) or "").strip().lower()
+            not in analytics.GENERIC_ITEM_NAMES
+            for it in (item_list or [])
+        )
+        store_specific = (store or "").strip().lower() not in analytics.GENERIC_ITEM_NAMES
+        if not store_specific and not has_specific_items and computed.lower() in generic_fallbacks:
+            # Prefer LLM highlight only if it doesn't flip an Urdu user query into raw English category filler
+            if analytics._has_urdu_script(ht) or not analytics._has_urdu_script(transcript_text):
+                return analytics._format_label(ht, max_len=60) or computed
+        return computed
+
     @tool("log_expense", args_schema=LogExpenseInput)
     def log_expense(
         store_name: str = "general store",
+        highlight_title: Optional[str] = None,
         items: Optional[Any] = None,
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
@@ -1069,13 +1138,28 @@ def get_tools_for_user(
 
             # Check plausibility: flag values > 10,000,000 PKR, or > 1,000,000 for easypaisa/jazzcash
             # Server-held state: store in PendingTransaction table so LLM cannot bypass via hallucinated arguments
+            inferred_for_title = infer_expense_category(
+                canonical_store,
+                " ".join(it["item_name"] for it in parsed_items) if parsed_items else canonical_store,
+                norm_transcript,
+            )
             plausibility = check_amount_plausibility(final_total, final_pm)
             if plausibility["needs_confirmation"]:
+                pending_title = _build_highlight_title(
+                    canonical_store,
+                    highlight_title,
+                    parsed_items,
+                    norm_transcript,
+                    "expense",
+                    inferred_for_title,
+                )
                 db.query(PendingTransaction).filter(PendingTransaction.user_id == user_id).delete()
                 expires_at = get_pkt_now() + timedelta(seconds=300)
                 pending = PendingTransaction(
                     user_id=user_id,
+                    book_id=int(book_id) if book_id is not None else None,
                     store_name=canonical_store,
+                    title=pending_title,
                     total_amount=round(final_total, 2),
                     payment_method=final_pm,
                     date_str=date_str,
@@ -1091,9 +1175,12 @@ def get_tools_for_user(
                     json.dumps({
                         "status": "needs_confirmation",
                         "pending_id": pending.id,
+                        "book_id": pending.book_id,
                         "amount": round(final_total, 2),
                         "payment_method": final_pm,
                         "store_name": canonical_store,
+                        "title": pending_title,
+                        "display_title": pending_title,
                         "message": plausibility["reason"],
                         "expires_in_seconds": 300,
                         "instruction": "This expense is held in pending status on the server. Tell the user in their language that this large amount is pending confirmation and they must press the 'Confirm' button on their screen to record it, or say cancel. If they decline or say cancel, execute cancel_pending_expense. Do NOT attempt to confirm via chat."
@@ -1112,13 +1199,10 @@ def get_tools_for_user(
 
             # Duplicate / Clarification / Correction Guard:
             now_pkt = get_pkt_now()
-            recent_txs = (
-                db.query(Transaction)
-                .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
-                .order_by(Transaction.id.desc())
-                .limit(5)
-                .all()
-            )
+            recent_q = db.query(Transaction).filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
+            if book_id is not None:
+                recent_q = recent_q.filter(Transaction.book_id == int(book_id))
+            recent_txs = recent_q.order_by(Transaction.id.desc()).limit(5).all()
             recent_tx = recent_txs[0] if recent_txs else None
 
             correction_phrases = (
@@ -1174,10 +1258,18 @@ def get_tools_for_user(
                             tx_items[0].price = round(final_total, 2)
                             if target_cat != "other" and tx_items[0].category in ("other", ""):
                                 tx_items[0].category = target_cat
+                    matched_tx.title = _build_highlight_title(
+                        matched_tx.store_name,
+                        highlight_title,
+                        tx_items,
+                        norm_transcript or (matched_tx.raw_transcript or ""),
+                        matched_tx.tx_type or "expense",
+                        target_cat,
+                    )
                     db.commit()
                     db.refresh(matched_tx)
                     alerts = [
-                        b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                        b for b in budget_status(db, user_id, book_id=book_id) if b["level"] in ("warning", "over")
                     ]
                     return record_idempotent_result(
                         "log_expense",
@@ -1187,7 +1279,10 @@ def get_tools_for_user(
                             "message": "Corrected existing expense transaction in place (no duplicate created).",
                             "transaction_id": matched_tx.id,
                             "user_id": user_id,
+                            "book_id": matched_tx.book_id,
                             "store_name": matched_tx.store_name,
+                            "title": matched_tx.title,
+                            "display_title": matched_tx.title or matched_tx.store_name,
                             "total_amount_pkr": round(matched_tx.total_amount, 2),
                             "payment_method": matched_tx.payment_method,
                             "date": matched_tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1256,11 +1351,20 @@ def get_tools_for_user(
                             t_item.item_name = it["item_name"]
                             t_item.category = it["category"]
                             t_item.price = round(it["price"], 2)
+                updated_items = db.query(TransactionItem).filter(TransactionItem.transaction_id == recent_tx.id).all()
+                recent_tx.title = _build_highlight_title(
+                    recent_tx.store_name,
+                    highlight_title,
+                    updated_items,
+                    norm_transcript or (recent_tx.raw_transcript or ""),
+                    recent_tx.tx_type or "expense",
+                    inferred_for_title,
+                )
                 db.commit()
                 db.refresh(recent_tx)
 
                 alerts = [
-                    b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                    b for b in budget_status(db, user_id, book_id=book_id) if b["level"] in ("warning", "over")
                 ]
 
                 return record_idempotent_result(
@@ -1271,7 +1375,10 @@ def get_tools_for_user(
                         "message": "Updated previous expense with recipient and details (no duplicate created).",
                         "transaction_id": recent_tx.id,
                         "user_id": user_id,
+                        "book_id": recent_tx.book_id,
                         "store_name": recent_tx.store_name,
+                        "title": recent_tx.title,
+                        "display_title": recent_tx.title or recent_tx.store_name,
                         "total_amount_pkr": round(recent_tx.total_amount, 2),
                         "payment_method": recent_tx.payment_method,
                         "date": recent_tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1279,10 +1386,21 @@ def get_tools_for_user(
                     }, ensure_ascii=False),
                 )
 
+            computed_title = _build_highlight_title(
+                canonical_store,
+                highlight_title,
+                parsed_items,
+                norm_transcript,
+                "expense",
+                inferred_for_title,
+            )
+
             # Create Transaction record
             tx = Transaction(
                 user_id=user_id,
+                book_id=int(book_id) if book_id is not None else None,
                 store_name=canonical_store,
+                title=computed_title,
                 total_amount=round(final_total, 2),
                 transaction_date=tx_date,
                 raw_transcript=raw_transcript or None,
@@ -1344,7 +1462,7 @@ def get_tools_for_user(
 
             # Deterministic budget alerts (computed by SQL, reported verbatim by the agent)
             alerts = [
-                b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                b for b in budget_status(db, user_id, book_id=book_id) if b["level"] in ("warning", "over")
             ]
 
             result = {
@@ -1352,7 +1470,10 @@ def get_tools_for_user(
                 "message": "Expense successfully recorded.",
                 "transaction_id": tx.id,
                 "user_id": user_id,
+                "book_id": tx.book_id,
                 "store_name": canonical_store,
+                "title": tx.title,
+                "display_title": tx.title or canonical_store,
                 "total_amount_pkr": round(final_total, 2),
                 "payment_method": tx.payment_method,
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1371,6 +1492,7 @@ def get_tools_for_user(
     @tool("update_last_expense", args_schema=UpdateLastExpenseInput)
     def update_last_expense(
         store_name: Optional[str] = None,
+        highlight_title: Optional[str] = None,
         category: Optional[str] = None,
         notes_or_purpose: Optional[str] = None,
         payment_method: Optional[str] = None,
@@ -1384,13 +1506,10 @@ def get_tools_for_user(
         norm_transcript = normalize_urdu_spoken_numbers(raw_transcript or "")
         db: Session = SessionLocal()
         try:
-            recent_txs = (
-                db.query(Transaction)
-                .filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
-                .order_by(Transaction.id.desc())
-                .limit(5)
-                .all()
-            )
+            recent_q = db.query(Transaction).filter(Transaction.user_id == user_id, Transaction.deleted_at == None)
+            if book_id is not None:
+                recent_q = recent_q.filter(Transaction.book_id == int(book_id))
+            recent_txs = recent_q.order_by(Transaction.id.desc()).limit(5).all()
             if not recent_txs:
                 return json.dumps({"status": "error", "message": "No active recent transaction found to update."})
 
@@ -1484,11 +1603,20 @@ def get_tools_for_user(
                     )
                     db.add(new_item)
 
+            refreshed_items = db.query(TransactionItem).filter(TransactionItem.transaction_id == latest_tx.id).all()
+            latest_tx.title = _build_highlight_title(
+                latest_tx.store_name,
+                highlight_title,
+                refreshed_items,
+                norm_transcript or (latest_tx.raw_transcript or ""),
+                latest_tx.tx_type or "expense",
+                (category or "").strip().lower(),
+            )
             db.commit()
             db.refresh(latest_tx)
 
             alerts = [
-                b for b in budget_status(db, user_id) if b["level"] in ("warning", "over")
+                b for b in budget_status(db, user_id, book_id=book_id) if b["level"] in ("warning", "over")
             ]
 
             return record_idempotent_result(
@@ -1497,7 +1625,10 @@ def get_tools_for_user(
                     "status": "success",
                     "message": "Expense transaction updated successfully.",
                     "transaction_id": latest_tx.id,
+                    "book_id": latest_tx.book_id,
                     "store_name": latest_tx.store_name,
+                    "title": latest_tx.title,
+                    "display_title": latest_tx.title or latest_tx.store_name,
                     "total_amount_pkr": round(latest_tx.total_amount, 2),
                     "payment_method": latest_tx.payment_method,
                     "date": latest_tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1528,6 +1659,8 @@ def get_tools_for_user(
                 Transaction.deleted_at.is_(None),
                 analytics._is_expense_clause(),
             )
+            if book_id is not None:
+                query = query.filter(Transaction.book_id == int(book_id))
 
             # Apply date filters
             if start_date:
@@ -1580,7 +1713,8 @@ def get_tools_for_user(
             total_spent = sum(tx.total_amount for tx in transactions)
             store_totals: Dict[str, float] = {}
             for tx in transactions:
-                store_totals[tx.store_name] = store_totals.get(tx.store_name, 0.0) + tx.total_amount
+                label = tx.title or tx.store_name
+                store_totals[label] = store_totals.get(label, 0.0) + tx.total_amount
 
             # Compute deterministic category totals
             category_totals: Dict[str, float] = {}
@@ -1606,10 +1740,16 @@ def get_tools_for_user(
 
             tx_list = []
             for tx in transactions[:15]:  # Return up to 15 recent matching transactions
+                display = (
+                    tx.title
+                    or (tx.store_name.replace("_", " ").title() if tx.store_name else "Daily Expense").replace("Transfer Transfer", "Transfer")
+                )
                 tx_list.append(
                     {
                         "id": tx.id,
-                        "store_name": (tx.store_name.replace("_", " ").title() if tx.store_name else "Local Store").replace("Transfer Transfer", "Transfer"),
+                        "book_id": tx.book_id,
+                        "store_name": display,
+                        "title": tx.title or display,
                         "total_amount_pkr": round(tx.total_amount, 2),
                         "payment_method": (tx.payment_method or "cash").replace("_", " ").title(),
                         "date": tx.transaction_date.strftime("%Y-%m-%d"),
@@ -1626,21 +1766,23 @@ def get_tools_for_user(
                 )
 
             recent_tx_list = tx_list[:15]
+            sales_q = db.query(Transaction).filter(
+                Transaction.user_id == user_id,
+                Transaction.deleted_at.is_(None),
+                Transaction.tx_type == "sale",
+            )
+            if book_id is not None:
+                sales_q = sales_q.filter(Transaction.book_id == int(book_id))
             sales_rows = (
-                db.query(Transaction)
-                .filter(
-                    Transaction.user_id == user_id,
-                    Transaction.deleted_at.is_(None),
-                    Transaction.tx_type == "sale",
-                )
-                .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+                sales_q.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
                 .limit(10)
                 .all()
             )
             recent_sales_list = [
                 {
                     "id": s.id,
-                    "description": s.store_name or "daily sale",
+                    "book_id": s.book_id,
+                    "description": s.title or s.store_name or "daily sale",
                     "total_amount_pkr": round(s.total_amount, 2),
                     "payment_method": (s.payment_method or "cash").replace("_", " ").title(),
                     "date": s.transaction_date.strftime("%Y-%m-%d"),
@@ -1652,6 +1794,7 @@ def get_tools_for_user(
             payload = {
                 "status": "success",
                 "user_id": user_id,
+                "book_id": book_id,
                 "visit_count": len(transactions),
                 "total_spent_pkr": round(total_spent, 2),
                 "spending_by_store": {k: round(v, 2) for k, v in store_totals.items()},
@@ -1659,8 +1802,8 @@ def get_tools_for_user(
                 "spending_by_payment_method": {k: round(v, 2) for k, v in payment_totals.items()},
                 "transactions": recent_tx_list,
                 "recent_sales": recent_sales_list,
-                "galla_summary": galla_summary(db, user_id),
-                "udhaar_summary": udhaar_summary(db, user_id),
+                "galla_summary": galla_summary(db, user_id, book_id=book_id),
+                "udhaar_summary": udhaar_summary(db, user_id, book_id=book_id),
             }
 
             if item_name:
@@ -1683,12 +1826,12 @@ def get_tools_for_user(
 
         db: Session = SessionLocal()
         try:
-            tx = (
-                db.query(Transaction)
-                .filter(Transaction.user_id == user_id, Transaction.deleted_at.is_(None))
-                .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
-                .first()
+            del_q = db.query(Transaction).filter(
+                Transaction.user_id == user_id, Transaction.deleted_at.is_(None)
             )
+            if book_id is not None:
+                del_q = del_q.filter(Transaction.book_id == int(book_id))
+            tx = del_q.order_by(Transaction.transaction_date.desc(), Transaction.id.desc()).first()
 
             if not tx:
                 return json.dumps(
@@ -1700,8 +1843,10 @@ def get_tools_for_user(
 
             deleted_info = {
                 "id": tx.id,
+                "book_id": tx.book_id,
                 "tx_type": tx.tx_type or "expense",
-                "store_name": tx.store_name,
+                "store_name": tx.title or tx.store_name,
+                "title": tx.title or tx.store_name,
                 "total_amount_pkr": round(tx.total_amount, 2),
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
             }
@@ -1741,17 +1886,23 @@ def get_tools_for_user(
                 cat = "total"
             if monthly_limit is None or float(monthly_limit) <= 0:
                 return json.dumps({"status": "error", "message": "Budget must be greater than 0."})
-            b = (
-                db.query(Budget)
-                .filter(Budget.user_id == user_id, Budget.category == cat)
-                .first()
-            )
+            bq = db.query(Budget).filter(Budget.user_id == user_id, Budget.category == cat)
+            if book_id is not None:
+                bq = bq.filter(Budget.book_id == int(book_id))
+            b = bq.first()
             if b:
                 b.monthly_limit = float(monthly_limit)
             else:
-                db.add(Budget(user_id=user_id, category=cat, monthly_limit=float(monthly_limit)))
+                db.add(
+                    Budget(
+                        user_id=user_id,
+                        book_id=int(book_id) if book_id is not None else None,
+                        category=cat,
+                        monthly_limit=float(monthly_limit),
+                    )
+                )
             db.commit()
-            status = [s for s in budget_status(db, user_id) if s["category"] == cat]
+            status = [s for s in budget_status(db, user_id, book_id=book_id) if s["category"] == cat]
             return record_idempotent_result(
                 "set_budget",
                 json.dumps(
@@ -1774,8 +1925,8 @@ def get_tools_for_user(
             return json.dumps(
                 {
                     "status": "success",
-                    "budgets": budget_status(db, user_id),
-                    "recurring": recurring_status(db, user_id),
+                    "budgets": budget_status(db, user_id, book_id=book_id),
+                    "recurring": recurring_status(db, user_id, book_id=book_id),
                 },
                 ensure_ascii=False,
             )
@@ -1803,11 +1954,12 @@ def get_tools_for_user(
             if not clean_title or amount is None or float(amount) <= 0:
                 return json.dumps({"status": "error", "message": "Title and a positive amount are required."})
             day = min(max(int(due_day or 1), 1), 28)
-            existing = (
-                db.query(RecurringExpense)
-                .filter(RecurringExpense.user_id == user_id, RecurringExpense.title == clean_title)
-                .first()
+            eq = db.query(RecurringExpense).filter(
+                RecurringExpense.user_id == user_id, RecurringExpense.title == clean_title
             )
+            if book_id is not None:
+                eq = eq.filter(RecurringExpense.book_id == int(book_id))
+            existing = eq.first()
             if existing:
                 existing.amount = float(amount)
                 existing.due_day = day
@@ -1816,6 +1968,7 @@ def get_tools_for_user(
                 db.add(
                     RecurringExpense(
                         user_id=user_id,
+                        book_id=int(book_id) if book_id is not None else None,
                         title=clean_title,
                         amount=float(amount),
                         due_day=day,
@@ -1826,7 +1979,11 @@ def get_tools_for_user(
             return record_idempotent_result(
                 "add_recurring_expense",
                 json.dumps(
-                    {"status": "success", "message": "Recurring expense saved.", "recurring": recurring_status(db, user_id)},
+                    {
+                        "status": "success",
+                        "message": "Recurring expense saved.",
+                        "recurring": recurring_status(db, user_id, book_id=book_id),
+                    },
                     ensure_ascii=False,
                 ),
             )
@@ -1847,17 +2004,18 @@ def get_tools_for_user(
         db: Session = SessionLocal()
         try:
             needle = (title or "").strip().lower()
-            item = (
-                db.query(RecurringExpense)
-                .filter(RecurringExpense.user_id == user_id, RecurringExpense.title.ilike(f"%{needle}%"))
-                .first()
+            rq = db.query(RecurringExpense).filter(
+                RecurringExpense.user_id == user_id, RecurringExpense.title.ilike(f"%{needle}%")
             )
+            if book_id is not None:
+                rq = rq.filter(RecurringExpense.book_id == int(book_id))
+            item = rq.first()
             if not item:
                 return json.dumps({"status": "not_found", "message": f"No recurring expense matching '{title}'."})
             return record_idempotent_result(
                 "mark_recurring_paid",
                 json.dumps(
-                    pay_recurring(db, user_id, item, raw_transcript=raw_transcript),
+                    pay_recurring(db, user_id, item, raw_transcript=raw_transcript, book_id=book_id),
                     ensure_ascii=False,
                 ),
             )
@@ -1888,6 +2046,7 @@ def get_tools_for_user(
     @tool("log_sale", args_schema=LogSaleInput)
     def log_sale(
         customer_or_note: str = "daily sale",
+        highlight_title: Optional[str] = None,
         items: Optional[Any] = None,
         total_amount: Optional[float] = None,
         date_str: Optional[str] = None,
@@ -1997,9 +2156,19 @@ def get_tools_for_user(
             except ValueError as ve:
                 return json.dumps({"status": "error", "message": str(ve)})
 
+            computed_title = _build_highlight_title(
+                canonical_store,
+                highlight_title,
+                parsed_items,
+                norm_transcript,
+                "sale",
+            )
+
             tx = Transaction(
                 user_id=user_id,
+                book_id=int(book_id) if book_id is not None else None,
                 store_name=canonical_store,
+                title=computed_title,
                 total_amount=round(final_total, 2),
                 transaction_date=tx_date,
                 raw_transcript=raw_transcript or None,
@@ -2055,13 +2224,16 @@ def get_tools_for_user(
                 "status": "success",
                 "message": "Daily sale (farokht) recorded.",
                 "transaction_id": tx.id,
+                "book_id": tx.book_id,
                 "tx_type": "sale",
                 "customer_or_note": canonical_store,
+                "title": tx.title,
+                "display_title": tx.title or canonical_store,
                 "total_amount_pkr": round(final_total, 2),
                 "payment_method": tx.payment_method,
                 "date": tx.transaction_date.strftime("%Y-%m-%d"),
                 "items": logged_items,
-                "galla": galla_summary(db, user_id),
+                "galla": galla_summary(db, user_id, book_id=book_id),
             }
             return record_idempotent_result("log_sale", json.dumps(result, ensure_ascii=False))
         except Exception as e:
@@ -2100,8 +2272,9 @@ def get_tools_for_user(
                     direction="receivable",
                     notes=notes,
                     phone_number=phone_number,
+                    book_id=book_id,
                 )
-                res["summary"] = udhaar_summary(db, user_id)
+                res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("take_credit", "payable", "borrow", "dene_hain", "udhaar_liya"):
                 if not person_name or amount is None:
@@ -2114,8 +2287,9 @@ def get_tools_for_user(
                     direction="payable",
                     notes=notes,
                     phone_number=phone_number,
+                    book_id=book_id,
                 )
-                res["summary"] = udhaar_summary(db, user_id)
+                res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("settle", "wasooli", "pay", "paid"):
                 if not person_name:
@@ -2127,8 +2301,9 @@ def get_tools_for_user(
                     payment_amount=float(amount) if amount is not None and float(amount) > 0 else None,
                     direction=direction,
                     confirm_overpay=False,
+                    book_id=book_id,
                 )
-                res["summary"] = udhaar_summary(db, user_id)
+                res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("edit", "update"):
                 res = update_udhaar_entry(
@@ -2139,15 +2314,16 @@ def get_tools_for_user(
                     notes=notes,
                     phone_number=phone_number,
                     direction=direction,
+                    book_id=book_id,
                 )
-                res["summary"] = udhaar_summary(db, user_id)
+                res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             elif clean_action in ("undo", "delete", "delete_last", "cancel"):
-                res = undo_last_udhaar_entry(db, user_id=user_id)
-                res["summary"] = udhaar_summary(db, user_id)
+                res = undo_last_udhaar_entry(db, user_id=user_id, book_id=book_id)
+                res["summary"] = udhaar_summary(db, user_id, book_id=book_id)
                 return record_idempotent_result("manage_udhaar", json.dumps(res, ensure_ascii=False))
             else:
-                summary = udhaar_summary(db, user_id)
+                summary = udhaar_summary(db, user_id, book_id=book_id)
                 return json.dumps({"status": "success", "udhaar": summary}, ensure_ascii=False)
         except Exception as e:
             db.rollback()
@@ -2453,7 +2629,7 @@ def _reconcile_reply_with_db_truth(
             if d.get("status") == "success":
                 del_tx = d.get("deleted_transaction") or {}
                 amt = float(del_tx.get("total_amount_pkr") or d.get("deleted_amount_pkr") or 0.0)
-                st = del_tx.get("store_name") or d.get("store_name") or "entry"
+                st = del_tx.get("title") or del_tx.get("store_name") or d.get("store_name") or "entry"
                 tx_type = del_tx.get("tx_type") or d.get("tx_type") or "expense"
                 if effective_ui_lang == "en" and not ARABIC_SCRIPT_REGEX.search(norm_user_text):
                     return f"Deleted your last {tx_type} entry ({st} — PKR {amt:,.0f})."
@@ -2468,7 +2644,7 @@ def _reconcile_reply_with_db_truth(
             d = json.loads(sale_results[-1])
             if d.get("status") == "success":
                 amt = float(d.get("total_amount_pkr") or 0.0)
-                note = d.get("customer_or_note") or "daily sale"
+                note = d.get("title") or d.get("customer_or_note") or "daily sale"
                 dt = d.get("transaction_date") or get_pkt_now().strftime("%Y-%m-%d")
                 amt_int_str = str(int(amt))
                 amt_comma_str = f"{amt:,.0f}"
@@ -2518,7 +2694,7 @@ def _reconcile_reply_with_db_truth(
                         if sales_rows:
                             latest_all.append(("فروخت (Sale)", sales_rows[0].get("description"), sales_rows[0].get("total_amount_pkr"), sales_rows[0].get("date")))
                         if tx_rows:
-                            latest_all.append(("خرچہ (Expense)", tx_rows[0].get("store_name"), tx_rows[0].get("total_amount_pkr"), tx_rows[0].get("date")))
+                            latest_all.append(("خرچہ (Expense)", tx_rows[0].get("title") or tx_rows[0].get("store_name"), tx_rows[0].get("total_amount_pkr"), tx_rows[0].get("date")))
                         if latest_all:
                             lines = ["جی ہاں، ڈیٹا بیس چیک کر لیا گیا ہے۔ آپ کے تازہ ترین اندراجات یہ ہیں:"]
                             for label, st_name, amt_v, dt_v in latest_all:
@@ -2547,7 +2723,7 @@ def _reconcile_reply_with_db_truth(
                         ]
                         for r in tx_rows[:10]:
                             lines.append(
-                                f"| {r.get('date')} | {r.get('store_name')} | {float(r.get('total_amount_pkr') or 0):,.0f} | نقد |"
+                                f"| {r.get('date')} | {r.get('title') or r.get('store_name')} | {float(r.get('total_amount_pkr') or 0):,.0f} | نقد |"
                             )
                         return "\n".join(lines)
                 except Exception:
@@ -2556,17 +2732,37 @@ def _reconcile_reply_with_db_truth(
     return reply_text
 
 
-def run_agent(
+def _build_cross_book_suggestion(
+    norm_user_text: str,
+    turn_state: Dict[str, Any],
+    active_book_type: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Checks if a just-logged transaction has strong cross-book intent signals for 1-tap UI confirmation."""
+    last_tx_id = turn_state.get("last_transaction_id")
+    if not last_tx_id or not active_book_type:
+        return None
+    sig = detect_cross_book_signal(norm_user_text, active_book_type)
+    if not sig:
+        return None
+    return {
+        **sig,
+        "transaction_id": int(last_tx_id),
+        "tx_type": turn_state.get("last_tx_type") or "expense",
+    }
+
+
+def _run_agent_core(
     user_id: str,
     user_text: str,
     raw_transcript: str = "",
     chat_history: Optional[List[Dict[str, str]]] = None,
     ui_lang: Optional[str] = None,
+    book_id: Optional[int] = None,
+    active_book_type: Optional[str] = None,
+    active_book_name: Optional[str] = None,
+    turn_state: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """
-    Executes the LangChain agent for the given user, scoping tools to user_id.
-    Maintains and respects multi-turn conversation history across turns.
-    """
+    """Internal runner storing per-turn state inside `turn_state`."""
     if not user_text or not user_text.strip():
         return "Please provide an expense message or voice note."
 
@@ -2574,9 +2770,20 @@ def run_agent(
     norm_user_text = normalize_urdu_spoken_numbers(user_text)
     norm_raw_transcript = normalize_urdu_spoken_numbers(raw_transcript or user_text)
     effective_ui_lang = "ur" if ARABIC_SCRIPT_REGEX.search(user_text) else ui_lang
-    turn_state = {"attempt": 0, "mutations_by_tool": {}}
-    tools = get_tools_for_user(clean_user_id, raw_transcript=norm_raw_transcript, turn_state=turn_state)
-    system_prompt = build_system_prompt(ui_lang=effective_ui_lang)
+    if turn_state is None:
+        turn_state = {"attempt": 0, "mutations_by_tool": {}}
+    tools = get_tools_for_user(
+        clean_user_id,
+        raw_transcript=norm_raw_transcript,
+        turn_state=turn_state,
+        book_id=book_id,
+        active_book_type=active_book_type,
+    )
+    system_prompt = build_system_prompt(
+        ui_lang=effective_ui_lang,
+        active_book_name=active_book_name,
+        active_book_type=active_book_type,
+    )
     groq_keys = get_groq_api_keys() or [""]
     llm = get_chat_llm()
 
@@ -2743,7 +2950,7 @@ def run_agent(
                     try:
                         data = json.loads(raw_res)
                         amt = data.get("total_amount_pkr") or data.get("amount")
-                        store = data.get("store_name") or data.get("customer_or_note") or ""
+                        store = data.get("title") or data.get("store_name") or data.get("customer_or_note") or ""
                         if amt is not None:
                             amt_fmt = f"{float(amt):,.0f}"
                             summaries_ur.append(f"{store}: {amt_fmt} روپے" if store else f"{amt_fmt} روپے")
@@ -2770,4 +2977,66 @@ def run_agent(
         if effective_ui_lang == "en":
             return "We encountered an issue processing your request. Please try again."
         return "درخواست پر کارروائی کے دوران مسئلہ پیش آیا۔ براہ کرم دوبارہ کوشش کریں۔"
+
+
+def run_agent_with_meta(
+    user_id: str,
+    user_text: str,
+    raw_transcript: str = "",
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    ui_lang: Optional[str] = None,
+    book_id: Optional[int] = None,
+    active_book_type: Optional[str] = None,
+    active_book_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Executes the agent and returns structured metadata alongside the reply string."""
+    turn_state: Dict[str, Any] = {"attempt": 0, "mutations_by_tool": {}}
+    reply = _run_agent_core(
+        user_id=user_id,
+        user_text=user_text,
+        raw_transcript=raw_transcript,
+        chat_history=chat_history,
+        ui_lang=ui_lang,
+        book_id=book_id,
+        active_book_type=active_book_type,
+        active_book_name=active_book_name,
+        turn_state=turn_state,
+    )
+    norm_user_text = normalize_urdu_spoken_numbers(user_text or "")
+    return {
+        "reply": reply,
+        "cross_book_suggestion": _build_cross_book_suggestion(
+            norm_user_text, turn_state, active_book_type
+        ),
+    }
+
+
+def run_agent(
+    user_id: str,
+    user_text: str,
+    raw_transcript: str = "",
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    ui_lang: Optional[str] = None,
+    book_id: Optional[int] = None,
+    active_book_type: Optional[str] = None,
+    active_book_name: Optional[str] = None,
+    _meta_out: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Executes the LangChain agent for the given user, scoping tools to user_id (and optional book_id).
+    Maintains and respects multi-turn conversation history across turns.
+    """
+    res = run_agent_with_meta(
+        user_id=user_id,
+        user_text=user_text,
+        raw_transcript=raw_transcript,
+        chat_history=chat_history,
+        ui_lang=ui_lang,
+        book_id=book_id,
+        active_book_type=active_book_type,
+        active_book_name=active_book_name,
+    )
+    if _meta_out is not None:
+        _meta_out.update(res)
+    return res["reply"]
 
