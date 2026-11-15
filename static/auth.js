@@ -773,6 +773,10 @@
         if (accountDropdown && !accountDropdown.classList.contains('hidden')) {
           accountDropdown.classList.add('hidden');
         }
+        const createBookModal = document.getElementById('create-book-modal');
+        if (createBookModal && !createBookModal.classList.contains('hidden')) {
+          createBookModal.classList.add('hidden');
+        }
       }
     });
 
