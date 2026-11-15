@@ -62,6 +62,7 @@ from database import (
 )
 from agent import run_agent, transcribe_audio, clear_user_history
 import analytics
+import chip_intents
 
 load_dotenv()
 
@@ -508,6 +509,8 @@ async def chat_endpoint(
     history: Optional[str] = Form(None),
     lang: Optional[str] = Form(None),
     book_id: Optional[int] = Form(None),
+    intent_id: Optional[str] = Form(None),
+    awaiting_amount: Optional[bool] = Form(False),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -530,6 +533,27 @@ async def chat_endpoint(
             )
     else:
         active_book = books_info["default_book"]
+
+    # Default prompt chips: fixed-schema JSON built from the DB (no LLM). Falls through on failure.
+    if intent_id and not (audio is not None and audio.filename):
+        structured = await run_in_threadpool(
+            chip_intents.build_intent_response,
+            db,
+            effective_user_id,
+            active_book.id,
+            intent_id.strip(),
+            message,
+            bool(awaiting_amount),
+        )
+        if structured is not None:
+            import json as _json
+            return {
+                "user_id": effective_user_id,
+                "book_id": active_book.id,
+                "transcript": None,
+                "reply": _json.dumps(structured, ensure_ascii=False, separators=(",", ":")),
+                "structured": structured,
+            }
 
     transcript_text: Optional[str] = None
 

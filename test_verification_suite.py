@@ -279,10 +279,65 @@ def run_tests():
     print("  -> Healthz verified (200 OK), decommissioned routes return 404.")
     results["7_system_health"] = "PASSED"
 
+    # -------------------------------------------------------------
+    # FEATURE 8: Structured Chip Intents & Fallback (Issue #2)
+    # -------------------------------------------------------------
+    print("\n[TEST 8] Testing Structured Chip Intents & Fallback...")
+    import analytics as _analytics
+    db = SessionLocal()
+    pers_book_id = _analytics.ensure_default_books(db, TEST_USER)["personal_book"].id
+    db.close()
+    with patch("main.run_agent") as mock_agent:
+        chip_res = client.post(
+            "/api/chat",
+            data={
+                "user_id": TEST_USER,
+                "book_id": str(pers_book_id),
+                "message": "What is my total spend this month?",
+                "intent_id": "spend_summary",
+            },
+            headers=auth_headers,
+        )
+        assert chip_res.status_code == 200
+        chip_payload = chip_res.json()
+        assert chip_payload["structured"]["intent"] == "spend_summary"
+        assert chip_payload["structured"]["status"] == "ok"
+        assert chip_payload["structured"]["data"]["total"] > 0
+        mock_agent.assert_not_called()
+
+        b_need = client.post(
+            "/api/chat",
+            data={"user_id": TEST_USER, "message": "I want to set my monthly budget", "intent_id": "budget_set"},
+            headers=auth_headers,
+        ).json()
+        assert b_need["structured"] == {"intent": "budget_set", "status": "need_input", "data": {"missing": ["amount"]}}
+
+        b_ok = client.post(
+            "/api/chat",
+            data={"user_id": TEST_USER, "message": "60000", "intent_id": "budget_set", "awaiting_amount": "true"},
+            headers=auth_headers,
+        ).json()
+        assert b_ok["structured"]["intent"] == "budget_set"
+        assert b_ok["structured"]["status"] == "ok"
+        assert b_ok["structured"]["data"]["amount"] == 60000.0
+        mock_agent.assert_not_called()
+
+    with patch("main.run_agent", return_value="Fallback reply") as mock_agent:
+        fb_res = client.post(
+            "/api/chat",
+            data={"user_id": TEST_USER, "message": "Hello", "intent_id": "unknown_intent"},
+            headers=auth_headers,
+        ).json()
+        assert "structured" not in fb_res
+        assert fb_res["reply"] == "Fallback reply"
+        mock_agent.assert_called_once()
+    print("  -> Structured chip envelopes, budget two-step flow, and free-text fallback verified.")
+    results["8_chip_intents"] = "PASSED"
+
     # Clean up test rows
     cleanup()
     print("\n" + "=" * 60)
-    print("ALL 7 VERIFICATION TESTS PASSED SUCCESSFULLY!")
+    print("ALL 8 VERIFICATION TESTS PASSED SUCCESSFULLY!")
     print("=" * 60)
     for k, v in results.items():
         print(f"  - {k}: {v}")
