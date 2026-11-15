@@ -75,6 +75,23 @@
   color-scheme: dark;
 }
 
+html[lang="ur"] {
+  direction: rtl;
+
+  .welcome-bubble {
+    margin-right: 0 !important;
+    margin-left: auto !important;
+  }
+
+  .welcome-title-row {
+    direction: rtl !important;
+  }
+}
+
+html[lang="ur"] textarea {
+  direction: rtl;
+}
+
 /* Light Mode (60-30-10 Split-Complementary): Crisp Mint-Porcelain Slate, Royal Emerald-Teal & Burnt Amber */
 html.light {
   --ink: #edf4f3;
@@ -399,7 +416,6 @@ body {
 .user-pill-name,
 .lang-toggle-pill {
   font-family: var(--ui) !important;
-  direction: ltr !important;
 }
 
 .app-header .font-num {
@@ -589,7 +605,6 @@ html[lang="ur"] #lang-toggle-btn,
 html[lang="ur"] #signin-header-btn,
 html[lang="ur"] #account-btn {
   font-family: var(--ui) !important;
-  direction: ltr !important;
 }
 
 /* Never italicize Nastaliq script — preserve authentic calligraphy geometry */
@@ -751,7 +766,6 @@ html[lang="en"] .composer-input::placeholder {
 .chat-suggestions-box,
 html[lang="ur"] .chat-suggestions-box,
 html[lang="en"] .chat-suggestions-box {
-  direction: ltr !important;
   display: flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
@@ -837,7 +851,6 @@ html[lang="ur"] .chat-welcome-title {
   margin-right: auto !important;
   width: 100% !important;
   max-width: 94% !important;
-  direction: ltr !important;
 }
 
 .welcome-title-row {
@@ -848,7 +861,6 @@ html[lang="ur"] .chat-welcome-title {
 }
 
 html[lang="ur"] .welcome-bubble {
-  direction: ltr !important;
   text-align: right !important;
 }
 
@@ -1704,16 +1716,6 @@ html[lang="en"] .lang-code-ur {
   animation: bubbleAppear 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.welcome-bubble {
-  max-width: 94% !important;
-  width: 100% !important;
-  margin-left: 0 !important;
-  margin-right: auto !important;
-}
-
-width: 100%;
-}
-
 .voice-note-tag {
   color: var(--brass);
   font-size: 13px;
@@ -1746,7 +1748,6 @@ width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
   box-sizing: border-box;
-  direction: ltr !important;
 }
 
 .chat-suggestions-box::-webkit-scrollbar {
@@ -3695,17 +3696,21 @@ html[lang="ur"] .udhaar-filter-tab {
     min-width: 0 !important;
     gap: 4px !important;
   }
+
   .app-logo {
     gap: 4px !important;
     flex-shrink: 0 !important;
   }
+
   .app-logo-text {
     font-size: 13.5px !important;
   }
+
   .book-switcher-wrap {
     min-width: 0 !important;
     flex: 1 1 auto !important;
   }
+
   .book-switcher-btn {
     max-width: 175px !important;
     padding: 0 6px !important;
