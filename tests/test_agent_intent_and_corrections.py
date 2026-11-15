@@ -519,14 +519,14 @@ def test_gemini_is_default_provider_and_failover_chain(monkeypatch):
     assert agent._detect_llm_provider(agent.get_chat_llm(api_key="gsk_x")) == "groq"
 
     cands = agent._build_fallback_llm_candidates(
-        "gemini", "gemini-3.5-flash-lite", ["gsk_fake_groq_key_for_tests_1234"], RuntimeError("429")
+        "gemini", "gemini-3.1-flash-lite", ["gsk_fake_groq_key_for_tests_1234"], RuntimeError("429")
     )
     order = []
     for prov, _, _ in cands:
         if prov not in order:
             order.append(prov)
-    assert order == ["gemini", "openrouter", "groq"]
-    assert ("gemini", "gemini-3.5-flash-lite") not in [(p, m) for p, m, _ in cands]
+    assert order == ["openrouter", "groq"]
+    assert ("gemini", "gemini-3.1-flash-lite") not in [(p, m) for p, m, _ in cands]
 
 
 def test_extract_message_text_handles_multipart_and_thought_tags():

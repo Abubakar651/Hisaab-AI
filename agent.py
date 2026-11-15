@@ -119,8 +119,8 @@ PREFERRED_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b")
 MODEL_CANDIDATES = [PREFERRED_MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
 # Secondary multi-provider fallback configurations (Google Gemini & OpenRouter)
-GEMINI_PREFERRED_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
-GEMINI_MODEL_CANDIDATES = [GEMINI_PREFERRED_MODEL, "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
+GEMINI_PREFERRED_MODEL = os.getenv("GEMINI_LLM_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+GEMINI_MODEL_CANDIDATES = [GEMINI_PREFERRED_MODEL, "gemini-3.1-flash-lite"]
 
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip() or "https://openrouter.ai/api/v1"
 OPENROUTER_PREFERRED_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "openrouter/free").strip() or "openrouter/free"
@@ -198,7 +198,7 @@ def _build_gemini_llm(
     key = (api_key if api_key is not None else os.getenv("GEMINI_API_KEY") or "").strip()
     if not key:
         return None
-    chosen = (model_name or GEMINI_PREFERRED_MODEL).strip() or "gemini-3.5-flash-lite"
+    chosen = (model_name or GEMINI_PREFERRED_MODEL).strip() or "gemini-3.1-flash-lite"
     kwargs: Dict[str, Any] = {
         "model": chosen,
         "google_api_key": key,
