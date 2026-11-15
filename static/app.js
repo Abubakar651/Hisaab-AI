@@ -262,6 +262,8 @@ function bindEvents() {
       if (state.isSending) return;
       const prompt = chip.getAttribute('data-prompt');
       if (!prompt) return;
+      state.nextIntent = chip.getAttribute('data-intent-id') || null;
+      state.awaitingBudget = false;
       elements.messageInput.value = prompt;
       elements.chatForm.dispatchEvent(new Event('submit'));
     });
@@ -278,6 +280,8 @@ function bindEvents() {
   elements.clearChatBtn.addEventListener('click', async () => {
     clearChatMessagesPreservingWelcome();
     state.chatHistory = [];
+    state.nextIntent = null;
+    state.awaitingBudget = false;
     const fd = new FormData();
     fd.append('user_id', state.userId);
     authFetch('/api/chat/clear', { method: 'POST', body: fd }).catch(() => { });
@@ -563,11 +567,58 @@ async function handleTextMessageSubmit(e) {
   autosizeComposer(elements.messageInput);
   syncInputScriptDirection();
 
+  // Default-prompt chips (and the budget amount follow-up) get fixed-schema JSON replies
+  let intentId = state.nextIntent || null;
+  let awaitingAmount = false;
+  state.nextIntent = null;
+  if (!intentId && state.awaitingBudget) {
+    intentId = 'budget_set';
+    awaitingAmount = true;
+  }
+
   // Send to API
-  await sendChatRequest({ message });
+  await sendChatRequest({ message, intentId, awaitingAmount });
 }
 
-async function sendChatRequest({ message = null, audioBlob = null }) {
+// Renders a structured chip response ({intent,status,data}) into localized markdown via i18n templates.
+function renderStructuredReply(env) {
+  const tt = (k, p) => (typeof window.t === 'function' ? window.t(k, p) : k);
+  const m = formatMoney;
+  const d = (env && env.data) || {};
+  const list = (titleKey, rows) => rows && rows.length
+    ? `\n\n${tt(titleKey)}\n` + rows.map(r => `- ${r[0]}: PKR ${m(r[1])}`).join('\n')
+    : '';
+  switch (env && env.intent) {
+    case 'spend_summary': {
+      const k = d.period === 'last_3_days' ? '3d' : 'month';
+      if (env.status === 'empty') return tt(`tpl.spend.${k}.empty`);
+      let out = tt(`tpl.spend.${k}.ok`, { total: m(d.total), count: d.txn_count });
+      out += list('tpl.spend.top', (d.top_categories || []).map(c => [formatCategoryName(c.name), c.amount]));
+      if (d.budget) out += `\n\n${tt('tpl.spend.budget', { limit: m(d.budget.limit), remaining: m(d.budget.remaining) })}`;
+      return out;
+    }
+    case 'galla_summary':
+      if (env.status === 'empty') return tt('tpl.galla.empty');
+      return tt('tpl.galla.ok', { date: d.date, sales: m(d.sales_total), expenses: m(d.expenses_total), cash: m(d.cash_in_drawer) });
+    case 'udhaar_summary':
+      if (env.status === 'empty') return tt('tpl.udhaar.empty');
+      return tt('tpl.udhaar.ok', { receivable: m(d.receivable_total), payable: m(d.payable_total) })
+        + list('tpl.udhaar.receivables', (d.receivables || []).map(r => [r.party, r.amount]))
+        + list('tpl.udhaar.payables', (d.payables || []).map(r => [r.party, r.amount]));
+    case 'budget_set':
+      if (env.status === 'need_input') return tt('tpl.budget.need_input');
+      return d.previous_amount != null
+        ? tt('tpl.budget.ok_prev', { month: d.month, previous: m(d.previous_amount), amount: m(d.amount) })
+        : tt('tpl.budget.ok', { month: d.month, amount: m(d.amount) });
+    case 'undo_last':
+      if (env.status === 'empty') return tt('tpl.undo.empty');
+      return tt('tpl.undo.ok', { description: d.deleted.description || d.deleted.type, amount: m(d.deleted.amount), date: d.deleted.date });
+    default:
+      return tt('tpl.error');
+  }
+}
+
+async function sendChatRequest({ message = null, audioBlob = null, intentId = null, awaitingAmount = false }) {
   state.isSending = true;
   const loadingBubble = appendLoadingBubble();
   elements.sendBtn.disabled = true;
@@ -580,6 +631,10 @@ async function sendChatRequest({ message = null, audioBlob = null }) {
   formData.append('user_id', state.userId);
   if (state.activeBookId) formData.append('book_id', String(state.activeBookId));
   if (message) formData.append('message', message);
+  if (intentId && !audioBlob) {
+    formData.append('intent_id', intentId);
+    if (awaitingAmount) formData.append('awaiting_amount', 'true');
+  }
   if (audioBlob) formData.append('audio', audioBlob, 'voice_recording.webm');
 
   const currentLang = getCurrentLang();
@@ -607,13 +662,21 @@ async function sendChatRequest({ message = null, audioBlob = null }) {
     // Record into client conversation memory
     const userContent = message || (data.transcript ? `[Voice Note]: ${data.transcript}` : 'Voice note recorded');
     state.chatHistory.push({ role: 'user', content: userContent });
-    state.chatHistory.push({ role: 'assistant', content: data.reply });
+    // Structured chip replies are rendered client-side from localized templates
+    let replyText = data.reply;
+    if (data.structured) {
+      replyText = renderStructuredReply(data.structured);
+      state.awaitingBudget = data.structured.intent === 'budget_set' && data.structured.status === 'need_input';
+    } else {
+      state.awaitingBudget = false;
+    }
+    state.chatHistory.push({ role: 'assistant', content: replyText });
     if (state.chatHistory.length > 20) {
       state.chatHistory = state.chatHistory.slice(-20);
     }
 
     // Render AI Reply
-    appendAssistantMessage(data.reply);
+    appendAssistantMessage(replyText);
 
     if (data.cross_book_suggestion && data.cross_book_suggestion.transaction_id && data.cross_book_suggestion.target_book_id) {
       appendCrossBookSuggestion(data.cross_book_suggestion);
