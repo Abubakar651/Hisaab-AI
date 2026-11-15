@@ -644,3 +644,73 @@ def test_jameel_noori_urdu_font_preserved_in_english_mode():
     assert '--num: "Fraunces", "Jameel Noori Urdu Script"' in css
     assert "html[lang=\"en\"] .font-ur:not([lang=\"ur\"]):not([dir=\"rtl\"]):not(.has-urdu):not(.font-nastaleeq)" in css
     assert 'dir="rtl" lang="ur"' in app_js
+
+
+def test_chat_endpoint_existing_user_udhaar_no_sqlite_lock(client, auth_headers, monkeypatch):
+    """
+    Regression test for Sentry PYTHON-FASTAPI-Z:
+    Existing user with default books and 0 orphan rows posting to /api/chat must NOT
+    hold an uncommitted SQLite write lock across run_in_threadpool(run_agent),
+    so manage_udhaar's separate SessionLocal() succeeds immediately without database lock.
+    """
+    import database
+    import main
+
+    uid = "existing_udhaar_lock@test.com"
+    headers = auth_headers(uid)
+
+    # Pre-seed default books so subsequent ensure_default_books has changed=False
+    db = agent.SessionLocal()
+    try:
+        books_info = analytics.ensure_default_books(db, uid)
+        biz_book_id = books_info["business_book"].id
+    finally:
+        db.close()
+
+    # Stub run_agent to invoke the real manage_udhaar tool in the worker thread
+    def _fake_run_agent(user_id, user_text, **kwargs):
+        tools = get_tools_for_user(
+            user_id=user_id,
+            raw_transcript=user_text,
+            book_id=kwargs.get("book_id"),
+            active_book_type=kwargs.get("active_book_type"),
+        )
+        udhaar_tool = next(t for t in tools if t.name == "manage_udhaar")
+        res_json = udhaar_tool.invoke({
+            "action": "give_credit",
+            "person_name": "Hamza",
+            "amount": 2000.0,
+            "notes": "saman",
+        })
+        payload = json.loads(res_json)
+        assert payload.get("status") == "success", payload
+        return "Hamza ka 2,000 PKR udhaar darj ho gaya."
+
+    monkeypatch.setattr(main, "run_agent", _fake_run_agent)
+
+    resp = client.post(
+        "/api/chat",
+        data={"message": "Hamza ko 2000 ka saman udhaar diya", "book_id": str(biz_book_id)},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "2,000" in body["reply"]
+
+    # Verify DB persistence
+    db = agent.SessionLocal()
+    try:
+        entry = (
+            db.query(database.UdhaarEntry)
+            .filter(
+                database.UdhaarEntry.user_id == uid,
+                database.UdhaarEntry.person_name == "Hamza",
+                database.UdhaarEntry.deleted_at.is_(None),
+            )
+            .first()
+        )
+        assert entry is not None
+        assert entry.amount == 2000.0
+        assert entry.notes == "saman"
+    finally:
+        db.close()

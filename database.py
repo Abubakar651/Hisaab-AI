@@ -40,8 +40,8 @@ if DATABASE_URL.startswith("sqlite:///"):
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
 
-# For SQLite, check_same_thread=False allows FastAPI multi-threaded requests
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# For SQLite, check_same_thread=False allows FastAPI multi-threaded requests; timeout=30 prevents transient lock errors
+connect_args = {"check_same_thread": False, "timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
 
 engine = create_engine(
     DATABASE_URL,
@@ -50,14 +50,14 @@ engine = create_engine(
 )
 
 
-# SQLite Concurrency & Integrity: WAL mode, synchronous=NORMAL, busy_timeout=5000, foreign_keys=ON
+# SQLite Concurrency & Integrity: WAL mode, synchronous=NORMAL, busy_timeout=30000, foreign_keys=ON
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     if DATABASE_URL.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("PRAGMA synchronous=NORMAL;")
-        cursor.execute("PRAGMA busy_timeout=5000;")
+        cursor.execute("PRAGMA busy_timeout=30000;")
         cursor.execute("PRAGMA foreign_keys=ON;")
         cursor.close()
 

@@ -531,6 +531,25 @@ async def chat_endpoint(
     else:
         active_book = books_info["default_book"]
 
+    # Snapshot plain book fields and release the request DB session before running ASR/LLM
+    # in a worker thread, so SQLite never holds a transaction across tool writes.
+    active_book_id = active_book.id
+    active_book_type = active_book.book_type
+    active_book_name = active_book.name
+    business_book_ref = books_info.get("business_book")
+    personal_book_ref = books_info.get("personal_book")
+    business_book_meta = (
+        {"id": business_book_ref.id, "name": business_book_ref.name}
+        if business_book_ref
+        else None
+    )
+    personal_book_meta = (
+        {"id": personal_book_ref.id, "name": personal_book_ref.name}
+        if personal_book_ref
+        else None
+    )
+    db.close()
+
     transcript_text: Optional[str] = None
 
     # Handle voice note upload
@@ -621,31 +640,31 @@ async def chat_endpoint(
         sig_params = inspect.signature(run_agent).parameters
         accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values())
         if accepts_var_kw or "book_id" in sig_params:
-            agent_kwargs["book_id"] = active_book.id
-            agent_kwargs["active_book_type"] = active_book.book_type
-            agent_kwargs["active_book_name"] = active_book.name
+            agent_kwargs["book_id"] = active_book_id
+            agent_kwargs["active_book_type"] = active_book_type
+            agent_kwargs["active_book_name"] = active_book_name
         if accepts_var_kw or "_meta_out" in sig_params:
             agent_kwargs["_meta_out"] = agent_meta
 
         reply = await run_in_threadpool(run_agent, **agent_kwargs)
         resp_payload: Dict[str, Any] = {
             "user_id": effective_user_id,
-            "book_id": active_book.id,
+            "book_id": active_book_id,
             "transcript": transcript_text,
             "reply": reply,
         }
         sug = agent_meta.get("cross_book_suggestion")
         if isinstance(sug, dict):
             target_book = (
-                books_info["business_book"]
+                business_book_meta
                 if sug.get("suggested_book_type") == "business"
-                else books_info["personal_book"]
+                else personal_book_meta
             )
-            if target_book and target_book.id != active_book.id:
+            if target_book and target_book["id"] != active_book_id:
                 resp_payload["cross_book_suggestion"] = {
                     **sug,
-                    "target_book_id": target_book.id,
-                    "target_book_name": target_book.name,
+                    "target_book_id": target_book["id"],
+                    "target_book_name": target_book["name"],
                 }
         return resp_payload
     except Exception as e:
