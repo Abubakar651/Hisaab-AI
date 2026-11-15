@@ -44,6 +44,14 @@ MOCK_FIREBASE_TOKENS = {}
 
 
 @pytest.fixture(autouse=True)
+def hermetic_llm_env(monkeypatch):
+    """Keep tests independent of developer .env LLM keys/provider (Gemini/OpenRouter default & fallback)."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+
+
+@pytest.fixture(autouse=True)
 def mock_firebase_verifier(monkeypatch):
     """
     Transparently intercepts verify_firebase_token_claims in tests.

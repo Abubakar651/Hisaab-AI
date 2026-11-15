@@ -501,3 +501,38 @@ def test_dashboard_top_transaction_metric_reflects_single_largest_expense(client
 
 
 
+
+
+def test_gemini_is_default_provider_and_failover_chain(monkeypatch):
+    """Gemini is primary when keyed (LLM_PROVIDER unset/auto); chain is Gemini -> OpenRouter -> Groq."""
+    import agent
+
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza_fake_gemini_key_for_tests_1234567")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-fake-key-for-tests-1234567")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_fake_groq_key_for_tests_1234")
+    monkeypatch.setenv("LLM_PROVIDER", "auto")
+
+    llm = agent.get_chat_llm()
+    assert agent._detect_llm_provider(llm) == "gemini"
+
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    assert agent._detect_llm_provider(agent.get_chat_llm(api_key="gsk_x")) == "groq"
+
+    cands = agent._build_fallback_llm_candidates(
+        "gemini", "gemini-3.5-flash-lite", ["gsk_fake_groq_key_for_tests_1234"], RuntimeError("429")
+    )
+    order = []
+    for prov, _, _ in cands:
+        if prov not in order:
+            order.append(prov)
+    assert order == ["gemini", "openrouter", "groq"]
+    assert ("gemini", "gemini-3.5-flash-lite") not in [(p, m) for p, m, _ in cands]
+
+
+def test_extract_message_text_handles_multipart_and_thought_tags():
+    import agent
+
+    parts = [{"type": "text", "text": "17 + 25 = 42", "extras": {"signature": "abc"}}]
+    assert agent._extract_message_text(parts) == "17 + 25 = 42"
+    assert agent._extract_message_text("<thought>hmm</thought>done") == "done"
+    assert agent._extract_message_text("secret thinking</thought>answer") == "answer"
